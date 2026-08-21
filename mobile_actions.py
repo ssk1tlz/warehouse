@@ -169,3 +169,51 @@ def apply_return(connection: sqlite3.Connection, action: dict) -> None:
         (_new_movement_id(), asset["id"], employee_id, department, site, quantity,
          action.get("date") or datetime.now(timezone.utc).date().isoformat(), action.get("notes") or ""),
     )
+
+
+def apply_repair(connection: sqlite3.Connection, action: dict) -> None:
+    asset = _load_asset(connection, action["assetId"])
+    source_type = action.get("sourceType") or "warehouse"
+    employee_id = action.get("employeeId") or None
+    quantity = max(1, int(action.get("quantity") or 1))
+    allocations = _load_allocations(connection, asset["id"])
+
+    if source_type == "warehouse":
+        available = get_available_quantity(asset, allocations)
+        if quantity > available:
+            raise MobileActionError(
+                f'Нельзя отправить в ремонт {quantity} шт. Доступно на складе: {available}.'
+            )
+    else:
+        existing = find_employee_allocation(allocations, employee_id)
+        if existing is None:
+            raise MobileActionError("У выбранного сотрудника нет этой техники.")
+        if quantity > existing["quantity"]:
+            raise MobileActionError(
+                f'Нельзя отправить в ремонт {quantity} шт. У сотрудника числится: {existing["quantity"]}.'
+            )
+        remaining = existing["quantity"] - quantity
+        if remaining > 0:
+            connection.execute(
+                "UPDATE asset_allocations SET quantity = ? "
+                "WHERE asset_id = ? AND employee_id = ? AND department = '' AND site = ''",
+                (remaining, asset["id"], employee_id),
+            )
+        else:
+            connection.execute(
+                "DELETE FROM asset_allocations "
+                "WHERE asset_id = ? AND employee_id = ? AND department = '' AND site = ''",
+                (asset["id"], employee_id),
+            )
+
+    repair_date = asset["repair_date"] or (action.get("date") or datetime.now(timezone.utc).date().isoformat())
+    connection.execute(
+        "UPDATE assets SET repair_quantity = repair_quantity + ?, repair_date = ? WHERE id = ?",
+        (quantity, repair_date, asset["id"]),
+    )
+    connection.execute(
+        "INSERT INTO movements (id, type, asset_id, employee_id, department, site, act_number, "
+        "quantity, date, notes) VALUES (?, 'repair', ?, ?, '', '', NULL, ?, ?, ?)",
+        (_new_movement_id(), asset["id"], employee_id if source_type == "employee" else None, quantity,
+         action.get("date") or datetime.now(timezone.utc).date().isoformat(), action.get("notes") or ""),
+    )

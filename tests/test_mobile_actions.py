@@ -188,3 +188,49 @@ def test_apply_return_rejects_empty_target(conn):
             "assetId": "ast_1", "employeeId": None, "department": "", "site": "",
             "quantity": 1, "date": "2026-08-22", "notes": "",
         })
+
+
+def test_apply_repair_from_warehouse_stock(conn):
+    mobile_actions.apply_repair(conn, {
+        "assetId": "ast_1", "sourceType": "warehouse", "employeeId": None,
+        "quantity": 2, "date": "2026-08-22", "notes": "",
+    })
+    asset = conn.execute("SELECT repair_quantity, repair_date FROM assets WHERE id='ast_1'").fetchone()
+    assert asset["repair_quantity"] == 2
+    assert asset["repair_date"] == "2026-08-22"
+    movement = conn.execute("SELECT type, quantity FROM movements WHERE asset_id='ast_1'").fetchone()
+    assert movement["type"] == "repair"
+    assert movement["quantity"] == 2
+
+
+def test_apply_repair_from_employee_reduces_their_allocation(conn):
+    conn.execute(
+        "INSERT INTO asset_allocations (asset_id, employee_id, department, site, quantity) "
+        "VALUES ('ast_1', 'emp_1', '', '', 3)"
+    )
+    mobile_actions.apply_repair(conn, {
+        "assetId": "ast_1", "sourceType": "employee", "employeeId": "emp_1",
+        "quantity": 1, "date": "2026-08-22", "notes": "",
+    })
+    alloc = conn.execute(
+        "SELECT quantity FROM asset_allocations WHERE asset_id='ast_1' AND employee_id='emp_1'"
+    ).fetchone()
+    assert alloc["quantity"] == 2
+    asset = conn.execute("SELECT repair_quantity FROM assets WHERE id='ast_1'").fetchone()
+    assert asset["repair_quantity"] == 1
+
+
+def test_apply_repair_rejects_insufficient_warehouse_stock(conn):
+    with pytest.raises(mobile_actions.MobileActionError, match="Доступно"):
+        mobile_actions.apply_repair(conn, {
+            "assetId": "ast_1", "sourceType": "warehouse", "employeeId": None,
+            "quantity": 99, "date": "2026-08-22", "notes": "",
+        })
+
+
+def test_apply_repair_rejects_employee_without_allocation(conn):
+    with pytest.raises(mobile_actions.MobileActionError, match="нет этой техники"):
+        mobile_actions.apply_repair(conn, {
+            "assetId": "ast_1", "sourceType": "employee", "employeeId": "emp_1",
+            "quantity": 1, "date": "2026-08-22", "notes": "",
+        })
