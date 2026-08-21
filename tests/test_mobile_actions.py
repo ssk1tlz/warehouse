@@ -122,3 +122,11 @@ def test_apply_issue_rejects_unknown_asset(conn):
             "assetId": "ast_missing", "employeeId": "emp_1", "department": "", "site": "",
             "quantity": 1, "date": "2026-08-22", "notes": "",
         })
+
+
+def test_apply_issue_rejects_empty_target(conn):
+    with pytest.raises(mobile_actions.MobileActionError, match="Выберите"):
+        mobile_actions.apply_issue(conn, {
+            "assetId": "ast_1", "employeeId": None, "department": "", "site": "",
+            "quantity": 1, "date": "2026-08-22", "notes": "",
+        })

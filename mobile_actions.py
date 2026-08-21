@@ -83,6 +83,9 @@ def apply_issue(connection: sqlite3.Connection, action: dict) -> None:
     site = action.get("site") or ""
     quantity = max(1, int(action.get("quantity") or 1))
 
+    if not employee_id and not department and not site:
+        raise MobileActionError("Выберите сотрудника, отдел или объект.")
+
     allocations = _load_allocations(connection, asset["id"])
     available = get_available_quantity(asset, allocations)
     if quantity > available:
