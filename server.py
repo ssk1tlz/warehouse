@@ -524,6 +524,9 @@ class WarehouseHandler(BaseHTTPRequestHandler):
         except json.JSONDecodeError as exc:
             self.send_json_error(HTTPStatus.BAD_REQUEST, f"invalid json: {exc}")
             return
+        if not isinstance(payload, dict):
+            self.send_json_error(HTTPStatus.BAD_REQUEST, "Payload must be a JSON object.")
+            return
         with STATE_LOCK:
             auto_backup()
             try:
@@ -541,6 +544,14 @@ class WarehouseHandler(BaseHTTPRequestHandler):
                         new_version = read_state_version(connection)
             except mobile_actions.MobileActionError as exc:
                 self.send_json_error(HTTPStatus.BAD_REQUEST, exc.message)
+                return
+            except (sqlite3.Error, ValueError, TypeError, KeyError, AttributeError) as exc:
+                # Anything else the mutation logic can raise on bad/inconsistent
+                # input (a non-numeric quantity, an FK violation from a stale
+                # employeeId, etc.) — always send a response so an offline-retry
+                # client sees a clear rejection instead of a dropped connection
+                # indistinguishable from "network down".
+                self.send_json_error(HTTPStatus.BAD_REQUEST, str(exc))
                 return
         result["version"] = new_version
         self.send_json(result)

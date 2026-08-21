@@ -12,6 +12,7 @@ SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schema.sql"
 def conn():
     connection = sqlite3.connect(":memory:")
     connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
     connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
     connection.executescript(
         """
@@ -236,6 +237,59 @@ def test_apply_repair_rejects_employee_without_allocation(conn):
         })
 
 
+def test_apply_repair_employee_source_without_employee_id_raises(conn):
+    # Regression for review Finding 1a: a site-only allocation row
+    # (employee_id IS NULL, department == '') satisfies
+    # find_employee_allocation(allocations, None), so calling apply_repair
+    # with sourceType="employee" and no employeeId used to silently match
+    # this unrelated site allocation instead of being rejected outright.
+    conn.execute(
+        "INSERT INTO asset_allocations (asset_id, employee_id, department, site, quantity) "
+        "VALUES ('ast_1', NULL, '', 'SiteA', 3)"
+    )
+    with pytest.raises(mobile_actions.MobileActionError, match="сотрудника"):
+        mobile_actions.apply_repair(conn, {
+            "assetId": "ast_1", "sourceType": "employee", "employeeId": None,
+            "quantity": 1, "date": "2026-08-22", "notes": "",
+        })
+    # The guard must fire before any mutation — the site allocation and
+    # repair_quantity must be completely untouched.
+    alloc = conn.execute(
+        "SELECT quantity FROM asset_allocations WHERE asset_id='ast_1' AND site='SiteA'"
+    ).fetchone()
+    assert alloc["quantity"] == 3
+    asset = conn.execute("SELECT repair_quantity FROM assets WHERE id='ast_1'").fetchone()
+    assert asset["repair_quantity"] == 0
+
+
+def test_apply_repair_from_employee_with_site_allocation_reduces_it(conn):
+    # Regression for review Finding 1b: an allocation can have both
+    # employeeId and site set at once — find_employee_allocation() ignores
+    # site entirely, so apply_issue can (and does, below) create such a row.
+    # apply_repair's employee branch used to filter its UPDATE/DELETE with a
+    # hardcoded "department = '' AND site = ''" instead of the matched row's
+    # own site, so it matched zero rows and silently failed to reduce it.
+    mobile_actions.apply_issue(conn, {
+        "assetId": "ast_1", "employeeId": "emp_1", "department": "", "site": "SiteA",
+        "quantity": 3, "date": "2026-08-22", "notes": "",
+    })
+    alloc = conn.execute(
+        "SELECT employee_id, site, quantity FROM asset_allocations WHERE asset_id='ast_1'"
+    ).fetchone()
+    assert alloc["employee_id"] == "emp_1" and alloc["site"] == "SiteA" and alloc["quantity"] == 3
+
+    mobile_actions.apply_repair(conn, {
+        "assetId": "ast_1", "sourceType": "employee", "employeeId": "emp_1",
+        "quantity": 1, "date": "2026-08-22", "notes": "",
+    })
+    alloc = conn.execute(
+        "SELECT quantity FROM asset_allocations WHERE asset_id='ast_1' AND employee_id='emp_1' AND site='SiteA'"
+    ).fetchone()
+    assert alloc["quantity"] == 2  # correctly reduced, not silently left at 3
+    asset = conn.execute("SELECT repair_quantity FROM assets WHERE id='ast_1'").fetchone()
+    assert asset["repair_quantity"] == 1
+
+
 def test_apply_repair_return_to_warehouse(conn):
     conn.execute("UPDATE assets SET repair_quantity = 3, repair_date = '2026-08-01' WHERE id = 'ast_1'")
     mobile_actions.apply_repair_return(conn, {
@@ -268,6 +322,30 @@ def test_apply_repair_return_to_employee_creates_allocation(conn):
         "SELECT quantity FROM asset_allocations WHERE asset_id='ast_1' AND employee_id='emp_1'"
     ).fetchone()
     assert alloc["quantity"] == 1
+
+
+def test_apply_repair_return_credits_employee_with_site_allocation(conn):
+    # Regression for review Finding 2: same root cause as Finding 1b, but in
+    # apply_repair_return's employee credit-back branch. An existing
+    # allocation with both employeeId and site set used to be credited via a
+    # hardcoded "department = '' AND site = ''" filter, matching zero rows
+    # and silently losing the units from tracking entirely (repair_quantity
+    # still decremented, but the employee's allocation was never credited).
+    conn.execute(
+        "INSERT INTO asset_allocations (asset_id, employee_id, department, site, quantity) "
+        "VALUES ('ast_1', 'emp_1', '', 'SiteA', 2)"
+    )
+    conn.execute("UPDATE assets SET repair_quantity = 1 WHERE id = 'ast_1'")
+    mobile_actions.apply_repair_return(conn, {
+        "assetId": "ast_1", "targetType": "employee", "employeeId": "emp_1",
+        "quantity": 1, "date": "2026-08-22", "notes": "",
+    })
+    alloc = conn.execute(
+        "SELECT quantity FROM asset_allocations WHERE asset_id='ast_1' AND employee_id='emp_1' AND site='SiteA'"
+    ).fetchone()
+    assert alloc["quantity"] == 3  # correctly credited back, not left at 2
+    asset = conn.execute("SELECT repair_quantity FROM assets WHERE id='ast_1'").fetchone()
+    assert asset["repair_quantity"] == 0
 
 
 def test_apply_repair_return_rejects_over_return(conn):
@@ -334,6 +412,21 @@ def test_apply_action_rejects_missing_client_action_id(conn):
     with pytest.raises(mobile_actions.MobileActionError, match="clientActionId"):
         mobile_actions.apply_action(conn, {
             "type": "issue", "assetId": "ast_1", "employeeId": "emp_1", "quantity": 1, "date": "2026-08-22",
+        })
+
+
+def test_apply_issue_raises_integrity_error_for_unknown_employee(conn):
+    # Regression for review Finding 3/4: server.py's get_connection() always
+    # runs PRAGMA foreign_keys = ON (see Finding 4 — this fixture now matches
+    # that). A stale employeeId (e.g. an employee deleted after an offline
+    # mobile action was queued) violates the FK on movements.employee_id ->
+    # employees.id. mobile_actions.py intentionally does NOT catch this —
+    # it's server.py's job (handle_mobile_action's broader except clause) to
+    # turn it into an HTTP 400 instead of letting the connection just close.
+    with pytest.raises(sqlite3.IntegrityError):
+        mobile_actions.apply_issue(conn, {
+            "assetId": "ast_1", "employeeId": "emp_ghost", "department": "", "site": "",
+            "quantity": 1, "date": "2026-08-22", "notes": "",
         })
 
 

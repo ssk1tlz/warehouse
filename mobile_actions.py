@@ -76,6 +76,35 @@ def _load_allocations(connection: sqlite3.Connection, asset_id: str) -> list[sql
     ))
 
 
+def _adjust_allocation(
+    connection: sqlite3.Connection, asset_id: str, existing: sqlite3.Row, delta: int
+) -> None:
+    """Apply `delta` to an allocation row previously matched by
+    find_employee_allocation/find_department_allocation/find_site_allocation.
+
+    Always filters the UPDATE/DELETE by the matched row's OWN identity
+    (employee_id/department/site) instead of re-deriving that identity from
+    raw input — so this can never target the wrong row, even when an
+    allocation has more than one identity field set at once (e.g. both
+    employeeId and site). Deletes the row once the resulting quantity is
+    <= 0; otherwise updates it in place. `delta` may be positive (credit)
+    or negative (debit).
+    """
+    remaining = existing["quantity"] + delta
+    if remaining > 0:
+        connection.execute(
+            "UPDATE asset_allocations SET quantity = ? "
+            "WHERE asset_id = ? AND employee_id IS ? AND department = ? AND site = ?",
+            (remaining, asset_id, existing["employee_id"], existing["department"], existing["site"]),
+        )
+    else:
+        connection.execute(
+            "DELETE FROM asset_allocations "
+            "WHERE asset_id = ? AND employee_id IS ? AND department = ? AND site = ?",
+            (asset_id, existing["employee_id"], existing["department"], existing["site"]),
+        )
+
+
 def apply_issue(connection: sqlite3.Connection, action: dict) -> None:
     asset = _load_asset(connection, action["assetId"])
     employee_id = action.get("employeeId") or None
@@ -149,19 +178,7 @@ def apply_return(connection: sqlite3.Connection, action: dict) -> None:
             f'Нельзя вернуть {quantity} шт. По позиции "{asset["name"]}" числится: {existing["quantity"]}.'
         )
 
-    remaining = existing["quantity"] - quantity
-    if remaining > 0:
-        connection.execute(
-            "UPDATE asset_allocations SET quantity = ? "
-            "WHERE asset_id = ? AND employee_id IS ? AND department = ? AND site = ?",
-            (remaining, asset["id"], existing["employee_id"], existing["department"], existing["site"]),
-        )
-    else:
-        connection.execute(
-            "DELETE FROM asset_allocations "
-            "WHERE asset_id = ? AND employee_id IS ? AND department = ? AND site = ?",
-            (asset["id"], existing["employee_id"], existing["department"], existing["site"]),
-        )
+    _adjust_allocation(connection, asset["id"], existing, -quantity)
 
     connection.execute(
         "INSERT INTO movements (id, type, asset_id, employee_id, department, site, act_number, "
@@ -185,6 +202,8 @@ def apply_repair(connection: sqlite3.Connection, action: dict) -> None:
                 f'Нельзя отправить в ремонт {quantity} шт. Доступно на складе: {available}.'
             )
     else:
+        if not employee_id:
+            raise MobileActionError("Выберите сотрудника, у которого забираете технику.")
         existing = find_employee_allocation(allocations, employee_id)
         if existing is None:
             raise MobileActionError("У выбранного сотрудника нет этой техники.")
@@ -192,19 +211,7 @@ def apply_repair(connection: sqlite3.Connection, action: dict) -> None:
             raise MobileActionError(
                 f'Нельзя отправить в ремонт {quantity} шт. У сотрудника числится: {existing["quantity"]}.'
             )
-        remaining = existing["quantity"] - quantity
-        if remaining > 0:
-            connection.execute(
-                "UPDATE asset_allocations SET quantity = ? "
-                "WHERE asset_id = ? AND employee_id = ? AND department = '' AND site = ''",
-                (remaining, asset["id"], employee_id),
-            )
-        else:
-            connection.execute(
-                "DELETE FROM asset_allocations "
-                "WHERE asset_id = ? AND employee_id = ? AND department = '' AND site = ''",
-                (asset["id"], employee_id),
-            )
+        _adjust_allocation(connection, asset["id"], existing, -quantity)
 
     repair_date = asset["repair_date"] or (action.get("date") or datetime.now(timezone.utc).date().isoformat())
     connection.execute(
@@ -244,11 +251,7 @@ def apply_repair_return(connection: sqlite3.Connection, action: dict) -> None:
         allocations = _load_allocations(connection, asset["id"])
         existing = find_employee_allocation(allocations, employee_id)
         if existing is not None:
-            connection.execute(
-                "UPDATE asset_allocations SET quantity = quantity + ? "
-                "WHERE asset_id = ? AND employee_id = ? AND department = '' AND site = ''",
-                (quantity, asset["id"], employee_id),
-            )
+            _adjust_allocation(connection, asset["id"], existing, quantity)
         else:
             connection.execute(
                 "INSERT INTO asset_allocations (asset_id, employee_id, department, site, quantity) "
