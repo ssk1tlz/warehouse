@@ -1053,20 +1053,28 @@ No git repo — skip.
 
 **Files:** none (manual verification task — confirms Task 8's wiring actually works when the server is running, not just that it imports)
 
-- [ ] **Step 1: Start the server against a throwaway copy of the database**
+- [ ] **Step 1: Start the server against a throwaway copy of the database, on an isolated port**
+
+Port 8765 (the default) may already be occupied by a real running instance of `WarehouseApp.exe` from ordinary use — binding the throwaway server there would silently make your curl commands hit the REAL app and its REAL database instead of the throwaway one. Pin the throwaway server to a different port via `config.json`:
 
 ```bash
 E2E_DIR=$(mktemp -d)
 cp server.py mobile_actions.py act_generator.py schema.sql "$E2E_DIR/"
 cd "$E2E_DIR"
+python -c "import json; json.dump({'host':'127.0.0.1','port':8766}, open('config.json','w'))"
 python server.py &
-sleep 2
+for i in 1 2 3 4 5 6 7 8; do
+  code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8766/)
+  if [ "$code" != "000" ]; then break; fi
+  sleep 1
+done
 ```
+(All commands below use port 8766 for this reason — adjust if 8766 is also taken; check with `netstat -ano | grep :8766` first.)
 
 - [ ] **Step 2: Seed one employee and one asset via the existing full-state endpoint**
 
 ```bash
-curl -s -X POST http://127.0.0.1:8765/api/state -H "Content-Type: application/json" -d '{
+curl -s -X POST http://127.0.0.1:8766/api/state -H "Content-Type: application/json" -d '{
   "meta": {"updatedAt": "2026-08-22T00:00:00.000Z"},
   "employees": [{"id":"emp_1","fullName":"Иванов Иван","department":"IT","site":"","position":"","email":"","phone":""}],
   "departments": [{"id":"dep_1","name":"IT"}],
@@ -1083,7 +1091,7 @@ Expected: JSON response echoing the saved state (no `"error"` key).
 - [ ] **Step 3: Send an `issue` action and confirm it applies**
 
 ```bash
-curl -s -X POST http://127.0.0.1:8765/api/mobile/action -H "Content-Type: application/json" -d '{
+curl -s -X POST http://127.0.0.1:8766/api/mobile/action -H "Content-Type: application/json" -d '{
   "clientActionId": "e2e-test-1",
   "type": "issue", "assetId": "ast_1", "employeeId": "emp_1",
   "department": "", "site": "", "quantity": 2, "date": "2026-08-22", "notes": "e2e test"
@@ -1095,7 +1103,7 @@ Expected: `{"assetId": "ast_1", "replayed": false, "version": 2}`
 - [ ] **Step 4: Confirm the state actually changed**
 
 ```bash
-curl -s http://127.0.0.1:8765/api/state | python -c "
+curl -s http://127.0.0.1:8766/api/state | python -c "
 import json, sys
 state = json.load(sys.stdin)
 asset = next(a for a in state['assets'] if a['id'] == 'ast_1')
@@ -1109,13 +1117,13 @@ Expected: `OK: allocation matches`
 - [ ] **Step 5: Replay the same `clientActionId` and confirm it does NOT double-apply**
 
 ```bash
-curl -s -X POST http://127.0.0.1:8765/api/mobile/action -H "Content-Type: application/json" -d '{
+curl -s -X POST http://127.0.0.1:8766/api/mobile/action -H "Content-Type: application/json" -d '{
   "clientActionId": "e2e-test-1",
   "type": "issue", "assetId": "ast_1", "employeeId": "emp_1",
   "department": "", "site": "", "quantity": 2, "date": "2026-08-22", "notes": "e2e test"
 }'
 echo
-curl -s http://127.0.0.1:8765/api/state | python -c "
+curl -s http://127.0.0.1:8766/api/state | python -c "
 import json, sys
 state = json.load(sys.stdin)
 asset = next(a for a in state['assets'] if a['id'] == 'ast_1')
@@ -1128,7 +1136,7 @@ Expected: first curl returns `{"assetId": "ast_1", "replayed": true, "version": 
 - [ ] **Step 6: Confirm a rejected action returns 400 with a readable message**
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}\n" -X POST http://127.0.0.1:8765/api/mobile/action -H "Content-Type: application/json" -d '{
+curl -s -o /dev/null -w "%{http_code}\n" -X POST http://127.0.0.1:8766/api/mobile/action -H "Content-Type: application/json" -d '{
   "clientActionId": "e2e-test-2",
   "type": "issue", "assetId": "ast_1", "employeeId": "emp_1",
   "department": "", "site": "", "quantity": 999, "date": "2026-08-22", "notes": ""
