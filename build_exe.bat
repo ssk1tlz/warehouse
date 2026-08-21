@@ -49,6 +49,7 @@ pyinstaller --onefile ^
     --add-data "styles.css;." ^
     --add-data "schema.sql;." ^
     --add-data "act_generator.py;." ^
+    --add-data "mobile_actions.py;." ^
     --hidden-import=PyQt5 ^
     --hidden-import=sqlite3 ^
     --clean ^

@@ -5,7 +5,7 @@ a = Analysis(
     ['warehouse_tray.py'],
     pathex=[],
     binaries=[],
-    datas=[('server.py', '.'), ('app.js', '.'), ('index.html', '.'), ('styles.css', '.'), ('schema.sql', '.'), ('act_generator.py', '.'), ('qrcode-lib.js', '.')],
+    datas=[('server.py', '.'), ('app.js', '.'), ('index.html', '.'), ('styles.css', '.'), ('schema.sql', '.'), ('act_generator.py', '.'), ('mobile_actions.py', '.'), ('qrcode-lib.js', '.')],
     hiddenimports=['PyQt5', 'sqlite3'],
     hookspath=[],
     hooksconfig={},
