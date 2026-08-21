@@ -306,3 +306,48 @@ def test_apply_retire_rejects_insufficient_available(conn):
         mobile_actions.apply_retire(conn, {
             "assetId": "ast_1", "quantity": 99, "date": "2026-08-22", "notes": "",
         })
+
+
+def test_apply_action_dispatches_issue(conn):
+    result = mobile_actions.apply_action(conn, {
+        "clientActionId": "11111111-1111-1111-1111-111111111111",
+        "type": "issue", "assetId": "ast_1", "employeeId": "emp_1",
+        "department": "", "site": "", "quantity": 1, "date": "2026-08-22", "notes": "",
+    })
+    assert result["assetId"] == "ast_1"
+    assert result["replayed"] is False
+    alloc = conn.execute(
+        "SELECT quantity FROM asset_allocations WHERE asset_id='ast_1' AND employee_id='emp_1'"
+    ).fetchone()
+    assert alloc["quantity"] == 1
+
+
+def test_apply_action_rejects_unknown_type(conn):
+    with pytest.raises(mobile_actions.MobileActionError, match="Неизвестный тип"):
+        mobile_actions.apply_action(conn, {
+            "clientActionId": "22222222-2222-2222-2222-222222222222",
+            "type": "teleport", "assetId": "ast_1", "quantity": 1, "date": "2026-08-22",
+        })
+
+
+def test_apply_action_rejects_missing_client_action_id(conn):
+    with pytest.raises(mobile_actions.MobileActionError, match="clientActionId"):
+        mobile_actions.apply_action(conn, {
+            "type": "issue", "assetId": "ast_1", "employeeId": "emp_1", "quantity": 1, "date": "2026-08-22",
+        })
+
+
+def test_apply_action_replay_does_not_double_apply(conn):
+    action = {
+        "clientActionId": "33333333-3333-3333-3333-333333333333",
+        "type": "issue", "assetId": "ast_1", "employeeId": "emp_1",
+        "department": "", "site": "", "quantity": 1, "date": "2026-08-22", "notes": "",
+    }
+    first = mobile_actions.apply_action(conn, action)
+    second = mobile_actions.apply_action(conn, action)
+    assert first["replayed"] is False
+    assert second["replayed"] is True
+    alloc = conn.execute(
+        "SELECT quantity FROM asset_allocations WHERE asset_id='ast_1' AND employee_id='emp_1'"
+    ).fetchone()
+    assert alloc["quantity"] == 1  # still 1, not 2 — the replay did not re-apply

@@ -284,3 +284,41 @@ def apply_retire(connection: sqlite3.Connection, action: dict) -> None:
         (_new_movement_id(), asset["id"], quantity,
          action.get("date") or datetime.now(timezone.utc).date().isoformat(), action.get("notes") or ""),
     )
+
+
+_DISPATCH = {
+    "issue": apply_issue,
+    "return": apply_return,
+    "repair": apply_repair,
+    "repair_return": apply_repair_return,
+    "retire": apply_retire,
+}
+
+
+def apply_action(connection: sqlite3.Connection, action: dict) -> dict:
+    client_action_id = action.get("clientActionId")
+    if not client_action_id:
+        raise MobileActionError("clientActionId обязателен.")
+    action_type = action.get("type")
+    if action_type not in _DISPATCH:
+        raise MobileActionError(f'Неизвестный тип действия: "{action_type}".')
+    if not action.get("assetId"):
+        raise MobileActionError("assetId обязателен.")
+
+    cached = connection.execute(
+        "SELECT response_json FROM mobile_action_log WHERE client_action_id = ?",
+        (client_action_id,),
+    ).fetchone()
+    if cached is not None:
+        result = json.loads(cached["response_json"])
+        result["replayed"] = True
+        return result
+
+    _DISPATCH[action_type](connection, action)
+
+    result = {"assetId": action["assetId"], "replayed": False}
+    connection.execute(
+        "INSERT INTO mobile_action_log (client_action_id, response_json, created_at) VALUES (?, ?, ?)",
+        (client_action_id, json.dumps(result), datetime.now(timezone.utc).isoformat()),
+    )
+    return result
