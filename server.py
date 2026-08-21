@@ -525,12 +525,12 @@ class WarehouseHandler(BaseHTTPRequestHandler):
             self.send_json_error(HTTPStatus.BAD_REQUEST, f"invalid json: {exc}")
             return
         with STATE_LOCK:
+            auto_backup()
             try:
                 with get_connection() as connection:
                     connection.execute("BEGIN")
                     result = mobile_actions.apply_action(connection, payload)
                     if not result["replayed"]:
-                        auto_backup()
                         new_version = read_state_version(connection) + 1
                         connection.execute(
                             "INSERT INTO app_meta (key, value) VALUES ('state_version', ?) "
