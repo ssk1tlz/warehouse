@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Склад IT-техники</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3/dist/JsBarcode.all.min.js"></script>
+</head>
+<body>
+  <button class="burger-btn" id="burgerBtn" aria-label="Menu">
+    <span></span><span></span><span></span>
+  </button>
+  <div class="layout">
+
+    <!-- ─── SIDEBAR ───────────────────────────────────────────── -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <p class="eyebrow">Локальная система</p>
+        <h1>Склад IT‑техники</h1>
+        <p class="sidebar-text">Учет, выдача, ремонт и списание оборудования.</p>
+      </div>
+
+      <nav class="menu">
+        <button class="menu-link active" data-view="dashboard">
+          <svg class="nav-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="1" y="1" width="6" height="6" rx="1.5" fill="currentColor"/>
+            <rect x="9" y="1" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/>
+            <rect x="1" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/>
+            <rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/>
+          </svg>
+          Обзор
+        </button>
+        <button class="menu-link" data-view="inventory">
+          <svg class="nav-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="1" y="4" width="14" height="9" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M5 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M8 8v2M6 9h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          Склад
+        </button>
+        <button class="menu-link" data-view="employees">
+          <svg class="nav-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="8" cy="5" r="3" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M2 14c0-3.314 2.686-5 6-5s6 1.686 6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          Сотрудники
+        </button>
+        <button class="menu-link" data-view="departments">
+          <svg class="nav-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M3 4h10M3 8h10M3 12h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          Отделы
+        </button>
+        <button class="menu-link" data-view="sites">
+          <svg class="nav-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M8 1.5l6 3.5v6l-6 3.5-6-3.5v-6l6-3.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+          </svg>
+          Объекты
+        </button>
+        <button class="menu-link" data-view="movements">
+          <svg class="nav-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M2 8h12M10 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Операции
+        </button>
+        <button class="menu-link" data-view="reports">
+          <svg class="nav-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M3 12l3-4 3 2 4-6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Отчеты
+        </button>
+        <button class="menu-link" data-view="registry">
+          <svg class="nav-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="1.5" y="2.5" width="13" height="11" rx="1" stroke="currentColor" stroke-width="1.4"/>
+            <path d="M1.5 6h13M1.5 9.5h13M5.5 2.5v11M10.5 2.5v11" stroke="currentColor" stroke-width="1.2"/>
+          </svg>
+          Реестр
+        </button>
+      </nav>
+
+      <div class="sidebar-actions">
+        <div class="sidebar-actions-label">Данные</div>
+        <button id="exportDataBtn" class="secondary">↓ Экспорт JSON</button>
+        <button id="exportExcelBtn" class="secondary">↓ Экспорт Excel</button>
+        <button id="printLabelsBtn" class="teal-btn"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 2h6l4 4v8H2V2h2z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M5 9h6M5 12h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg> Этикетки</button>
+        <label class="import-label">
+          ↑ Импорт JSON
+          <input id="importDataInput" type="file" accept=".json">
+        </label>
+      </div>
+    </aside>
+
+    <!-- ─── MAIN CONTENT ───────────────────────────────────────── -->
+    <main class="content">
+
+      <div class="topbar">
+        <div class="topbar-left">
+          <h2>Обзор системы</h2>
+          <div class="topbar-sub" id="topbarSub">Склад IT‑техники</div>
+        </div>
+        <div class="last-update-badge" id="lastUpdateLabel">Нет изменений</div>
+      </div>
+
+      <!-- ─── DASHBOARD ─────────────────────────────────────────── -->
+      <section id="dashboard" class="view active">
+        <div class="panel" style="margin-bottom:20px">
+          <div class="panel-header">
+            <h3>Быстрый поиск</h3>
+          </div>
+          <input id="dashboardSearchInput" class="search" placeholder="Поиск по сотруднику, технике или комментарию…">
+        </div>
+        <div class="stats-grid" id="statsGrid"></div>
+        <div id="dashboardAlerts"></div>
+        <div class="chart-grid">
+          <section class="panel chart-panel">
+            <div class="panel-header"><h3>Выдачи / Возвраты за месяц</h3></div>
+            <div class="chart-wrap"><canvas id="chartMovements"></canvas></div>
+          </section>
+          <section class="panel chart-panel">
+            <div class="panel-header"><h3>Распределение по категориям</h3><div id="chartCatNav" class="chart-nav"></div></div>
+            <div class="chart-wrap"><canvas id="chartCategories"></canvas></div>
+          </section>
+        </div>
+        <div class="panel-grid">
+          <section class="panel">
+            <div class="panel-header"><h3>Последние операции</h3></div>
+            <div id="recentMovements" class="list"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-header"><h3>Техника на сотрудниках</h3></div>
+            <div id="assignedSummary" class="list"></div>
+          </section>
+        </div>
+      </section>
+
+      <!-- ─── INVENTORY ─────────────────────────────────────────── -->
+      <section id="inventory" class="view">
+        <div class="panel form-panel">
+          <div class="panel-header">
+            <h3 id="assetFormTitle">Добавить технику</h3>
+          </div>
+          <form id="assetForm" class="asset-form">
+            <input type="hidden" name="assetId">
+
+            <div class="form-section">
+              <div class="form-section-title">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4.5A2.5 2.5 0 014.5 2h7A2.5 2.5 0 0114 4.5v7a2.5 2.5 0 01-2.5 2.5h-7A2.5 2.5 0 012 11.5v-7z" stroke="currentColor" stroke-width="1.3"/><path d="M5 6h6M5 8.5h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+                Основная информация
+              </div>
+              <div class="form-row">
+                <label class="form-field">
+                  <span class="form-label">Наименование <span id="nameCharCount" style="font-weight:400;color:var(--text-3);font-family:var(--mono);font-size:10px">0/80</span></span>
+                  <input name="name" id="assetNameInput" maxlength="80" placeholder="Ноутбук Lenovo T14">
+                  <span id="nameCharHint" style="font-size:10.5px;color:var(--text-3);display:none"></span>
+                </label>
+                <label class="form-field">
+                  <span class="form-label">Категория</span>
+                  <input name="category" list="categoryDatalist" placeholder="Ноутбук / Монитор / Принтер">
+                  <datalist id="categoryDatalist"></datalist>
+                </label>
+              </div>
+              <div class="form-row">
+                <label class="form-field">
+                  <span class="form-label">Инв. номер</span>
+                  <div style="display:flex;gap:8px">
+                    <input name="inventoryNumber" id="inventoryNumberInput" placeholder="INV-0001" style="flex:1">
+                    <button type="button" id="autoInventoryBtn" class="secondary" style="padding:6px 10px;font-size:12px" title="Автозаполнить">📋</button>
+                  </div>
+                  <span id="inventoryNumberHint" style="font-size:10.5px;color:var(--text-3);display:none"></span>
+                </label>
+                <label class="form-field">
+                  <span class="form-label">Серийный номер</span>
+                  <div class="input-with-prefix">
+                    <span class="input-prefix">S/N:</span>
+                    <input name="serialNumber" placeholder="введите номер">
+                  </div>
+                </label>
+              </div>
+              <div class="form-row">
+                <label class="form-field">
+                  <span class="form-label">Локация</span>
+                  <input name="location" list="locationDatalist" placeholder="Здание 1 / 3 этаж / каб. 305">
+                  <datalist id="locationDatalist"></datalist>
+                </label>
+                <label class="form-field">
+                  <span class="form-label">Фото (URL)</span>
+                  <input name="photoUrl" placeholder="https://...">
+                </label>
+              </div>
+            </div>
+
+            <div class="form-section">
+              <div class="form-section-title">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3.5A1.5 1.5 0 013.5 2h9A1.5 1.5 0 0114 3.5v9a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 12.5v-9z" stroke="currentColor" stroke-width="1.3"/><path d="M5 5v6M8 7v4M11 3.5v7.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+                Параметры
+              </div>
+              <div class="form-row form-row-3">
+                <label class="form-field">
+                  <span class="form-label">Дата покупки</span>
+                  <input type="date" name="purchaseDate">
+                </label>
+                <label class="form-field">
+                  <span class="form-label">Количество</span>
+                  <input type="number" min="1" step="1" name="quantity" value="1">
+                </label>
+                <label class="form-field">
+                  <span class="form-label">Статус</span>
+                  <select name="status">
+                    <option value="in_stock">На складе</option>
+                    <option value="assigned">Выдано</option>
+                    <option value="repair">В ремонте</option>
+                    <option value="retired">Списано</option>
+                  </select>
+                </label>
+              </div>
+              <div class="form-row form-row-3">
+                <label class="form-field">
+                  <span class="form-label">Цена (Сум)</span>
+                  <input type="number" min="0" step="0.01" name="price" value="0">
+                </label>
+                <label class="form-field">
+                  <span class="form-label">Мин. остаток</span>
+                  <input type="number" min="0" step="1" name="minQuantity" value="0">
+                </label>
+                <label class="form-field">
+                  <span class="form-label">Гарантия до</span>
+                  <input type="date" name="warrantyEnd">
+                </label>
+              </div>
+            </div>
+
+            <div class="form-section">
+              <label class="form-field">
+                <span class="form-label">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 3h10v10H3z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M5.5 6.5h5M5.5 9h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+                  Комментарий
+                </span>
+                <textarea name="notes" rows="2" placeholder="Примечание…"></textarea>
+              </label>
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" id="assetSubmitBtn">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3.5 3.5 7-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Сохранить технику
+              </button>
+              <button type="button" id="assetCancelBtn" class="secondary hidden">Отменить</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Список техники</h3>
+            <input id="assetSearchInput" class="search" style="max-width:280px" placeholder="Поиск по названию, инв. номеру…">
+            <button type="button" class="secondary filter-toggle" data-target="assetFilters">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M2 8h8M2 12h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              Фильтры
+            </button>
+          </div>
+          <div class="table-filters" id="assetFilters" style="display:none">
+            <select id="assetFilterStatus" class="filter-select">
+              <option value="">Все статусы</option>
+              <option value="in_stock">На складе</option>
+              <option value="assigned">Выдано</option>
+              <option value="partial">Частично выдано</option>
+              <option value="repair">В ремонте</option>
+              <option value="retired">Списано</option>
+            </select>
+            <select id="assetFilterCategory" class="filter-select">
+              <option value="">Все категории</option>
+            </select>
+            <select id="assetSortField" class="filter-select">
+              <option value="name">По названию</option>
+              <option value="category">По категории</option>
+              <option value="inventoryNumber">По инв. номеру</option>
+              <option value="purchaseDate">По дате покупки</option>
+              <option value="quantity">По количеству</option>
+            </select>
+            <select id="assetSortDir" class="filter-select">
+              <option value="asc">По возрастанию</option>
+              <option value="desc">По убыванию</option>
+            </select>
+          </div>
+          <div id="bulkBar" class="bulk-bar hidden">
+            <span id="bulkCount">0 выбрано</span>
+            <button type="button" class="secondary" onclick="bulkSelectAll(true)">Выбрать все</button>
+            <button type="button" class="ghost" onclick="bulkSelectAll(false)">Снять все</button>
+            <button type="button" class="danger-button" onclick="bulkDeleteAssets()">Удалить выбранные</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width:32px"></th>
+                  <th>Инв. №</th>
+                  <th>Наименование</th>
+                  <th>Категория</th>
+                  <th>Статус</th>
+                  <th>Всего</th>
+                  <th>Склад</th>
+                  <th>Выдано</th>
+                  <th>Сотрудник</th>
+                  <th>Покупка</th>
+                  <th style="width: 120px;"></th>
+                </tr>
+              </thead>
+              <tbody id="assetsTableBody"></tbody>
+            </table>
+          </div>
+          <div class="pagination" id="assetPagination"></div>
+        </div>
+      </section>
+
+      <!-- ─── EMPLOYEES ─────────────────────────────────────────── -->
+      <section id="employees" class="view">
+        <div class="panel form-panel">
+          <div class="panel-header">
+            <h3 id="employeeFormTitle">Добавить сотрудника</h3>
+          </div>
+          <form id="employeeForm" class="asset-form">
+            <input type="hidden" name="employeeId">
+            <div class="form-section">
+              <div class="form-section-title">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5" r="3" stroke="currentColor" stroke-width="1.3"/><path d="M2.5 14c0-3 2.5-5 5.5-5s5.5 2 5.5 5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+                Данные сотрудника
+              </div>
+              <div class="form-row">
+                <label class="form-field">
+                  <span class="form-label">ФИО</span>
+                  <input name="fullName" required placeholder="Иванов Иван Иванович">
+                </label>
+                <label class="form-field">
+                  <span class="form-label">Отдел</span>
+                  <select name="department" id="employeeDepartmentSelect" required>
+                    <option value="">Выберите отдел</option>
+                  </select>
+                </label>
+              </div>
+              <div class="form-row">
+                <label class="form-field">
+                  <span class="form-label">Объект</span>
+                  <select name="site" id="employeeSiteSelect">
+                    <option value="">— без объекта —</option>
+                  </select>
+                </label>
+                <label class="form-field">
+                  <span class="form-label">Должность</span>
+                  <input name="position" placeholder="Специалист">
+                </label>
+                <label class="form-field">
+                  <span class="form-label">Телефон</span>
+                  <input type="tel" name="phone" placeholder="+998 (__) ___-__-__">
+                </label>
+              </div>
+            </div>
+            <div class="form-actions">
+              <button type="submit" id="employeeSubmitBtn">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3.5 3.5 7-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Сохранить сотрудника
+              </button>
+              <button type="button" id="employeeCancelBtn" class="secondary hidden">Отменить</button>
+            </div>
+          </form>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Сотрудники</h3>
+            <input id="employeeSearchInput" class="search" style="max-width:280px" placeholder="Поиск…">
+            <button type="button" class="secondary filter-toggle" data-target="employeeFilters">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M2 8h8M2 12h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              Фильтры
+            </button>
+          </div>
+          <div class="table-filters" id="employeeFilters" style="display:none">
+            <select id="employeeFilterDepartment" class="filter-select">
+              <option value="">Все отделы</option>
+            </select>
+          </div>
+          <div id="employeesList" class="cards-grid"></div>
+        </div>
+      </section>
+
+      <!-- ─── DEPARTMENTS ───────────────────────────────────────── -->
+      <section id="departments" class="view">
+        <div class="panel form-panel">
+          <div class="panel-header">
+            <h3 id="departmentFormTitle">Добавить отдел</h3>
+          </div>
+          <form id="departmentForm" class="asset-form">
+            <input type="hidden" name="departmentId">
+            <label class="form-field">
+              <span class="form-label">Название отдела</span>
+              <input name="name" required placeholder="Бухгалтерия">
+            </label>
+            <div class="form-actions">
+              <button type="submit" id="departmentSubmitBtn">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3.5 3.5 7-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Сохранить отдел
+              </button>
+              <button type="button" id="departmentCancelBtn" class="secondary hidden">Отменить</button>
+            </div>
+          </form>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Отделы</h3>
+          </div>
+          <div id="departmentsList" class="list"></div>
+        </div>
+      </section>
+
+      <!-- ─── SITES (objects) ───────────────────────────────────── -->
+      <section id="sites" class="view">
+        <div class="panel form-panel">
+          <div class="panel-header">
+            <h3 id="siteFormTitle">Добавить объект</h3>
+          </div>
+          <form id="siteForm" class="asset-form">
+            <input type="hidden" name="siteId">
+            <label class="form-field">
+              <span class="form-label">Название объекта</span>
+              <input name="name" required placeholder="Объект №1 / Стройплощадка">
+            </label>
+            <div class="form-actions">
+              <button type="submit" id="siteSubmitBtn">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3.5 3.5 7-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Сохранить объект
+              </button>
+              <button type="button" id="siteCancelBtn" class="secondary hidden">Отменить</button>
+            </div>
+          </form>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Объекты</h3>
+          </div>
+          <div id="sitesList" class="list"></div>
+        </div>
+      </section>
+
+      <!-- ─── MOVEMENTS ─────────────────────────────────────────── -->
+      <section id="movements" class="view">
+        <div class="panel">
+          <div class="panel-header"><h3>Операции</h3></div>
+          <div class="operation-actions">
+            <button type="button" class="operation-button" data-modal="manualActModal">
+              <span class="op-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="1" width="10" height="14" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M6 5h4M6 8h4M6 11h2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span>Сформировать акт
+            </button>
+            <button type="button" class="operation-button" data-modal="issueModal">
+              <span class="op-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 10V2m0 0L5 5m3-3 3 3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 10v3h10v-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Выдать технику
+            </button>
+            <button type="button" class="operation-button" data-modal="returnModal">
+              <span class="op-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v8m0 0 3-3m-3 3L5 7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 10v3h10v-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Вернуть на склад
+            </button>
+            <button type="button" class="operation-button" data-modal="repairModal">
+              <span class="op-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M9.5 6.5 14 2l-1-1-4.5 4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 10a4 4 0 0 1 0-5.66L10.66 9A4 4 0 0 1 6 10z" stroke="currentColor" stroke-width="1.3"/><path d="m2 14 3.5-3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>Отправить в ремонт
+            </button>
+            <button type="button" class="operation-button" data-modal="repairReturnModal">
+              <span class="op-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3.5 3.5 7-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Вернуть из ремонта
+            </button>
+            <button type="button" class="operation-button" data-modal="retireModal">
+              <span class="op-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M6 4V3h4v1M4 4l1 10h6l1-10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 7v4M9 7v4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span>Списать технику
+            </button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Шаблоны комплектов</h3>
+          </div>
+          <div id="kitTemplatesList" class="list"></div>
+          <div class="form-section" style="margin-top:12px">
+            <div class="form-row">
+              <label class="form-field">
+                <span class="form-label">Название комплекта</span>
+                <input type="text" id="kitNameInput" placeholder="Рабочее место нового сотрудника">
+              </label>
+            </div>
+            <div id="kitItems"></div>
+            <div class="form-actions" style="margin-top:8px">
+              <button type="button" class="secondary" id="addKitItemBtn">+ Позиция</button>
+              <button type="button" id="saveKitBtn">Сохранить комплект</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Журнал операций</h3>
+            <input id="movementSearchInput" class="search" style="max-width:280px" placeholder="Поиск…">
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Дата</th>
+                  <th>Тип</th>
+                  <th>Техника</th>
+                  <th>Инв.№</th>
+                  <th>Кол.</th>
+                  <th>Сотрудник</th>
+                  <th>Комментарий</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="movementsTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─── REPORTS ───────────────────────────────────────────── -->
+      <section id="reports" class="view">
+        <div class="panel" style="margin-bottom:20px">
+          <div class="panel-header">
+            <h3>Поиск по отчетам</h3>
+          </div>
+          <input id="reportSearchInput" class="search" placeholder="Поиск по технике, категории, сотруднику или отделу…">
+        </div>
+        <div class="panel-grid">
+          <section class="panel">
+            <div class="panel-header"><h3>На складе</h3></div>
+            <div id="inStockReport" class="list"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-header"><h3>За сотрудниками</h3></div>
+            <div id="employeeBalanceReport" class="list"></div>
+          </section>
+        </div>
+      </section>
+
+      <!-- ─── REGISTRY (FULL TABLE) ─────────────────────────────── -->
+      <section id="registry" class="view">
+          <div class="panel">
+          <div class="panel-header">
+            <h3>Реестр техники</h3>
+            <input id="registrySearchInput" class="search" style="max-width:280px" placeholder="Поиск по названию, инв., S/N, сотруднику…">
+            <button type="button" class="secondary filter-toggle" data-target="registryFilters">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M2 8h8M2 12h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              Фильтры
+            </button>
+          </div>
+          <div class="table-filters" id="registryFilters" style="display:none">
+            <select id="registryFilterStatus" class="filter-select">
+              <option value="">Все статусы</option>
+              <option value="in_stock">На складе</option>
+              <option value="assigned">Выдано</option>
+              <option value="partial">Частично выдано</option>
+              <option value="repair">В ремонте</option>
+              <option value="retired">Списано</option>
+            </select>
+            <select id="registryFilterCategory" class="filter-select">
+              <option value="">Все категории</option>
+            </select>
+            <select id="registryFilterLocation" class="filter-select">
+              <option value="">Все локации</option>
+            </select>
+            <select id="registrySortField" class="filter-select">
+              <option value="name">По названию</option>
+              <option value="category">По категории</option>
+              <option value="inventoryNumber">По инв. номеру</option>
+              <option value="purchaseDate">По дате покупки</option>
+              <option value="quantity">По количеству</option>
+              <option value="status">По статусу</option>
+            </select>
+            <select id="registrySortDir" class="filter-select">
+              <option value="asc">По возрастанию</option>
+              <option value="desc">По убыванию</option>
+            </select>
+            <button type="button" id="exportRegistryCsvBtn" class="secondary">↓ CSV</button>
+            <button type="button" id="exportRegistryXlsBtn" class="secondary">↓ Excel</button>
+            <span id="registryCount" class="muted" style="margin-left:auto;align-self:center"></span>
+          </div>
+          <div class="table-wrap">
+            <table id="registryTable">
+              <thead>
+                <tr>
+                  <th>Инв. №</th>
+                  <th>S/N</th>
+                  <th>Наименование</th>
+                  <th>Категория</th>
+                  <th>Локация</th>
+                  <th>Статус</th>
+                  <th>Всего</th>
+                  <th>Склад</th>
+                  <th>Выдано</th>
+                  <th>В ремонте</th>
+                  <th>Списано</th>
+                  <th>Сотрудник(и)</th>
+                  <th>Цена, сум</th>
+                  <th>Покупка</th>
+                  <th>Гарантия</th>
+                  <th>Комментарий</th>
+                  <th style="width:46px;text-align:center">✕</th>
+                </tr>
+              </thead>
+              <tbody id="registryTableBody"></tbody>
+            </table>
+          </div>
+          <div class="pagination-controls">
+            <select id="registryPerPageSelect" class="filter-select" style="width:auto">
+              <option value="10">10 на странице</option>
+              <option value="20" selected>20 на странице</option>
+              <option value="30">30 на странице</option>
+            </select>
+            <div class="pagination" id="registryPagination"></div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ─── MODALS ─────────────────────────────────────────────────── -->
+  <div id="modalOverlay" class="modal-overlay hidden">
+
+    <div id="manualActModal" class="operation-modal hidden">
+      <div class="modal-header">
+        <h3>Сформировать акт</h3>
+        <button type="button" class="modal-close" data-close-modal>Закрыть</button>
+      </div>
+      <form id="manualActForm" class="form-grid compact">
+        <label>Тип акта
+          <select name="type" id="manualActTypeSelect" required>
+            <option value="issue">Выдача</option>
+            <option value="return">Приём</option>
+          </select>
+        </label>
+        <label>Сотрудник<select name="employeeId" id="manualActEmployeeSelect" required></select></label>
+        <label>Дата<input type="date" name="date" required></label>
+        <div class="full operation-items">
+          <div class="operation-items-header">
+            <span>Позиции акта</span>
+            <button type="button" class="secondary mini-button" id="addManualActItemBtn">+ Добавить</button>
+          </div>
+          <div id="manualActItems"></div>
+        </div>
+        <label class="full">Комментарий<textarea name="notes" rows="2" placeholder="Комментарий к акту…"></textarea></label>
+        <button type="submit">Сформировать акт</button>
+      </form>
+    </div>
+
+    <div id="issueModal" class="operation-modal hidden">
+      <div class="modal-header">
+        <h3>Выдать технику</h3>
+        <button type="button" class="modal-close" data-close-modal>Закрыть</button>
+      </div>
+      <form id="issueForm" class="form-grid compact">
+        <div class="full" style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding:8px 0">
+          <span style="color:var(--text-3);font-size:12px">Кому выдать:</span>
+          <label style="display:flex;gap:6px;align-items:center;cursor:pointer">
+            <input type="radio" name="issueTarget" value="employee" checked> Сотруднику
+          </label>
+          <label style="display:flex;gap:6px;align-items:center;cursor:pointer">
+            <input type="radio" name="issueTarget" value="department"> Отделу
+          </label>
+          <label style="display:flex;gap:6px;align-items:center;cursor:pointer">
+            <input type="radio" name="issueTarget" value="site"> На объект
+          </label>
+        </div>
+        <label id="issueEmployeeField">Сотрудник<select name="employeeId" id="issueEmployeeSelect"></select></label>
+        <label id="issueDepartmentSelectField" style="display:none">Отдел<select name="departmentName" id="issueDepartmentSelect"></select></label>
+        <label id="issueSiteField" style="display:none">Объект<select name="siteName" id="issueSiteSelect"></select></label>
+        <label id="issueDepartmentAutoField">Отдел<input type="text" id="issueDepartmentField" readonly placeholder="(выбирается автоматически)"></label>
+        <label>Дата выдачи<input type="date" name="date" required></label>
+        <div class="full operation-items">
+          <div class="operation-items-header">
+            <span>Позиции к выдаче</span>
+            <button type="button" class="secondary mini-button" id="addIssueItemBtn">+ Добавить</button>
+          </div>
+          <div id="issueItems"></div>
+        </div>
+        <label class="full">Комментарий<textarea name="notes" rows="2" placeholder="Например: выдано под проект…"></textarea></label>
+        <button type="submit">Оформить выдачу</button>
+      </form>
+    </div>
+
+    <div id="returnModal" class="operation-modal hidden">
+      <div class="modal-header">
+        <h3>Вернуть на склад</h3>
+        <button type="button" class="modal-close" data-close-modal>Закрыть</button>
+      </div>
+      <form id="returnForm" class="form-grid compact">
+        <div class="full" style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding:8px 0">
+          <span style="color:var(--text-3);font-size:12px">От кого:</span>
+          <label style="display:flex;gap:6px;align-items:center;cursor:pointer">
+            <input type="radio" name="returnTarget" value="employee" checked> От сотрудника
+          </label>
+          <label style="display:flex;gap:6px;align-items:center;cursor:pointer">
+            <input type="radio" name="returnTarget" value="department"> От отдела
+          </label>
+          <label style="display:flex;gap:6px;align-items:center;cursor:pointer">
+            <input type="radio" name="returnTarget" value="site"> С объекта
+          </label>
+        </div>
+        <label id="returnEmployeeField">Сотрудник<select name="employeeId" id="returnEmployeeSelect"></select></label>
+        <label id="returnDepartmentField" style="display:none">Отдел<select name="departmentName" id="returnDepartmentSelect"></select></label>
+        <label id="returnSiteField" style="display:none">Объект<select name="siteName" id="returnSiteSelect"></select></label>
+        <label>Дата возврата<input type="date" name="date" required></label>
+        <div class="full operation-items">
+          <div class="operation-items-header">
+            <span>Позиции к возврату</span>
+            <button type="button" class="secondary mini-button" id="addReturnItemBtn">+ Добавить</button>
+          </div>
+          <div id="returnItems"></div>
+        </div>
+        <label class="full">Комментарий<textarea name="notes" rows="2" placeholder="Например: сотрудник уволен…"></textarea></label>
+        <button type="submit">Оформить возврат</button>
+      </form>
+    </div>
+
+    <div id="repairModal" class="operation-modal hidden">
+      <div class="modal-header">
+        <h3>Отправить в ремонт</h3>
+        <button type="button" class="modal-close" data-close-modal>Закрыть</button>
+      </div>
+      <form id="repairForm" class="form-grid compact">
+        <label>Откуда<select name="sourceId" id="repairSourceSelect" required></select></label>
+        <label>Техника<select name="assetId" id="repairAssetSelect" required></select></label>
+        <label>Количество<input type="number" min="1" step="1" name="quantity" value="1" required></label>
+        <label>Дата<input type="date" name="date" required></label>
+        <label class="full">Комментарий<textarea name="notes" rows="2" placeholder="Например: не включается…"></textarea></label>
+        <button type="submit">Оформить ремонт</button>
+      </form>
+    </div>
+
+    <div id="repairReturnModal" class="operation-modal hidden">
+      <div class="modal-header">
+        <h3>Вернуть из ремонта</h3>
+        <button type="button" class="modal-close" data-close-modal>Закрыть</button>
+      </div>
+      <form id="repairReturnForm" class="form-grid compact">
+        <label>Куда<select name="targetId" id="repairReturnTargetSelect" required></select></label>
+        <label>Техника<select name="assetId" id="repairReturnAssetSelect" required></select></label>
+        <label>Количество<input type="number" min="1" step="1" name="quantity" value="1" required></label>
+        <label>Дата<input type="date" name="date" required></label>
+        <label class="full">Комментарий<textarea name="notes" rows="2" placeholder="Например: возвращено на склад…"></textarea></label>
+        <button type="submit">Оформить возврат из ремонта</button>
+      </form>
+    </div>
+
+    <div id="retireModal" class="operation-modal hidden">
+      <div class="modal-header">
+        <h3>Списать технику</h3>
+        <button type="button" class="modal-close" data-close-modal>Закрыть</button>
+      </div>
+      <form id="retireForm" class="form-grid compact">
+        <label>Техника<select name="assetId" id="retireAssetSelect" required></select></label>
+        <label>Количество<input type="number" min="1" step="1" name="quantity" value="1" required></label>
+        <label>Дата<input type="date" name="date" required></label>
+        <label class="full">Причина<textarea name="notes" rows="2" placeholder="Например: неисправимо / морально устарело…"></textarea></label>
+        <button type="submit">Оформить списание</button>
+      </form>
+    </div>
+
+  </div>
+
+  <!-- ─── LABELS MODAL ─────────────────────────────────────────── -->
+  <div id="labelsOverlay" class="modal-overlay hidden">
+    <div class="operation-modal wide">
+      <div class="modal-header">
+        <h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 2h6l4 4v8H2V2h2z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M5 9h6M5 12h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg> Печать этикеток</h3>
+        <button type="button" class="modal-close" id="closeLabelsBtn">Закрыть</button>
+      </div>
+      <div class="label-controls">
+        <label>Размер этикетки
+          <select id="labelSizeSelect">
+            <option value="58x40">58×40 мм (стандарт)</option>
+            <option value="62x40">62×40 мм</option>
+            <option value="100x50">100×50 мм (большая)</option>
+            <option value="40x30">40×30 мм (малая)</option>
+          </select>
+        </label>
+        <label>Столбцов на листе
+          <input type="number" id="labelColsInput" value="3" min="1" max="6">
+        </label>
+        <label style="gap:6px">Инв. номер
+          <input type="checkbox" id="labelInvCheck" checked style="width:15px;height:15px;accent-color:var(--brand)">
+        </label>
+        <label style="gap:6px">QR-код
+          <input type="checkbox" id="labelQrCheck" checked style="width:15px;height:15px;accent-color:var(--brand)">
+        </label>
+        <label style="gap:6px">Локация
+          <input type="checkbox" id="labelLocCheck" style="width:15px;height:15px;accent-color:var(--brand)">
+        </label>
+      </div>
+      <div class="label-select-actions">
+        <button type="button" class="secondary" id="labelSelectAllBtn">Выбрать все</button>
+        <button type="button" class="ghost" id="labelDeselectAllBtn">Снять все</button>
+        <input class="search" id="labelSearchInput" placeholder="Поиск…" style="max-width:200px">
+        <span class="label-count" id="labelCountSpan">0 выбрано</span>
+      </div>
+      <div class="label-grid" id="labelGrid"></div>
+      <div class="label-footer">
+        <button type="button" class="secondary" id="previewLabelsBtn"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.3"/></svg> Предпросмотр</button>
+        <button type="button" id="printLabelsPrintBtn"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 5V1h8v4M4 11H2V7h12v4h-2" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><rect x="4" y="9" width="8" height="6" rx="0.5" stroke="currentColor" stroke-width="1.3"/></svg> Распечатать</button>
+        <button type="button" id="exportLabelsPdfBtn" style="background:#c0392b;color:#fff;border:none"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="3" y="1" width="10" height="14" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M6 5h4M6 8h4M6 11h2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg> PDF</button>
+        <button type="button" id="exportLabelsJpgBtn" style="background:#7c3aed;color:#fff;border:none"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.3"/><circle cx="5.5" cy="6.5" r="1" fill="currentColor"/><path d="M3 12l3.5-3.5L9 11l2-2 2 2" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg> JPG</button>
+        <button type="button" class="secondary" id="exportLabelsExcelBtn"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M2 6h12M2 10h12M6 2v12M10 2v12" stroke="currentColor" stroke-width="1" opacity="0.5"/></svg> Excel</button>
+        <button type="button" class="ghost" id="exportLabelsWordBtn"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="3" y="1" width="10" height="14" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M6 5h4M6 8h4M6 11h2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg> Word</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Label preview (A4 sheet) -->
+  <div id="labelPreviewOverlay" class="modal-overlay hidden">
+    <div class="operation-modal wide">
+      <div class="modal-header">
+        <h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.3"/></svg> Предпросмотр листа A4</h3>
+        <button type="button" class="modal-close" id="closeLabelPreviewBtn">Закрыть</button>
+      </div>
+      <div class="label-preview-bar">
+        <button type="button" class="secondary" id="labelPreviewPrev">‹ Пред.</button>
+        <span class="label-count" id="labelPreviewPageInfo"></span>
+        <button type="button" class="secondary" id="labelPreviewNext">След. ›</button>
+      </div>
+      <div class="label-preview-stage">
+        <div id="labelPreviewCanvasHolder" class="label-preview-page"></div>
+      </div>
+    </div>
+  </div>
+
+  <template id="emptyStateTemplate">
+    <div class="empty-state">
+      <svg width="48" height="48" fill="none" viewBox="0 0 48 48" style="opacity:0.3;margin-bottom:8px"><rect x="6" y="10" width="36" height="28" rx="4" stroke="currentColor" stroke-width="2"/><path d="M6 18h36M18 18v20M30 18v20" stroke="currentColor" stroke-width="1.5" opacity="0.5"/></svg>
+      <p>Данных пока нет</p>
+    </div>
+  </template>
+
+  <!-- Toast container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- Confirm modal -->
+  <div id="confirmOverlay" class="confirm-overlay hidden">
+    <div class="confirm-dialog">
+      <p id="confirmMessage"></p>
+      <div class="confirm-actions">
+        <button id="confirmYes" class="danger-button">Удалить</button>
+        <button id="confirmNo" class="secondary">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="qrcode-lib.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
