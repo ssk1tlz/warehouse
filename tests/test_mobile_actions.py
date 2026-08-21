@@ -130,3 +130,61 @@ def test_apply_issue_rejects_empty_target(conn):
             "assetId": "ast_1", "employeeId": None, "department": "", "site": "",
             "quantity": 1, "date": "2026-08-22", "notes": "",
         })
+
+
+def test_apply_return_reduces_allocation(conn):
+    conn.execute(
+        "INSERT INTO asset_allocations (asset_id, employee_id, department, site, quantity) "
+        "VALUES ('ast_1', 'emp_1', '', '', 3)"
+    )
+    mobile_actions.apply_return(conn, {
+        "assetId": "ast_1", "employeeId": "emp_1", "department": "", "site": "",
+        "quantity": 2, "date": "2026-08-22", "notes": "",
+    })
+    alloc = conn.execute(
+        "SELECT quantity FROM asset_allocations WHERE asset_id='ast_1' AND employee_id='emp_1'"
+    ).fetchone()
+    assert alloc["quantity"] == 1
+
+
+def test_apply_return_deletes_allocation_row_when_it_hits_zero(conn):
+    conn.execute(
+        "INSERT INTO asset_allocations (asset_id, employee_id, department, site, quantity) "
+        "VALUES ('ast_1', 'emp_1', '', '', 2)"
+    )
+    mobile_actions.apply_return(conn, {
+        "assetId": "ast_1", "employeeId": "emp_1", "department": "", "site": "",
+        "quantity": 2, "date": "2026-08-22", "notes": "",
+    })
+    alloc = conn.execute(
+        "SELECT * FROM asset_allocations WHERE asset_id='ast_1' AND employee_id='emp_1'"
+    ).fetchone()
+    assert alloc is None
+
+
+def test_apply_return_rejects_when_no_allocation(conn):
+    with pytest.raises(mobile_actions.MobileActionError, match="нет позиции"):
+        mobile_actions.apply_return(conn, {
+            "assetId": "ast_1", "employeeId": "emp_1", "department": "", "site": "",
+            "quantity": 1, "date": "2026-08-22", "notes": "",
+        })
+
+
+def test_apply_return_rejects_over_return(conn):
+    conn.execute(
+        "INSERT INTO asset_allocations (asset_id, employee_id, department, site, quantity) "
+        "VALUES ('ast_1', 'emp_1', '', '', 1)"
+    )
+    with pytest.raises(mobile_actions.MobileActionError, match="числится"):
+        mobile_actions.apply_return(conn, {
+            "assetId": "ast_1", "employeeId": "emp_1", "department": "", "site": "",
+            "quantity": 2, "date": "2026-08-22", "notes": "",
+        })
+
+
+def test_apply_return_rejects_empty_target(conn):
+    with pytest.raises(mobile_actions.MobileActionError, match="Выберите"):
+        mobile_actions.apply_return(conn, {
+            "assetId": "ast_1", "employeeId": None, "department": "", "site": "",
+            "quantity": 1, "date": "2026-08-22", "notes": "",
+        })

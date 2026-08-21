@@ -119,3 +119,53 @@ def apply_issue(connection: sqlite3.Connection, action: dict) -> None:
         (_new_movement_id(), asset["id"], employee_id, department, site, quantity,
          action.get("date") or datetime.now(timezone.utc).date().isoformat(), action.get("notes") or ""),
     )
+
+
+def apply_return(connection: sqlite3.Connection, action: dict) -> None:
+    asset = _load_asset(connection, action["assetId"])
+    employee_id = action.get("employeeId") or None
+    department = action.get("department") or ""
+    site = action.get("site") or ""
+    quantity = max(1, int(action.get("quantity") or 1))
+
+    if not employee_id and not department and not site:
+        raise MobileActionError("Выберите сотрудника, отдел или объект.")
+
+    allocations = _load_allocations(connection, asset["id"])
+    if employee_id:
+        existing = find_employee_allocation(allocations, employee_id)
+        owner_label = "сотрудника"
+    elif site:
+        existing = find_site_allocation(allocations, site)
+        owner_label = f'объекта «{site}»'
+    else:
+        existing = find_department_allocation(allocations, department)
+        owner_label = f'отдела «{department}»'
+
+    if existing is None:
+        raise MobileActionError(f'У {owner_label} нет позиции "{asset["name"]}".')
+    if quantity > existing["quantity"]:
+        raise MobileActionError(
+            f'Нельзя вернуть {quantity} шт. По позиции "{asset["name"]}" числится: {existing["quantity"]}.'
+        )
+
+    remaining = existing["quantity"] - quantity
+    if remaining > 0:
+        connection.execute(
+            "UPDATE asset_allocations SET quantity = ? "
+            "WHERE asset_id = ? AND employee_id IS ? AND department = ? AND site = ?",
+            (remaining, asset["id"], existing["employee_id"], existing["department"], existing["site"]),
+        )
+    else:
+        connection.execute(
+            "DELETE FROM asset_allocations "
+            "WHERE asset_id = ? AND employee_id IS ? AND department = ? AND site = ?",
+            (asset["id"], existing["employee_id"], existing["department"], existing["site"]),
+        )
+
+    connection.execute(
+        "INSERT INTO movements (id, type, asset_id, employee_id, department, site, act_number, "
+        "quantity, date, notes) VALUES (?, 'return', ?, ?, ?, ?, NULL, ?, ?, ?)",
+        (_new_movement_id(), asset["id"], employee_id, department, site, quantity,
+         action.get("date") or datetime.now(timezone.utc).date().isoformat(), action.get("notes") or ""),
+    )
