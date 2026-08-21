@@ -286,3 +286,23 @@ def test_apply_repair_return_requires_employee_when_target_is_employee(conn):
             "assetId": "ast_1", "targetType": "employee", "employeeId": None,
             "quantity": 1, "date": "2026-08-22", "notes": "",
         })
+
+
+def test_apply_retire_reduces_quantity_and_increases_retired(conn):
+    mobile_actions.apply_retire(conn, {
+        "assetId": "ast_1", "quantity": 2, "date": "2026-08-22", "notes": "сломан",
+    })
+    asset = conn.execute("SELECT quantity, retired_quantity FROM assets WHERE id='ast_1'").fetchone()
+    assert asset["quantity"] == 3
+    assert asset["retired_quantity"] == 2
+    movement = conn.execute("SELECT type, quantity, notes FROM movements WHERE asset_id='ast_1'").fetchone()
+    assert movement["type"] == "retire"
+    assert movement["quantity"] == 2
+    assert movement["notes"] == "сломан"
+
+
+def test_apply_retire_rejects_insufficient_available(conn):
+    with pytest.raises(mobile_actions.MobileActionError, match="Доступно"):
+        mobile_actions.apply_retire(conn, {
+            "assetId": "ast_1", "quantity": 99, "date": "2026-08-22", "notes": "",
+        })

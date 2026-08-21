@@ -262,3 +262,25 @@ def apply_repair_return(connection: sqlite3.Connection, action: dict) -> None:
         (_new_movement_id(), asset["id"], employee_id if target_type == "employee" else None, quantity,
          action.get("date") or datetime.now(timezone.utc).date().isoformat(), action.get("notes") or ""),
     )
+
+
+def apply_retire(connection: sqlite3.Connection, action: dict) -> None:
+    asset = _load_asset(connection, action["assetId"])
+    quantity = max(1, int(action.get("quantity") or 1))
+    allocations = _load_allocations(connection, asset["id"])
+    available = get_available_quantity(asset, allocations)
+    if quantity > available:
+        raise MobileActionError(
+            f'Нельзя списать {quantity} шт. Доступно на складе: {available}.'
+        )
+
+    connection.execute(
+        "UPDATE assets SET quantity = quantity - ?, retired_quantity = retired_quantity + ? WHERE id = ?",
+        (quantity, quantity, asset["id"]),
+    )
+    connection.execute(
+        "INSERT INTO movements (id, type, asset_id, employee_id, department, site, act_number, "
+        "quantity, date, notes) VALUES (?, 'retire', ?, NULL, '', '', NULL, ?, ?, ?)",
+        (_new_movement_id(), asset["id"], quantity,
+         action.get("date") or datetime.now(timezone.utc).date().isoformat(), action.get("notes") or ""),
+    )
