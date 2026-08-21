@@ -74,3 +74,51 @@ def test_find_employee_allocation_ignores_department_rows(conn):
     found = mobile_actions.find_employee_allocation(allocations, "emp_1")
     assert found is not None
     assert found["quantity"] == 1
+
+
+def test_apply_issue_creates_new_allocation_and_movement(conn):
+    mobile_actions.apply_issue(conn, {
+        "assetId": "ast_1", "employeeId": "emp_1", "department": "", "site": "",
+        "quantity": 2, "date": "2026-08-22", "notes": "",
+    })
+    alloc = conn.execute(
+        "SELECT quantity FROM asset_allocations WHERE asset_id='ast_1' AND employee_id='emp_1'"
+    ).fetchone()
+    assert alloc["quantity"] == 2
+    movement = conn.execute(
+        "SELECT type, employee_id, quantity FROM movements WHERE asset_id='ast_1'"
+    ).fetchone()
+    assert movement["type"] == "issue"
+    assert movement["employee_id"] == "emp_1"
+    assert movement["quantity"] == 2
+
+
+def test_apply_issue_adds_to_existing_allocation(conn):
+    conn.execute(
+        "INSERT INTO asset_allocations (asset_id, employee_id, department, site, quantity) "
+        "VALUES ('ast_1', 'emp_1', '', '', 1)"
+    )
+    mobile_actions.apply_issue(conn, {
+        "assetId": "ast_1", "employeeId": "emp_1", "department": "", "site": "",
+        "quantity": 1, "date": "2026-08-22", "notes": "",
+    })
+    alloc = conn.execute(
+        "SELECT quantity FROM asset_allocations WHERE asset_id='ast_1' AND employee_id='emp_1'"
+    ).fetchone()
+    assert alloc["quantity"] == 2
+
+
+def test_apply_issue_rejects_insufficient_stock(conn):
+    with pytest.raises(mobile_actions.MobileActionError, match="доступно"):
+        mobile_actions.apply_issue(conn, {
+            "assetId": "ast_1", "employeeId": "emp_1", "department": "", "site": "",
+            "quantity": 99, "date": "2026-08-22", "notes": "",
+        })
+
+
+def test_apply_issue_rejects_unknown_asset(conn):
+    with pytest.raises(mobile_actions.MobileActionError, match="не найден"):
+        mobile_actions.apply_issue(conn, {
+            "assetId": "ast_missing", "employeeId": "emp_1", "department": "", "site": "",
+            "quantity": 1, "date": "2026-08-22", "notes": "",
+        })
