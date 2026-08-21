@@ -85,3 +85,9 @@ CREATE TABLE IF NOT EXISTS kit_templates (
   name TEXT NOT NULL,
   items TEXT NOT NULL DEFAULT '[]'
 );
+
+CREATE TABLE IF NOT EXISTS mobile_action_log (
+  client_action_id TEXT PRIMARY KEY,
+  response_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);

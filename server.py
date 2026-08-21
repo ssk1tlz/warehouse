@@ -22,6 +22,8 @@ except Exception as _act_err:  # noqa: BLE001
 else:
     _ACT_IMPORT_ERROR = ""
 
+import mobile_actions
+
 if getattr(sys, 'frozen', False):
     ROOT = Path(sys.executable).resolve().parent
 else:
@@ -209,6 +211,14 @@ def init_db() -> None:
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 items TEXT NOT NULL DEFAULT '[]'
+            )
+        """)
+        # Mobile action idempotency log
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS mobile_action_log (
+                client_action_id TEXT PRIMARY KEY,
+                response_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
             )
         """)
 
@@ -466,6 +476,9 @@ class WarehouseHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/act":
             self.handle_act_request()
             return
+        if parsed.path == "/api/mobile/action":
+            self.handle_mobile_action()
+            return
         if parsed.path != "/api/state":
             self.send_error(HTTPStatus.NOT_FOUND)
             return
@@ -503,6 +516,34 @@ class WarehouseHandler(BaseHTTPRequestHandler):
             auto_backup()
             state = import_state(payload)
         self.send_json(state)
+
+    def handle_mobile_action(self) -> None:
+        length = int(self.headers.get("Content-Length", "0"))
+        try:
+            payload = json.loads(self.rfile.read(length) or b"{}")
+        except json.JSONDecodeError as exc:
+            self.send_json_error(HTTPStatus.BAD_REQUEST, f"invalid json: {exc}")
+            return
+        with STATE_LOCK:
+            try:
+                with get_connection() as connection:
+                    connection.execute("BEGIN")
+                    result = mobile_actions.apply_action(connection, payload)
+                    if not result["replayed"]:
+                        auto_backup()
+                        new_version = read_state_version(connection) + 1
+                        connection.execute(
+                            "INSERT INTO app_meta (key, value) VALUES ('state_version', ?) "
+                            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                            (str(new_version),),
+                        )
+                    else:
+                        new_version = read_state_version(connection)
+            except mobile_actions.MobileActionError as exc:
+                self.send_json_error(HTTPStatus.BAD_REQUEST, exc.message)
+                return
+        result["version"] = new_version
+        self.send_json(result)
 
     def handle_act_request(self) -> None:
         if generate_act is None:
