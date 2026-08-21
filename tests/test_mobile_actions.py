@@ -234,3 +234,55 @@ def test_apply_repair_rejects_employee_without_allocation(conn):
             "assetId": "ast_1", "sourceType": "employee", "employeeId": "emp_1",
             "quantity": 1, "date": "2026-08-22", "notes": "",
         })
+
+
+def test_apply_repair_return_to_warehouse(conn):
+    conn.execute("UPDATE assets SET repair_quantity = 3, repair_date = '2026-08-01' WHERE id = 'ast_1'")
+    mobile_actions.apply_repair_return(conn, {
+        "assetId": "ast_1", "targetType": "warehouse", "employeeId": None,
+        "quantity": 2, "date": "2026-08-22", "notes": "",
+    })
+    asset = conn.execute("SELECT repair_quantity, repair_date FROM assets WHERE id='ast_1'").fetchone()
+    assert asset["repair_quantity"] == 1
+    assert asset["repair_date"] == "2026-08-01"  # still some in repair -> date stays
+
+
+def test_apply_repair_return_clears_repair_date_when_none_left(conn):
+    conn.execute("UPDATE assets SET repair_quantity = 2, repair_date = '2026-08-01' WHERE id = 'ast_1'")
+    mobile_actions.apply_repair_return(conn, {
+        "assetId": "ast_1", "targetType": "warehouse", "employeeId": None,
+        "quantity": 2, "date": "2026-08-22", "notes": "",
+    })
+    asset = conn.execute("SELECT repair_quantity, repair_date FROM assets WHERE id='ast_1'").fetchone()
+    assert asset["repair_quantity"] == 0
+    assert asset["repair_date"] == ""
+
+
+def test_apply_repair_return_to_employee_creates_allocation(conn):
+    conn.execute("UPDATE assets SET repair_quantity = 1 WHERE id = 'ast_1'")
+    mobile_actions.apply_repair_return(conn, {
+        "assetId": "ast_1", "targetType": "employee", "employeeId": "emp_1",
+        "quantity": 1, "date": "2026-08-22", "notes": "",
+    })
+    alloc = conn.execute(
+        "SELECT quantity FROM asset_allocations WHERE asset_id='ast_1' AND employee_id='emp_1'"
+    ).fetchone()
+    assert alloc["quantity"] == 1
+
+
+def test_apply_repair_return_rejects_over_return(conn):
+    conn.execute("UPDATE assets SET repair_quantity = 1 WHERE id = 'ast_1'")
+    with pytest.raises(mobile_actions.MobileActionError, match="В ремонте числится"):
+        mobile_actions.apply_repair_return(conn, {
+            "assetId": "ast_1", "targetType": "warehouse", "employeeId": None,
+            "quantity": 2, "date": "2026-08-22", "notes": "",
+        })
+
+
+def test_apply_repair_return_requires_employee_when_target_is_employee(conn):
+    conn.execute("UPDATE assets SET repair_quantity = 1 WHERE id = 'ast_1'")
+    with pytest.raises(mobile_actions.MobileActionError, match="Выберите сотрудника"):
+        mobile_actions.apply_repair_return(conn, {
+            "assetId": "ast_1", "targetType": "employee", "employeeId": None,
+            "quantity": 1, "date": "2026-08-22", "notes": "",
+        })

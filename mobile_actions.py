@@ -217,3 +217,48 @@ def apply_repair(connection: sqlite3.Connection, action: dict) -> None:
         (_new_movement_id(), asset["id"], employee_id if source_type == "employee" else None, quantity,
          action.get("date") or datetime.now(timezone.utc).date().isoformat(), action.get("notes") or ""),
     )
+
+
+def apply_repair_return(connection: sqlite3.Connection, action: dict) -> None:
+    asset = _load_asset(connection, action["assetId"])
+    target_type = action.get("targetType") or "warehouse"
+    employee_id = action.get("employeeId") or None
+    quantity = max(1, int(action.get("quantity") or 1))
+
+    in_repair = int(asset["repair_quantity"] or 0)
+    if quantity > in_repair:
+        raise MobileActionError(
+            f'Нельзя вернуть из ремонта {quantity} шт. В ремонте числится: {in_repair}.'
+        )
+    if target_type == "employee" and not employee_id:
+        raise MobileActionError("Выберите сотрудника, куда вернуть технику.")
+
+    remaining_in_repair = in_repair - quantity
+    new_repair_date = asset["repair_date"] if remaining_in_repair > 0 else ""
+    connection.execute(
+        "UPDATE assets SET repair_quantity = ?, repair_date = ? WHERE id = ?",
+        (remaining_in_repair, new_repair_date, asset["id"]),
+    )
+
+    if target_type == "employee":
+        allocations = _load_allocations(connection, asset["id"])
+        existing = find_employee_allocation(allocations, employee_id)
+        if existing is not None:
+            connection.execute(
+                "UPDATE asset_allocations SET quantity = quantity + ? "
+                "WHERE asset_id = ? AND employee_id = ? AND department = '' AND site = ''",
+                (quantity, asset["id"], employee_id),
+            )
+        else:
+            connection.execute(
+                "INSERT INTO asset_allocations (asset_id, employee_id, department, site, quantity) "
+                "VALUES (?, ?, '', '', ?)",
+                (asset["id"], employee_id, quantity),
+            )
+
+    connection.execute(
+        "INSERT INTO movements (id, type, asset_id, employee_id, department, site, act_number, "
+        "quantity, date, notes) VALUES (?, 'repair_return', ?, ?, '', '', NULL, ?, ?, ?)",
+        (_new_movement_id(), asset["id"], employee_id if target_type == "employee" else None, quantity,
+         action.get("date") or datetime.now(timezone.utc).date().isoformat(), action.get("notes") or ""),
+    )
