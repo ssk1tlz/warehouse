@@ -605,7 +605,7 @@ No git repo — skip.
 
 **Files:**
 - Create: `D:\warehouse\mobile\www\js\scanner.js`
-- Modify: `D:\warehouse\mobile\android\app\src\main\AndroidManifest.xml` (camera permission)
+- Modify: `D:\warehouse\mobile\android\app\src\main\AndroidManifest.xml` (camera permission, ML Kit `DEPENDENCIES` meta-data)
 
 **Interfaces:**
 - Consumes: `parseWarehouseQr` (Task 2)
@@ -619,11 +619,16 @@ npm install @capacitor-mlkit/barcode-scanning
 npx cap sync android
 ```
 
-- [ ] **Step 2: Add the camera permission**
+- [ ] **Step 2: Add the camera permission and ML Kit manifest meta-data**
 
-Open `D:\warehouse\mobile\android\app\src\main\AndroidManifest.xml`, add inside `<manifest>` (sibling to the existing `<application>` tag):
+Open `D:\warehouse\mobile\android\app\src\main\AndroidManifest.xml`, add inside `<manifest>` (sibling to the existing `<application>` tag, under the "Permissions" comment):
 ```xml
 <uses-permission android:name="android.permission.CAMERA" />
+```
+
+Also add this line as a sibling of the existing `<provider>` element, inside `<application>` (e.g. directly after the `</provider>` closing tag, before `</application>`). Per the plugin's official Android setup docs, this is required so the ML Kit barcode module is guaranteed to be bundled at install time on all devices/Play Services configurations:
+```xml
+<meta-data android:name="com.google.mlkit.vision.DEPENDENCIES" android:value="barcode_ui"/>
 ```
 
 - [ ] **Step 3: Implement `scanner.js`**
@@ -637,13 +642,31 @@ async function scanOnce() {
   if (camera !== 'granted' && camera !== 'limited') {
     throw new Error('Нет доступа к камере — разрешите доступ в настройках телефона.');
   }
-  const { barcodes } = await BarcodeScanner.scan({ formats: ['QrCode'] });
-  if (!barcodes.length) return null;
-  return parseWarehouseQr(barcodes[0].rawValue);
+
+  const { available } = await BarcodeScanner.isGoogleBarcodeScannerModuleAvailable();
+  if (!available) {
+    await BarcodeScanner.installGoogleBarcodeScannerModule();
+    throw new Error('Модуль сканера ещё устанавливается — попробуйте снова через несколько секунд.');
+  }
+
+  try {
+    const { barcodes } = await BarcodeScanner.scan({ formats: ['QrCode'] });
+    if (!barcodes.length) return null;
+    return parseWarehouseQr(barcodes[0].rawValue);
+  } catch (error) {
+    if (error && error.message === 'scan canceled.') {
+      return null;
+    }
+    throw error;
+  }
 }
 
 window.Scanner = { scanOnce };
 ```
+
+Notes on why this shape is required (learned from fix round 1, verified against the installed `@capacitor-mlkit/barcode-scanning@8.1.0` plugin source):
+- On Android, a user backing out of a scan makes the native plugin reject the promise with `error.message === 'scan canceled.'` rather than resolving `{ barcodes: [] }` — the `scan()` call must be wrapped in try/catch to turn that specific rejection into a resolved `null`, per the documented `scanOnce()` contract. Any other error still propagates.
+- The Google Barcode Scanner module isn't guaranteed to be installed/available at call time; the plugin's own docs say to check `isGoogleBarcodeScannerModuleAvailable()` before scanning and, if unavailable, kick off `installGoogleBarcodeScannerModule()` and surface a retryable error rather than letting the raw `ERROR_GOOGLE_BARCODE_SCANNER_MODULE_NOT_AVAILABLE` rejection propagate.
 
 - [ ] **Step 4: Manual verification on-device**
 
