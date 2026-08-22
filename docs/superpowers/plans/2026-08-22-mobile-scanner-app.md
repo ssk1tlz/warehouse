@@ -182,7 +182,7 @@ No git repo — skip.
 - Create: `D:\warehouse\mobile\www\js\format.js`
 
 **Interfaces:**
-- Produces: `getAssetStatus(asset: {status, quantity, retiredQuantity, repairQuantity, allocations}) -> string`, `STATUS_LABELS: Record<string,string>`, `MOVEMENT_LABELS: Record<string,string>`, `holderLabel(allocation: {employeeId, department, site}, employeesById: Map<string,{fullName}>) -> string`
+- Produces: `getAssetStatus(asset: {status, quantity, retiredQuantity, repairQuantity, allocations}) -> string`, `getAvailableQuantity(asset) -> number`, `getAllocatedQuantity(asset) -> number`, `STATUS_LABELS: Record<string,string>`, `MOVEMENT_LABELS: Record<string,string>`, `holderLabel(allocation: {employeeId, department, site}, employeesById: Map<string,{fullName}>) -> string`
 
 - [ ] **Step 1: Write the failing tests**
 

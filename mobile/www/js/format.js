@@ -39,11 +39,10 @@ function getAssetStatus(asset) {
 function holderLabel(allocation, employeesById) {
   if (allocation.employeeId) {
     const employee = employeesById.get(allocation.employeeId);
-    return employee ? employee.fullName : 'Сотрудник удалён';
+    return employee ? employee.fullName : 'Неизвестный сотрудник';
   }
-  if (allocation.department) return `Отдел «${allocation.department}»`;
-  if (allocation.site) return `Объект «${allocation.site}»`;
-  return 'Не закреплено';
+  if (allocation.site) return `Объект: ${allocation.site}`;
+  return allocation.department ? `Отдел: ${allocation.department}` : 'Неизвестно';
 }
 
 if (typeof module !== 'undefined' && module.exports) {
