@@ -26,6 +26,10 @@ CREATE TABLE IF NOT EXISTS pending_actions (
   client_action_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending', server_error TEXT, created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS movements (
+  id TEXT PRIMARY KEY, type TEXT NOT NULL, asset_id TEXT NOT NULL, employee_id TEXT,
+  department TEXT, site TEXT, act_number INTEGER, quantity INTEGER, date TEXT, notes TEXT
+);
 `;
 
 async function open() {
@@ -50,6 +54,7 @@ async function replaceState(state) {
     { statement: 'DELETE FROM departments' },
     { statement: 'DELETE FROM sites' },
     { statement: 'DELETE FROM allocations' },
+    { statement: 'DELETE FROM movements' },
   ];
   for (const a of state.assets) {
     txn.push({
@@ -77,6 +82,24 @@ async function replaceState(state) {
   }
   for (const s of state.sites) {
     txn.push({ statement: 'INSERT INTO sites (id, name) VALUES (?,?)', values: [s.id, s.name] });
+  }
+  // Cache only the last 3 movements per asset (matches spec section C). The server's
+  // /api/state already returns state.movements ordered newest-first (ORDER BY date DESC,
+  // id DESC), so grouping by assetId and taking the first 3 encountered per group gives
+  // the most recent 3 per asset without needing to sort here ourselves.
+  const movementsByAsset = new Map();
+  for (const m of state.movements || []) {
+    if (!movementsByAsset.has(m.assetId)) movementsByAsset.set(m.assetId, []);
+    const list = movementsByAsset.get(m.assetId);
+    if (list.length < 3) list.push(m);
+  }
+  for (const list of movementsByAsset.values()) {
+    for (const m of list) {
+      txn.push({
+        statement: 'INSERT INTO movements (id, type, asset_id, employee_id, department, site, act_number, quantity, date, notes) VALUES (?,?,?,?,?,?,?,?,?,?)',
+        values: [m.id, m.type, m.assetId, m.employeeId, m.department, m.site, m.actNumber, m.quantity, m.date, m.notes],
+      });
+    }
   }
   // executeTransaction() begins the transaction, runs each task with transaction:false,
   // commits on success, and rolls back + rejects on any failure — equivalent to (and safer
@@ -125,6 +148,28 @@ async function listEmployeesById() {
   ]));
 }
 
+async function listMovementsForAsset(assetId) {
+  // format.js's MOVEMENT_LABELS keys on `m.type` (camelCase-free, matches directly);
+  // normalize snake_case SQLite columns to the camelCase shape used everywhere else
+  // (assetId, employeeId, actNumber), same convention as getAssetById/listEmployeesById.
+  const result = await db.query(
+    'SELECT * FROM movements WHERE asset_id = ? ORDER BY date DESC, id DESC LIMIT 3',
+    [assetId]
+  );
+  return result.values.map((row) => ({
+    id: row.id,
+    type: row.type,
+    assetId: row.asset_id,
+    employeeId: row.employee_id,
+    department: row.department,
+    site: row.site,
+    actNumber: row.act_number,
+    quantity: row.quantity,
+    date: row.date,
+    notes: row.notes,
+  }));
+}
+
 function generateClientActionId() {
   // RFC-4122-ish v4 UUID, good enough as a dedup key — Capacitor's JS runtime
   // has crypto.randomUUID() on modern Android WebViews; fall back if not.
@@ -157,4 +202,4 @@ async function markActionFailed(clientActionId, error) {
   await db.run("UPDATE pending_actions SET status = 'failed', server_error = ? WHERE client_action_id = ?", [error, clientActionId]);
 }
 
-window.Db = { open, replaceState, getAssetById, listEmployeesById, enqueueAction, listPendingActions, markActionSynced, markActionFailed, generateClientActionId };
+window.Db = { open, replaceState, getAssetById, listEmployeesById, listMovementsForAsset, enqueueAction, listPendingActions, markActionSynced, markActionFailed, generateClientActionId };

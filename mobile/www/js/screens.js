@@ -38,6 +38,19 @@ async function openAssetScreen(assetId) {
     }
   }
 
+  const movementsEl = document.getElementById('assetMovements');
+  movementsEl.innerHTML = '';
+  const movements = await Db.listMovementsForAsset(assetId);
+  if (!movements.length) {
+    movementsEl.innerHTML = '<li>Нет движений</li>';
+  } else {
+    for (const m of movements) {
+      const li = document.createElement('li');
+      li.textContent = `${MOVEMENT_LABELS[m.type] || m.type} · ${m.date || '—'}`;
+      movementsEl.appendChild(li);
+    }
+  }
+
   const actionsEl = document.getElementById('assetActions');
   actionsEl.innerHTML = '';
   const available = getAvailableQuantity(asset);
