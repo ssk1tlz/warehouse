@@ -6,7 +6,7 @@
 
 **Architecture:** A Capacitor project (`mobile/`) wraps a small vanilla-JS web app. A local SQLite database (via `@capacitor-community/sqlite`) mirrors the server's assets/employees/allocations for offline viewing, plus a `pending_actions` queue for offline writes. On launch and on network reconnect, the app flushes the queue against `POST /api/mobile/action` (built in the companion plan) and then re-pulls `GET /api/state` to refresh the cache.
 
-**Tech Stack:** Capacitor 6 (Node.js/npm — first build step in this project), `@capacitor-community/sqlite`, `@capacitor-mlkit/barcode-scanning` (camera QR), `@capacitor/preferences` (connection settings storage), vanilla JS (no framework, no bundler beyond Capacitor's own asset copy step — consistent with the rest of the project).
+**Tech Stack:** Capacitor 8 (Node.js/npm — first build step in this project; the plan originally said "Capacitor 6" as a placeholder version, but Task 1's unpinned install command naturally resolved to the current stable major, 8.5.0 — accepted as correct, no v6-specific feature was ever load-bearing), `@capacitor-community/sqlite`, `@capacitor-mlkit/barcode-scanning` (camera QR), `@capacitor/preferences` (connection settings storage), vanilla JS (no framework, no bundler beyond Capacitor's own asset copy step — consistent with the rest of the project).
 
 **Spec:** `docs/superpowers/specs/2026-08-22-mobile-scanner-app-design.md` (sections A, C, D, E — section B is implemented by `docs/superpowers/plans/2026-08-22-mobile-action-api.md`, which this plan depends on and must be done first).
 
@@ -47,7 +47,7 @@
 - [ ] **Step 1: Confirm Node.js and npm are installed**
 
 Run: `node --version && npm --version`
-Expected: Node 18+ (Capacitor 6 requires it). If missing, stop and ask the user to install Node.js — this is the project's first Node dependency, don't silently assume it's there.
+Expected: Node 18+ (Capacitor 8 requires it). If missing, stop and ask the user to install Node.js — this is the project's first Node dependency, don't silently assume it's there.
 
 - [ ] **Step 2: Create the project and install Capacitor**
 
