@@ -35,39 +35,53 @@ async function open() {
 }
 
 async function replaceState(state) {
-  await db.execute('BEGIN TRANSACTION');
-  try {
-    await db.execute('DELETE FROM assets; DELETE FROM employees; DELETE FROM departments; DELETE FROM sites; DELETE FROM allocations;');
-    for (const a of state.assets) {
-      await db.run(
-        `INSERT INTO assets (id, name, category, inventory_number, serial_number, status, quantity,
-         repair_quantity, retired_quantity, location, purchase_date, warranty_end)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [a.id, a.name, a.category, a.inventoryNumber, a.serialNumber, a.status, a.quantity,
-         a.repairQuantity, a.retiredQuantity, a.location, a.purchaseDate, a.warrantyEnd]
-      );
-      for (const alloc of a.allocations || []) {
-        await db.run(
-          'INSERT INTO allocations (asset_id, employee_id, department, site, quantity) VALUES (?,?,?,?,?)',
-          [a.id, alloc.employeeId, alloc.department, alloc.site, alloc.quantity]
-        );
-      }
+  // NOTE: deliberately NOT using db.execute('BEGIN TRANSACTION'/'COMMIT'/'ROLLBACK') here.
+  // db.execute()/db.run() default their `transaction` parameter to true, which makes each
+  // call auto-open its own native transaction. A manual literal-SQL BEGIN would collide with
+  // that auto-open (Android's Database.beginTransaction() throws "Already in transaction" if
+  // one is already active) and the whole call would fail before anything ran. Instead we use
+  // the plugin's own SQLiteDBConnection.executeTransaction(txn) helper, which begins/commits/
+  // rolls back the transaction itself and passes `transaction: false` on every statement run
+  // inside it — this is the API the plugin is meant to be driven through for a multi-statement,
+  // multi-table transaction like this one.
+  const txn = [
+    { statement: 'DELETE FROM assets' },
+    { statement: 'DELETE FROM employees' },
+    { statement: 'DELETE FROM departments' },
+    { statement: 'DELETE FROM sites' },
+    { statement: 'DELETE FROM allocations' },
+  ];
+  for (const a of state.assets) {
+    txn.push({
+      statement: `INSERT INTO assets (id, name, category, inventory_number, serial_number, status, quantity,
+       repair_quantity, retired_quantity, location, purchase_date, warranty_end)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+      values: [a.id, a.name, a.category, a.inventoryNumber, a.serialNumber, a.status, a.quantity,
+        a.repairQuantity, a.retiredQuantity, a.location, a.purchaseDate, a.warrantyEnd],
+    });
+    for (const alloc of a.allocations || []) {
+      txn.push({
+        statement: 'INSERT INTO allocations (asset_id, employee_id, department, site, quantity) VALUES (?,?,?,?,?)',
+        values: [a.id, alloc.employeeId, alloc.department, alloc.site, alloc.quantity],
+      });
     }
-    for (const e of state.employees) {
-      await db.run('INSERT INTO employees (id, full_name, department, site) VALUES (?,?,?,?)',
-        [e.id, e.fullName, e.department, e.site]);
-    }
-    for (const d of state.departments) {
-      await db.run('INSERT INTO departments (id, name) VALUES (?,?)', [d.id, d.name]);
-    }
-    for (const s of state.sites) {
-      await db.run('INSERT INTO sites (id, name) VALUES (?,?)', [s.id, s.name]);
-    }
-    await db.execute('COMMIT');
-  } catch (err) {
-    await db.execute('ROLLBACK');
-    throw err;
   }
+  for (const e of state.employees) {
+    txn.push({
+      statement: 'INSERT INTO employees (id, full_name, department, site) VALUES (?,?,?,?)',
+      values: [e.id, e.fullName, e.department, e.site],
+    });
+  }
+  for (const d of state.departments) {
+    txn.push({ statement: 'INSERT INTO departments (id, name) VALUES (?,?)', values: [d.id, d.name] });
+  }
+  for (const s of state.sites) {
+    txn.push({ statement: 'INSERT INTO sites (id, name) VALUES (?,?)', values: [s.id, s.name] });
+  }
+  // executeTransaction() begins the transaction, runs each task with transaction:false,
+  // commits on success, and rolls back + rejects on any failure — equivalent to (and safer
+  // than) the manual begin/try/commit/catch/rollback pattern this replaces.
+  await db.executeTransaction(txn);
 }
 
 async function getAssetById(id) {
