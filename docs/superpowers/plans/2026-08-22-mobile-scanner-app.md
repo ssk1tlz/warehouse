@@ -589,7 +589,7 @@ window.Sync = { run, flushQueue, pullState };
 
 Start the server from the companion plan's Task 9 (or the real `server.py` in LAN mode), then in the app's WebView devtools console:
 ```javascript
-await Settings.set({ serverUrl: 'http://<lan-ip>:8765', password: '' }); // once Task 7 lands; until then, stub window.Settings = { get: async () => ({serverUrl:'http://<lan-ip>:8765', password:''}) }
+await Settings.set({ serverUrl: 'http://<lan-ip>:8766', password: '' }); // once Task 7 lands; until then, stub window.Settings = { get: async () => ({serverUrl:'http://<lan-ip>:8766', password:''}) }
 const result = await Sync.run();
 console.log(result); // expect { pulled: true, flushed: 0, failed: 0 } against an empty queue
 ```
@@ -728,8 +728,8 @@ window.Settings = { get, set };
 - [ ] **Step 3: Manual verification on-device**
 
 ```javascript
-await Settings.set({ serverUrl: 'http://192.168.1.50:8765/', password: 'test' });
-console.log(await Settings.get()); // expect { serverUrl: 'http://192.168.1.50:8765', password: 'test' } (trailing slash stripped)
+await Settings.set({ serverUrl: 'http://192.168.1.50:8766/', password: 'test' });
+console.log(await Settings.get()); // expect { serverUrl: 'http://192.168.1.50:8766', password: 'test' } (trailing slash stripped)
 ```
 
 - [ ] **Step 4: Commit**
@@ -764,7 +764,7 @@ Rewrite `D:\warehouse\mobile\www\index.html`:
 <body>
   <section id="screen-settings" class="screen">
     <h1>Подключение к складу</h1>
-    <label>Адрес сервера <input id="settingsUrl" placeholder="http://192.168.1.50:8765"></label>
+    <label>Адрес сервера <input id="settingsUrl" placeholder="http://192.168.1.50:8766"></label>
     <label>Пароль (если задан) <input id="settingsPassword" type="password"></label>
     <button id="settingsSaveBtn">Сохранить</button>
   </section>
@@ -991,7 +991,7 @@ No git repo — skip.
 
 - [ ] **Step 1: Online path**
 
-With the phone on the same Wi-Fi as the server (server running in LAN mode, `setup_lan.bat`): scan a label → issue it to an employee → confirm in the desktop app (or `curl http://<lan-ip>:8765/api/state`) that the allocation appears within a few seconds.
+With the phone on the same Wi-Fi as the server (server running in LAN mode, `setup_lan.bat`): scan a label → issue it to an employee → confirm in the desktop app (or `curl http://<lan-ip>:8766/api/state`) that the allocation appears within a few seconds.
 
 - [ ] **Step 2: Offline path**
 
