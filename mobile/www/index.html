@@ -1,5 +1,62 @@
 <!DOCTYPE html>
 <html>
-<head><meta charset="UTF-8"><title>Warehouse Scanner</title></head>
-<body><h1>Warehouse Scanner — placeholder</h1></body>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Warehouse Scanner</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <section id="screen-settings" class="screen">
+    <h1>Подключение к складу</h1>
+    <label>Адрес сервера <input id="settingsUrl" placeholder="http://192.168.1.50:8766"></label>
+    <label>Пароль (если задан) <input id="settingsPassword" type="password"></label>
+    <button id="settingsSaveBtn">Сохранить</button>
+  </section>
+
+  <section id="screen-scan" class="screen hidden">
+    <button id="scanBtn">Сканировать QR</button>
+    <button id="queueBtn">Очередь: <span id="queueCount">0</span></button>
+    <button id="settingsBtn">Настройки</button>
+  </section>
+
+  <section id="screen-asset" class="screen hidden">
+    <button id="assetBackBtn">‹ Назад</button>
+    <h1 id="assetName"></h1>
+    <p id="assetStatus" class="pill"></p>
+    <p id="assetMeta"></p>
+    <h2>Закреплено за</h2>
+    <ul id="assetHolders"></ul>
+    <h2>Последние движения</h2>
+    <ul id="assetMovements"></ul>
+    <div id="assetActions"></div>
+  </section>
+
+  <section id="screen-action" class="screen hidden">
+    <button id="actionBackBtn">‹ Назад</button>
+    <h1 id="actionTitle"></h1>
+    <form id="actionForm">
+      <label id="actionEmployeeField">Сотрудник <select id="actionEmployee"></select></label>
+      <label>Количество <input id="actionQuantity" type="number" min="1" value="1"></label>
+      <label>Дата <input id="actionDate" type="date"></label>
+      <label>Заметка <textarea id="actionNotes"></textarea></label>
+      <button type="submit">Подтвердить</button>
+    </form>
+  </section>
+
+  <section id="screen-queue" class="screen hidden">
+    <button id="queueBackBtn">‹ Назад</button>
+    <h1>Очередь синхронизации</h1>
+    <ul id="queueList"></ul>
+  </section>
+
+  <script src="js/qr.js"></script>
+  <script src="js/format.js"></script>
+  <script src="js/db.js"></script>
+  <script src="js/settings.js"></script>
+  <script src="js/sync.js"></script>
+  <script src="js/scanner.js"></script>
+  <script src="js/screens.js"></script>
+  <script>App.init();</script>
+</body>
 </html>
