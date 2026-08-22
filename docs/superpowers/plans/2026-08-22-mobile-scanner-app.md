@@ -324,7 +324,9 @@ No git repo — skip.
 - Modify: `D:\warehouse\mobile\package.json` (new dependency)
 
 **Interfaces:**
-- Produces: `Db.open() -> Promise<void>`, `Db.replaceState(state: {assets, employees, departments, sites}) -> Promise<void>` (wipes and reloads the 4 cache tables in one transaction), `Db.getAssetById(id: string) -> Promise<object|null>` (asset + resolved allocations, ready for the detail screen), `Db.listEmployeesById() -> Promise<Map<string,{id,full_name,department,site}>>` (for resolving allocation holder names on the detail screen), `Db.enqueueAction(action: object) -> Promise<string>` (generates and returns `clientActionId`, inserts a `pending` row), `Db.listPendingActions() -> Promise<object[]>`, `Db.markActionSynced(clientActionId: string) -> Promise<void>`, `Db.markActionFailed(clientActionId: string, error: string) -> Promise<void>`
+- Produces: `Db.open() -> Promise<void>`, `Db.replaceState(state: {assets, employees, departments, sites, movements}) -> Promise<void>` (wipes and reloads the cache tables in one transaction, including the last 3 movements per asset), `Db.getAssetById(id: string) -> Promise<object|null>` (asset + resolved allocations, ready for the detail screen), `Db.listEmployeesById() -> Promise<Map<string,{id,full_name,department,site}>>` (for resolving allocation holder names on the detail screen), `Db.listMovementsForAsset(assetId: string) -> Promise<object[]>` (last 3 movements for one asset, newest first — per spec sections C/D), `Db.enqueueAction(action: object) -> Promise<string>` (generates and returns `clientActionId`, inserts a `pending` row), `Db.listPendingActions() -> Promise<object[]>`, `Db.markActionSynced(clientActionId: string) -> Promise<void>`, `Db.markActionFailed(clientActionId: string, error: string) -> Promise<void>`
+
+**Note (added post-Task-8-review):** the code block below is the ORIGINAL Task 4 text and is now stale in two ways: (1) `replaceState`'s literal `BEGIN TRANSACTION`/`COMMIT`/`ROLLBACK` was a real bug, fixed in the shipped `db.js` to use the plugin's `executeTransaction()` helper instead (see Task 4's ledger entry) — the code below does NOT reflect that fix; (2) it has no `movements` table or `listMovementsForAsset`, added in a Task 8 fix round. The shipped `mobile/www/js/db.js` is the source of truth for both; this block is kept for historical context of the original design, not as an accurate transcription target.
 
 - [ ] **Step 1: Install the SQLite plugin**
 
@@ -365,6 +367,10 @@ CREATE TABLE IF NOT EXISTS allocations (
 CREATE TABLE IF NOT EXISTS pending_actions (
   client_action_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending', server_error TEXT, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS movements (
+  id TEXT PRIMARY KEY, type TEXT NOT NULL, asset_id TEXT NOT NULL, employee_id TEXT,
+  department TEXT, site TEXT, act_number INTEGER, quantity INTEGER, date TEXT, notes TEXT
 );
 `;
 
@@ -483,7 +489,26 @@ async function markActionFailed(clientActionId, error) {
   await db.run("UPDATE pending_actions SET status = 'failed', server_error = ? WHERE client_action_id = ?", [error, clientActionId]);
 }
 
-window.Db = { open, replaceState, getAssetById, listEmployeesById, enqueueAction, listPendingActions, markActionSynced, markActionFailed, generateClientActionId };
+async function listMovementsForAsset(assetId) {
+  const result = await db.query(
+    'SELECT * FROM movements WHERE asset_id = ? ORDER BY date DESC, id DESC LIMIT 3',
+    [assetId]
+  );
+  return result.values.map((row) => ({
+    id: row.id,
+    type: row.type,
+    assetId: row.asset_id,
+    employeeId: row.employee_id,
+    department: row.department,
+    site: row.site,
+    actNumber: row.act_number,
+    quantity: row.quantity,
+    date: row.date,
+    notes: row.notes,
+  }));
+}
+
+window.Db = { open, replaceState, getAssetById, listEmployeesById, listMovementsForAsset, enqueueAction, listPendingActions, markActionSynced, markActionFailed, generateClientActionId };
 ```
 
 - [ ] **Step 3: Manual verification on-device (no automated test — this talks to a native plugin the Node test runner can't load)**
@@ -746,7 +771,7 @@ No git repo — skip.
 - Create: `D:\warehouse\mobile\www\style.css`
 
 **Interfaces:**
-- Consumes: `Scanner.scanOnce` (Task 6), `Db.getAssetById`, `Db.listEmployeesById`, `Db.enqueueAction`, `Db.listPendingActions` (Task 4), `Sync.run` (Task 5), `Settings.get`/`Settings.set` (Task 7), `getAssetStatus`/`getAvailableQuantity`/`STATUS_LABELS`/`MOVEMENT_LABELS`/`holderLabel` (Task 3)
+- Consumes: `Scanner.scanOnce` (Task 6), `Db.getAssetById`, `Db.listEmployeesById`, `Db.listMovementsForAsset`, `Db.enqueueAction`, `Db.listPendingActions` (Task 4), `Sync.run` (Task 5), `Settings.get`/`Settings.set` (Task 7), `getAssetStatus`/`getAvailableQuantity`/`STATUS_LABELS`/`MOVEMENT_LABELS`/`holderLabel` (Task 3)
 - Produces: `App.init() -> Promise<void>` — wires up the four `<section>`s in `index.html`, called once from an inline `<script>` at the bottom of the page (mirrors how `app.js`'s `init()` is the last thing that runs, per the existing project's convention).
 
 - [ ] **Step 1: Replace the placeholder shell**
@@ -872,6 +897,19 @@ async function openAssetScreen(assetId) {
       const li = document.createElement('li');
       li.textContent = `${holderLabel(alloc, employees)} — ${alloc.quantity} шт.`;
       holdersEl.appendChild(li);
+    }
+  }
+
+  const movementsEl = document.getElementById('assetMovements');
+  movementsEl.innerHTML = '';
+  const movements = await Db.listMovementsForAsset(assetId);
+  if (!movements.length) {
+    movementsEl.innerHTML = '<li>Нет движений</li>';
+  } else {
+    for (const m of movements) {
+      const li = document.createElement('li');
+      li.textContent = `${MOVEMENT_LABELS[m.type] || m.type} · ${m.date || '—'}`;
+      movementsEl.appendChild(li);
     }
   }
 
