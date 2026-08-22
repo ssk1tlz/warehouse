@@ -1,5 +1,13 @@
 {
   "appId": "com.warehouse.scanner",
   "appName": "Warehouse Scanner",
-  "webDir": "www"
+  "webDir": "www",
+  "server": {
+    "androidScheme": "http"
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
 }

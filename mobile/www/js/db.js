@@ -1,8 +1,7 @@
-const { CapacitorSQLite, SQLiteConnection } = window.CapacitorSQLitePlugin
-  ? { CapacitorSQLite: window.CapacitorSQLitePlugin, SQLiteConnection: window.SQLiteConnection }
-  : Capacitor.Plugins.CapacitorSQLite
-    ? { CapacitorSQLite: Capacitor.Plugins.CapacitorSQLite, SQLiteConnection: window.SQLiteConnection }
-    : (() => { throw new Error('@capacitor-community/sqlite plugin not found — did npx cap sync run?'); })();
+if (!window.capacitorCapacitorSQLite) {
+  throw new Error('@capacitor-community/sqlite plugin bundle not loaded — check index.html script tags.');
+}
+const { CapacitorSQLite, SQLiteConnection } = window.capacitorCapacitorSQLite;
 
 const sqliteConnection = new SQLiteConnection(CapacitorSQLite);
 const DB_NAME = 'warehouse_cache';
@@ -202,4 +201,8 @@ async function markActionFailed(clientActionId, error) {
   await db.run("UPDATE pending_actions SET status = 'failed', server_error = ? WHERE client_action_id = ?", [error, clientActionId]);
 }
 
-window.Db = { open, replaceState, getAssetById, listEmployeesById, listMovementsForAsset, enqueueAction, listPendingActions, markActionSynced, markActionFailed, generateClientActionId };
+async function retryAction(clientActionId) {
+  await db.run("UPDATE pending_actions SET status = 'pending', server_error = NULL WHERE client_action_id = ?", [clientActionId]);
+}
+
+window.Db = { open, replaceState, getAssetById, listEmployeesById, listMovementsForAsset, enqueueAction, listPendingActions, markActionSynced, markActionFailed, retryAction, generateClientActionId };

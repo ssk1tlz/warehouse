@@ -1,6 +1,8 @@
 async function authHeader(settings) {
   if (!settings.password) return {};
-  const encoded = btoa(`:${settings.password}`);
+  const bytes = new TextEncoder().encode(`:${settings.password}`);
+  const binary = String.fromCharCode(...bytes);
+  const encoded = btoa(binary);
   return { Authorization: `Basic ${encoded}` };
 }
 

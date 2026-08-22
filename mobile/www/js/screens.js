@@ -101,9 +101,15 @@ async function submitAction(event) {
     date: document.getElementById('actionDate').value,
     notes: document.getElementById('actionNotes').value,
   };
+  if (currentActionType === 'repair') {
+    payload.sourceType = payload.employeeId ? 'employee' : 'warehouse';
+  }
+  if (currentActionType === 'repair_return') {
+    payload.targetType = payload.employeeId ? 'employee' : 'warehouse';
+  }
   await Db.enqueueAction(payload);
   await refreshQueueCount();
-  Sync.run(); // fire-and-forget — succeeds immediately if online, otherwise stays queued
+  Sync.run().then(refreshQueueCount); // fire-and-forget, but still refresh the badge once sync settles
   showScreen('screen-scan');
 }
 
@@ -118,6 +124,16 @@ async function openQueueScreen() {
       const li = document.createElement('li');
       const statusText = row.status === 'failed' ? `Ошибка: ${row.server_error}` : 'Ждёт отправки';
       li.textContent = `${MOVEMENT_LABELS[row.payload.type]} · ${row.payload.assetId} · ${statusText}`;
+      if (row.status === 'failed') {
+        const retryBtn = document.createElement('button');
+        retryBtn.textContent = 'Повторить';
+        retryBtn.addEventListener('click', async () => {
+          await Db.retryAction(row.client_action_id);
+          await openQueueScreen();
+          Sync.run().then(refreshQueueCount);
+        });
+        li.appendChild(retryBtn);
+      }
       listEl.appendChild(li);
     }
   }
@@ -157,9 +173,13 @@ async function init() {
   });
 
   document.getElementById('scanBtn').addEventListener('click', async () => {
-    const assetId = await Scanner.scanOnce();
-    if (!assetId) return; // cancelled or not a warehouse QR
-    await openAssetScreen(assetId);
+    try {
+      const assetId = await Scanner.scanOnce();
+      if (!assetId) return; // cancelled or not a warehouse QR
+      await openAssetScreen(assetId);
+    } catch (error) {
+      alert(error && error.message ? error.message : 'Не удалось выполнить сканирование.');
+    }
   });
 
   document.getElementById('queueBtn').addEventListener('click', openQueueScreen);
