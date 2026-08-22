@@ -842,6 +842,7 @@ function showScreen(id) {
 
 let currentAssetId = null;
 let currentActionType = null;
+let currentEmployees = null;
 
 async function refreshQueueCount() {
   const pending = await Db.listPendingActions();
@@ -856,6 +857,7 @@ async function openAssetScreen(assetId) {
   }
   currentAssetId = assetId;
   const employees = await Db.listEmployeesById();
+  currentEmployees = employees;
   document.getElementById('assetName').textContent = asset.name;
   document.getElementById('assetStatus').textContent = STATUS_LABELS[getAssetStatus(asset)] || asset.status;
   document.getElementById('assetMeta').textContent =
@@ -895,8 +897,18 @@ function addActionButton(container, type, label) {
 function openActionScreen(type) {
   currentActionType = type;
   document.getElementById('actionTitle').textContent = MOVEMENT_LABELS[type];
-  document.getElementById('actionEmployeeField').style.display =
-    (type === 'issue' || type === 'return' || type === 'repair' || type === 'repair_return') ? '' : 'none';
+  const needsEmployee = (type === 'issue' || type === 'return' || type === 'repair' || type === 'repair_return');
+  document.getElementById('actionEmployeeField').style.display = needsEmployee ? '' : 'none';
+  if (needsEmployee) {
+    const select = document.getElementById('actionEmployee');
+    select.innerHTML = '';
+    for (const [id, employee] of currentEmployees) {
+      const option = document.createElement('option');
+      option.value = id;
+      option.textContent = employee.fullName;
+      select.appendChild(option);
+    }
+  }
   document.getElementById('actionDate').value = new Date().toISOString().slice(0, 10);
   showScreen('screen-action');
 }
@@ -962,7 +974,12 @@ async function init() {
   });
 
   document.getElementById('queueBtn').addEventListener('click', openQueueScreen);
-  document.getElementById('settingsBtn').addEventListener('click', () => showScreen('screen-settings'));
+  document.getElementById('settingsBtn').addEventListener('click', async () => {
+    const currentSettings = await Settings.get();
+    document.getElementById('settingsUrl').value = currentSettings.serverUrl;
+    document.getElementById('settingsPassword').value = currentSettings.password;
+    showScreen('screen-settings');
+  });
   document.getElementById('assetBackBtn').addEventListener('click', () => showScreen('screen-scan'));
   document.getElementById('actionBackBtn').addEventListener('click', () => showScreen('screen-asset'));
   document.getElementById('queueBackBtn').addEventListener('click', () => showScreen('screen-scan'));
