@@ -91,7 +91,9 @@ async function apiFetch(path, options = {}) {
     localStorage.removeItem("authToken");
     localStorage.removeItem("userRole");
     showAuthOverlay("login");
-    throw new Error("Сессия истекла — войдите снова.");
+    const error = new Error("Сессия истекла — войдите снова.");
+    error.sessionExpired = true;
+    throw error;
   }
   return response;
 }
@@ -103,6 +105,13 @@ function showAuthOverlay(mode) {
   document.getElementById("authSubmitBtn").textContent = mode === "setup" ? "Создать" : "Войти";
   overlay.dataset.mode = mode;
   overlay.classList.remove("hidden");
+  // authOverlay shares the same z-index as every other standalone overlay
+  // (modal-overlay/confirm-overlay), so a token expiring while one of those
+  // is open could otherwise paint on top of the forced-relogin screen.
+  // Force every other overlay closed so the login/setup screen always wins.
+  document.querySelectorAll(".modal-overlay, .confirm-overlay").forEach((el) => {
+    if (el !== overlay) el.classList.add("hidden");
+  });
 }
 
 function hideAuthOverlay() {
@@ -4504,6 +4513,12 @@ async function boot() {
     state = await loadState();
     rebuildLookupMaps();
   } catch (error) {
+    if (error.sessionExpired) {
+      // apiFetch already cleared the token and showed the login overlay —
+      // that's the correct UI response on its own; don't also flash a
+      // "can't connect" toast or reset the app to an empty state under it.
+      return;
+    }
     console.error(error);
     showToast('Не удалось подключиться к серверу. Запускайте через start_server.bat.', 'error');
     state = createEmptyState();
