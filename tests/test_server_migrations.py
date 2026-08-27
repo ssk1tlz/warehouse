@@ -139,3 +139,11 @@ def test_init_db_does_not_create_a_backup_for_a_brand_new_database(tmp_path, mon
     monkeypatch.setattr(server, "BACKUP_DIR", backup_dir)
     server.init_db()
     assert not backup_dir.exists() or not list(backup_dir.glob("pre_migration_*.db"))
+
+
+def test_get_connection_enables_wal_mode(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "DB_PATH", tmp_path / "warehouse.db")
+    server.init_db()
+    connection = server.get_connection()
+    mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
+    assert mode.lower() == "wal"
