@@ -92,3 +92,8 @@ CREATE TABLE IF NOT EXISTS mobile_action_log (
   response_json TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS schema_version (
+  version INTEGER PRIMARY KEY,
+  applied_at TEXT NOT NULL
+);
