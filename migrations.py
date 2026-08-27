@@ -118,6 +118,23 @@ def _migrate_020_mobile_action_log_table(c):
     )
 
 
+def _migrate_021_users_table(c):
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            salt TEXT NOT NULL,
+            iterations INTEGER NOT NULL,
+            role TEXT NOT NULL CHECK (role IN ('admin','storekeeper','viewer')),
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+
+
 MIGRATIONS: list[Migration] = [
     (1, "assets.repair_quantity", _migrate_001),
     (2, "assets.retired_quantity", _migrate_002),
@@ -139,6 +156,7 @@ MIGRATIONS: list[Migration] = [
     (18, "audit_log table", _migrate_018_audit_log_table),
     (19, "kit_templates table", _migrate_019_kit_templates_table),
     (20, "mobile_action_log table", _migrate_020_mobile_action_log_table),
+    (21, "users table", _migrate_021_users_table),
 ]
 
 
