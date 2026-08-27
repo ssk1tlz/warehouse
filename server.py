@@ -76,54 +76,55 @@ def _prune_backups() -> None:
         old.unlink(missing_ok=True)
 
 
-def _checkpoint_wal() -> None:
-    """Flush pending WAL frames into DB_PATH before it is plain-file-copied.
+def _copy_database(source_path: Path, dest_path: Path) -> None:
+    """Snapshot a SQLite database file using SQLite's own online backup API.
 
-    Every connection runs in WAL mode (Task B1), so recently committed data can
-    live only in warehouse.db-wal, not in warehouse.db itself, until SQLite's
-    own size-based auto-checkpoint kicks in. A shutil.copy2() of DB_PATH alone
-    would then silently produce a backup missing that data (or even missing
-    whole tables). Best-effort: if DB_PATH isn't a valid database yet (fresh
-    install, or already corrupt), leave it to the copy/integrity-check below.
+    A plain shutil.copy2() of DB_PATH is not safe while the server is running.
+    Every connection runs in WAL mode (Task B1), so committed data can live
+    only in warehouse.db-wal — a file copy of warehouse.db alone silently
+    produces a backup missing that data — and SQLite's own size-based
+    auto-checkpoint can rewrite warehouse.db *while* the copy is in progress,
+    tearing it. Connection.backup() is WAL-aware and serializes against
+    concurrent writers, so it always yields one self-contained, consistent file
+    with no -wal/-shm sidecars of its own.
+
+    Best-effort fallback: if the source isn't readable as a database at all
+    (fresh/corrupt file), fall back to a plain copy so that e.g.
+    pre_restore_backup() still preserves whatever is there before it's
+    overwritten — exactly what the old shutil.copy2() did.
     """
+    source = sqlite3.connect(source_path)
     try:
-        connection = sqlite3.connect(DB_PATH)
+        destination = sqlite3.connect(dest_path)
         try:
-            busy, _log_frames, checkpointed = connection.execute(
-                "PRAGMA wal_checkpoint(TRUNCATE)"
-            ).fetchone()
-            if busy:
-                # A concurrent reader (e.g. GET /api/state, which doesn't take
-                # STATE_LOCK) can hold back a full TRUNCATE checkpoint. The
-                # checkpoint isn't fatal — it just may not have flushed every
-                # frame — but silently claiming success would hide exactly the
-                # kind of gap this function exists to close, so surface it.
-                print(
-                    "ПРЕДУПРЕЖДЕНИЕ: не удалось полностью зафиксировать WAL перед "
-                    f"копированием базы (busy={busy}, checkpointed={checkpointed})."
-                )
+            source.backup(destination)
         finally:
-            connection.close()
+            destination.close()
     except sqlite3.DatabaseError as exc:
         # As in init_db() and handle_restore_backup(): a raw sqlite3.DatabaseError
-        # (not a more specific subclass like OperationalError/IntegrityError) means
-        # SQLite couldn't even read the file as a database — fresh install, or
-        # already corrupt — safe to skip and let the copy/integrity-check below
-        # handle it. Subclasses indicate a real problem (e.g. "database is
-        # locked") and must not be swallowed.
+        # (not a more specific subclass like OperationalError/IntegrityError)
+        # means SQLite couldn't even read the file as a database. Subclasses
+        # indicate a real problem and must not be swallowed.
         if type(exc) is not sqlite3.DatabaseError:
             raise
+        print(
+            f"ПРЕДУПРЕЖДЕНИЕ: {source_path} не читается как база данных ({exc}) — "
+            "копирую файл как есть."
+        )
+        dest_path.unlink(missing_ok=True)
+        shutil.copy2(source_path, dest_path)
+    finally:
+        source.close()
 
 
 def auto_backup() -> str | None:
     """Create a timestamped backup of the database file."""
     if not DB_PATH.exists():
         return None
-    _checkpoint_wal()
     BACKUP_DIR.mkdir(exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     dest = BACKUP_DIR / f"warehouse_{stamp}.db"
-    shutil.copy2(DB_PATH, dest)
+    _copy_database(DB_PATH, dest)
     _prune_backups()
     return str(dest)
 
@@ -132,11 +133,10 @@ def pre_migration_backup() -> str | None:
     """Separate, clearly-labeled backup taken only when migrations are about to run."""
     if not DB_PATH.exists():
         return None
-    _checkpoint_wal()
     BACKUP_DIR.mkdir(exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     dest = BACKUP_DIR / f"pre_migration_{stamp}.db"
-    shutil.copy2(DB_PATH, dest)
+    _copy_database(DB_PATH, dest)
     _prune_backups()
     return str(dest)
 
@@ -145,11 +145,10 @@ def pre_restore_backup() -> str | None:
     """Snapshot of the current DB taken right before a one-click restore overwrites it."""
     if not DB_PATH.exists():
         return None
-    _checkpoint_wal()
     BACKUP_DIR.mkdir(exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     dest = BACKUP_DIR / f"pre_restore_{stamp}.db"
-    shutil.copy2(DB_PATH, dest)
+    _copy_database(DB_PATH, dest)
     _prune_backups()
     return str(dest)
 
@@ -230,6 +229,18 @@ def get_connection() -> sqlite3.Connection:
     return connection
 
 
+class DatabaseIntegrityError(RuntimeError):
+    """Raised by init_db() when warehouse.db fails PRAGMA integrity_check.
+
+    Deliberately a RuntimeError (i.e. an Exception) rather than SystemExit:
+    warehouse_tray.py — the shipped EXE's launch path, built with
+    console=False — wraps init_db() in `except Exception`, and a SystemExit
+    would sail straight past it and kill the app with no window, no tray icon
+    and no message anywhere. `str(exc)` is the full Russian message meant to be
+    shown to the user as-is.
+    """
+
+
 def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     is_fresh_install = not DB_PATH.exists()
@@ -252,7 +263,7 @@ def init_db() -> None:
         result = str(exc)
     if result != "ok":
         available = "\n".join(f"  - {b['filename']} ({b['createdAt']})" for b in list_backups())
-        raise SystemExit(
+        raise DatabaseIntegrityError(
             "ОШИБКА: проверка целостности базы данных не пройдена "
             f"({result}).\n"
             f"База данных: {DB_PATH}\n"
@@ -995,7 +1006,26 @@ class WarehouseHandler(BaseHTTPRequestHandler):
                     self.send_json_error(HTTPStatus.BAD_REQUEST, "Файл резервной копии повреждён.")
                     return
                 pre_restore_backup()
-                shutil.copy2(tmp_path, DB_PATH)
+                # NOT shutil.copy2(): overwriting warehouse.db as a plain file
+                # leaves warehouse.db-wal/-shm behind, and any write that lands
+                # between here and the next open of warehouse.db (e.g.
+                # auth.validate_token()'s "UPDATE sessions SET last_used_at",
+                # which runs on every authenticated request and does NOT take
+                # STATE_LOCK) is replayed from that stale WAL on top of the
+                # freshly restored file — silently reverting or corrupting the
+                # restore. Connection.backup() writes through a live connection
+                # to warehouse.db instead, so the WAL stays consistent with the
+                # restored content.
+                source = sqlite3.connect(tmp_path)
+                try:
+                    destination = get_connection()
+                    try:
+                        with destination:
+                            source.backup(destination)
+                    finally:
+                        destination.close()
+                finally:
+                    source.close()
             finally:
                 tmp_path.unlink(missing_ok=True)
             with get_connection() as connection:
@@ -1054,7 +1084,14 @@ def get_lan_ip() -> str | None:
 
 
 def main() -> None:
-    init_db()
+    try:
+        init_db()
+    except DatabaseIntegrityError as exc:
+        # Console launch path (python server.py / start_server.bat): keep the
+        # old SystemExit behaviour — print the message, exit non-zero.
+        # warehouse_tray.py (no console) handles this exception itself.
+        print(str(exc))
+        sys.exit(1)
     server = ThreadingHTTPServer((HOST, PORT), WarehouseHandler)
     print(f"Warehouse app running at http://{HOST}:{PORT}")
     if HOST == "0.0.0.0":

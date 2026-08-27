@@ -3545,7 +3545,7 @@ function bindEvents() {
     const btn = e.target.closest("button[data-action='restore-backup']");
     if (!btn) return;
     const filename = btn.closest("tr").dataset.filename;
-    if (!(await showConfirm(`Восстановить базу данных из «${filename}»? Текущее состояние будет сохранено как резервная копия перед откатом.`))) return;
+    if (!(await showConfirm(`Восстановить базу данных из «${filename}»? Откатится вся база, включая пользователей, сессии и привязанные телефоны — может потребоваться повторный вход и повторная привязка. Текущее состояние будет сохранено как резервная копия перед откатом.`))) return;
     const response = await apiFetch("/api/backups/restore", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

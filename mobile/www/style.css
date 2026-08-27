@@ -281,8 +281,12 @@ li {
   padding: 10px 14px;
   border-radius: 8px;
   font-size: 13px;
-  color: #fff;
-  background: var(--text, #222);
+  /* Тема тёмная: --text это почти белый #e8edf5, поэтому фон берём из
+     --surface-3 (#253348), а не из --text — иначе белый текст на почти
+     белом фоне (контраст ~1.09:1) и тост не виден. */
+  color: var(--text);
+  background: var(--surface-3);
+  border: 1px solid var(--line-2);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 .toast-error { background: #b3261e; }

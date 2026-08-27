@@ -7,6 +7,7 @@ import subprocess
 import webbrowser
 import socket
 import json
+from datetime import datetime
 from pathlib import Path
 from threading import Thread
 import os
@@ -170,6 +171,7 @@ class WarehouseApp:
             # Создаем HTTP-сервер сами, чтобы корректно останавливать его при выходе
             import server
             server.init_db()
+            self.clear_startup_error()
             # server.HOST берется из config.json (127.0.0.1 или 0.0.0.0 для сети)
             self.httpd = server.ThreadingHTTPServer((server.HOST, server.PORT), server.WarehouseHandler)
 
@@ -190,12 +192,43 @@ class WarehouseApp:
         except Exception as e:
             print(f"Ошибка запуска сервера: {e}")
             self.httpd = None
+            # Всплывающее уведомление в трее легко пропустить (а в некоторых
+            # окружениях оно вообще не появляется), поэтому длинное сообщение о
+            # повреждённой базе дополнительно сохраняем в файл рядом с копиями.
+            self.write_startup_error(e)
             self.tray_icon.showMessage(
                 "Ошибка",
                 f"Не удалось запустить сервер: {e}",
                 QSystemTrayIcon.Critical,
                 5000
             )
+
+    def _startup_error_file(self):
+        import server
+        return server.BACKUP_DIR / "ОШИБКА_БАЗЫ.txt"
+
+    def clear_startup_error(self):
+        """Удалить файл с прошлой ошибкой, чтобы он не путал после успешного запуска"""
+        try:
+            self._startup_error_file().unlink(missing_ok=True)
+        except Exception as e:
+            print(f"Не удалось удалить старый файл с описанием ошибки: {e}")
+
+    def write_startup_error(self, error):
+        """Сохранить сообщение об ошибке запуска в backups/ОШИБКА_БАЗЫ.txt"""
+        try:
+            import server
+            if not isinstance(error, server.DatabaseIntegrityError):
+                return
+            server.BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+            report = self._startup_error_file()
+            report.write_text(
+                f"{datetime.now().isoformat(timespec='seconds')}\n{error}\n",
+                encoding="utf-8",
+            )
+            print(f"Подробности сохранены в {report}")
+        except Exception as e:
+            print(f"Не удалось сохранить файл с описанием ошибки: {e}")
 
     def wait_for_server_start(self):
         """Ожидание запуска сервера (поллинг порта из главного потока Qt)"""

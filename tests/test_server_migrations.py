@@ -189,13 +189,24 @@ def test_init_db_refuses_to_start_on_corrupt_database(tmp_path, monkeypatch):
     db_path.write_bytes(b"not a real sqlite file")
     monkeypatch.setattr(server, "DB_PATH", db_path)
     monkeypatch.setattr(server, "BACKUP_DIR", tmp_path / "backups")
-    with pytest.raises(SystemExit):
+    # DatabaseIntegrityError, NOT SystemExit: SystemExit derives from
+    # BaseException, so warehouse_tray.py's `except Exception` around
+    # init_db() would not catch it and the console-less EXE would die
+    # silently — no window, no tray icon, no message.
+    with pytest.raises(server.DatabaseIntegrityError):
         server.init_db()
+
+
+def test_database_integrity_error_is_catchable_as_a_plain_exception():
+    # Guards the whole point of Critical 2: warehouse_tray.py's start_server()
+    # catches `Exception`, so this must not go back to being a SystemExit.
+    assert issubclass(server.DatabaseIntegrityError, Exception)
+    assert not issubclass(server.DatabaseIntegrityError, SystemExit)
 
 
 def test_init_db_does_not_mask_a_real_migration_bug_as_corruption(tmp_path, monkeypatch):
     # init_db() catches sqlite3.DatabaseError to turn raw "file is not a
-    # database" errors (file corruption) into a clean SystemExit — but
+    # database" errors (file corruption) into a clean DatabaseIntegrityError — but
     # it must NOT swallow subclasses like IntegrityError/OperationalError,
     # which mean a real bug (e.g. in a migration), not a corrupt file. If the
     # `except sqlite3.DatabaseError` in init_db() is ever loosened to catch
