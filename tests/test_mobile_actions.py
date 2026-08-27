@@ -388,7 +388,7 @@ def test_apply_retire_rejects_insufficient_available(conn):
 
 def test_apply_edit_updates_editable_fields_and_logs_movement(conn):
     mobile_actions.apply_edit(conn, {
-        "assetId": "ast_1", "name": "Ноутбук Dell XPS", "category": "Ноутбуки премиум",
+        "assetId": "ast_1", "baseRev": 0, "name": "Ноутбук Dell XPS", "category": "Ноутбуки премиум",
         "inventoryNumber": "INV-002", "serialNumber": "SN-002", "location": "Каб. 305",
         "purchaseDate": "2026-02-01", "warrantyEnd": "2028-02-01",
     })
@@ -414,7 +414,7 @@ def test_apply_edit_does_not_touch_quantity_or_allocations(conn):
         "VALUES ('ast_1', 'emp_1', '', '', 2)"
     )
     mobile_actions.apply_edit(conn, {
-        "assetId": "ast_1", "name": "Ноутбук Dell", "category": "Ноутбуки",
+        "assetId": "ast_1", "baseRev": 0, "name": "Ноутбук Dell", "category": "Ноутбуки",
         "inventoryNumber": "INV-001", "serialNumber": "SN-001", "location": "",
         "purchaseDate": "2026-01-01", "warrantyEnd": "",
     })
@@ -442,12 +442,13 @@ def test_apply_edit_rejects_unknown_asset(conn):
 def test_apply_action_dispatches_edit(conn):
     result = mobile_actions.apply_action(conn, {
         "clientActionId": "44444444-4444-4444-4444-444444444444",
-        "type": "edit", "assetId": "ast_1", "name": "Ноутбук Dell Renamed",
+        "type": "edit", "assetId": "ast_1", "baseRev": 0, "name": "Ноутбук Dell Renamed",
         "category": "Ноутбуки", "inventoryNumber": "INV-001", "serialNumber": "SN-001",
         "location": "", "purchaseDate": "2026-01-01", "warrantyEnd": "",
     })
     assert result["assetId"] == "ast_1"
     assert result["replayed"] is False
+    assert result["rev"] == 1
     asset = conn.execute("SELECT name FROM assets WHERE id='ast_1'").fetchone()
     assert asset["name"] == "Ноутбук Dell Renamed"
 
@@ -494,6 +495,51 @@ def test_apply_issue_raises_integrity_error_for_unknown_employee(conn):
             "assetId": "ast_1", "employeeId": "emp_ghost", "department": "", "site": "",
             "quantity": 1, "date": "2026-08-22", "notes": "",
         })
+
+
+def test_apply_edit_succeeds_with_matching_base_rev_and_bumps_rev(conn):
+    action = {
+        "clientActionId": "c1", "type": "edit", "assetId": "ast_1",
+        "baseRev": 0, "name": "Новое имя", "category": "", "inventoryNumber": "",
+        "serialNumber": "", "location": "", "purchaseDate": "", "warrantyEnd": "",
+    }
+    result = mobile_actions.apply_action(conn, action)
+    assert result["rev"] == 1
+    row = conn.execute("SELECT name, rev FROM assets WHERE id='ast_1'").fetchone()
+    assert row["name"] == "Новое имя"
+    assert row["rev"] == 1
+
+
+def test_apply_edit_rejects_stale_base_rev(conn):
+    action = {
+        "clientActionId": "c1", "type": "edit", "assetId": "ast_1",
+        "baseRev": 5, "name": "Новое имя", "category": "", "inventoryNumber": "",
+        "serialNumber": "", "location": "", "purchaseDate": "", "warrantyEnd": "",
+    }
+    with pytest.raises(mobile_actions.EditConflictError) as excinfo:
+        mobile_actions.apply_action(conn, action)
+    assert excinfo.value.current_asset["rev"] == 0
+    assert excinfo.value.current_asset["name"] == "Ноутбук Dell"  # seeded name, unchanged
+
+
+def test_apply_edit_requires_base_rev(conn):
+    action = {
+        "clientActionId": "c1", "type": "edit", "assetId": "ast_1",
+        "name": "Новое имя", "category": "", "inventoryNumber": "",
+        "serialNumber": "", "location": "", "purchaseDate": "", "warrantyEnd": "",
+    }
+    with pytest.raises(mobile_actions.MobileActionError):
+        mobile_actions.apply_action(conn, action)
+
+
+def test_apply_issue_does_not_change_rev(conn):
+    action = {
+        "clientActionId": "c1", "type": "issue", "assetId": "ast_1",
+        "employeeId": "emp_1", "quantity": 1,
+    }
+    mobile_actions.apply_action(conn, action)
+    row = conn.execute("SELECT rev FROM assets WHERE id='ast_1'").fetchone()
+    assert row["rev"] == 0
 
 
 def test_apply_action_replay_does_not_double_apply(conn):

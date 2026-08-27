@@ -144,7 +144,8 @@ def test_mobile_action_role_matrix(live_server, role, expected_status):
         status, body = _request(live_server, "POST", "/api/login", json_body={"username": role, "password": "pass1234"})
         token = body["token"]
     status, body = _request(live_server, "POST", "/api/mobile/action", token=token,
-                             json_body={"clientActionId": "x", "type": "edit", "assetId": "ast_1", "name": "Ноутбук новый"})
+                             json_body={"clientActionId": "x", "type": "edit", "assetId": "ast_1",
+                                        "baseRev": 0, "name": "Ноутбук новый"})
     assert status == expected_status, body
 
 

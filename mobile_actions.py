@@ -24,6 +24,18 @@ class MobileActionError(Exception):
         self.message = message
 
 
+class EditConflictError(MobileActionError):
+    """Raised when a mobile edit's baseRev no longer matches the server's.
+
+    `current_asset` carries the fields the caller needs to either show the
+    user what changed or blindly retry with a fresh baseRev ("retry on top").
+    """
+
+    def __init__(self, message: str, current_asset: dict):
+        super().__init__(message)
+        self.current_asset = current_asset
+
+
 def get_allocated_quantity(allocations: list[sqlite3.Row]) -> int:
     return sum(int(row["quantity"] or 0) for row in allocations)
 
@@ -289,23 +301,45 @@ def apply_retire(connection: sqlite3.Connection, action: dict) -> None:
     )
 
 
-def apply_edit(connection: sqlite3.Connection, action: dict) -> None:
+def apply_edit(connection: sqlite3.Connection, action: dict) -> int:
     """Edit an asset's identifying/descriptive fields from the mobile app.
 
     Deliberately narrower than the desktop's full edit form: only the fields
     that don't interact with the allocation/quantity accounting (issue/return/
     repair/retire own that math) are editable here, so a mobile edit can never
     desync quantity vs. asset_allocations the way changing quantity or status
-    directly could.
+    directly could. These are exactly the fields `rev` guards.
     """
     asset = _load_asset(connection, action["assetId"])
     name = str(action.get("name") or "").strip()
     if not name:
         raise MobileActionError("Название не может быть пустым.")
+    if "baseRev" not in action or action["baseRev"] is None:
+        raise MobileActionError("baseRev обязателен.")
+    try:
+        base_rev = int(action["baseRev"])
+    except (TypeError, ValueError):
+        raise MobileActionError("baseRev должен быть числом.")
+    current_rev = int(asset["rev"])
+    if base_rev != current_rev:
+        raise EditConflictError(
+            "Карточка была изменена на сервере.",
+            {
+                "rev": current_rev,
+                "name": asset["name"],
+                "category": asset["category"] or "",
+                "inventoryNumber": asset["inventory_number"] or "",
+                "serialNumber": asset["serial_number"] or "",
+                "location": asset["location"] or "",
+                "purchaseDate": asset["purchase_date"] or "",
+                "warrantyEnd": asset["warranty_end"] or "",
+            },
+        )
 
+    new_rev = current_rev + 1
     connection.execute(
         "UPDATE assets SET name = ?, category = ?, inventory_number = ?, serial_number = ?, "
-        "location = ?, purchase_date = ?, warranty_end = ? WHERE id = ?",
+        "location = ?, purchase_date = ?, warranty_end = ?, rev = ? WHERE id = ?",
         (
             name,
             str(action.get("category") or "").strip(),
@@ -314,6 +348,7 @@ def apply_edit(connection: sqlite3.Connection, action: dict) -> None:
             str(action.get("location") or "").strip(),
             str(action.get("purchaseDate") or "").strip(),
             str(action.get("warrantyEnd") or "").strip(),
+            new_rev,
             asset["id"],
         ),
     )
@@ -323,6 +358,7 @@ def apply_edit(connection: sqlite3.Connection, action: dict) -> None:
         (_new_movement_id(), asset["id"], asset["quantity"],
          datetime.now(timezone.utc).date().isoformat(), "Обновлена карточка техники (с телефона)"),
     )
+    return new_rev
 
 
 _DISPATCH = {
@@ -354,9 +390,11 @@ def apply_action(connection: sqlite3.Connection, action: dict) -> dict:
         result["replayed"] = True
         return result
 
-    _DISPATCH[action_type](connection, action)
+    new_rev = _DISPATCH[action_type](connection, action)
 
     result = {"assetId": action["assetId"], "replayed": False}
+    if new_rev is not None:
+        result["rev"] = new_rev
     connection.execute(
         "INSERT INTO mobile_action_log (client_action_id, response_json, created_at) VALUES (?, ?, ?)",
         (client_action_id, json.dumps(result), datetime.now(timezone.utc).isoformat()),
