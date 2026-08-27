@@ -40,7 +40,8 @@ CREATE TABLE IF NOT EXISTS assets (
   price REAL NOT NULL DEFAULT 0,
   repair_date TEXT NOT NULL DEFAULT '',
   location TEXT NOT NULL DEFAULT '',
-  photo_url TEXT NOT NULL DEFAULT ''
+  photo_url TEXT NOT NULL DEFAULT '',
+  rev INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS asset_allocations (

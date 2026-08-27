@@ -172,3 +172,15 @@ def test_table_creation_migrations_create_expected_tables(legacy_alloc_conn, tab
         "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
     ).fetchone()
     assert row is not None
+
+
+def test_migration_025_adds_assets_rev_column(legacy_conn):
+    migrations.run_migrations(legacy_conn)
+    columns = {row["name"] for row in legacy_conn.execute("PRAGMA table_info(assets)")}
+    assert "rev" in columns
+
+
+def test_migration_025_defaults_existing_rows_to_zero(legacy_conn):
+    migrations.run_migrations(legacy_conn)
+    row = legacy_conn.execute("SELECT rev FROM assets WHERE id='ast_1'").fetchone()
+    assert row["rev"] == 0

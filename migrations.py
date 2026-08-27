@@ -176,6 +176,10 @@ def _migrate_024_audit_log_actor(c):
     _add_column_if_missing(c, "audit_log", "actor", "actor TEXT NOT NULL DEFAULT ''")
 
 
+def _migrate_025_assets_rev(c):
+    _add_column_if_missing(c, "assets", "rev", "rev INTEGER NOT NULL DEFAULT 0")
+
+
 MIGRATIONS: list[Migration] = [
     (1, "assets.repair_quantity", _migrate_001),
     (2, "assets.retired_quantity", _migrate_002),
@@ -201,6 +205,7 @@ MIGRATIONS: list[Migration] = [
     (22, "sessions table", _migrate_022_sessions_table),
     (23, "pairing_codes table", _migrate_023_pairing_codes_table),
     (24, "audit_log.actor", _migrate_024_audit_log_actor),
+    (25, "assets.rev", _migrate_025_assets_rev),
 ]
 
 
