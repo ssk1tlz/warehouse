@@ -6,7 +6,45 @@ from typing import Callable
 
 Migration = tuple[int, str, "Callable[[sqlite3.Connection], None]"]
 
-MIGRATIONS: list[Migration] = []
+
+def _add_column_if_missing(connection: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
+    existing = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})")}
+    if column not in existing:
+        connection.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+
+
+def _migrate_001(c): _add_column_if_missing(c, "assets", "repair_quantity", "repair_quantity INTEGER NOT NULL DEFAULT 0")
+def _migrate_002(c): _add_column_if_missing(c, "assets", "retired_quantity", "retired_quantity INTEGER NOT NULL DEFAULT 0")
+def _migrate_003(c): _add_column_if_missing(c, "assets", "min_quantity", "min_quantity INTEGER NOT NULL DEFAULT 0")
+def _migrate_004(c): _add_column_if_missing(c, "assets", "warranty_end", "warranty_end TEXT NOT NULL DEFAULT ''")
+def _migrate_005(c): _add_column_if_missing(c, "assets", "price", "price REAL NOT NULL DEFAULT 0")
+def _migrate_006(c): _add_column_if_missing(c, "assets", "repair_date", "repair_date TEXT NOT NULL DEFAULT ''")
+def _migrate_007(c): _add_column_if_missing(c, "assets", "location", "location TEXT NOT NULL DEFAULT ''")
+def _migrate_008(c): _add_column_if_missing(c, "assets", "photo_url", "photo_url TEXT NOT NULL DEFAULT ''")
+def _migrate_009(c): _add_column_if_missing(c, "employees", "phone", "phone TEXT NOT NULL DEFAULT ''")
+def _migrate_010(c): _add_column_if_missing(c, "employees", "site", "site TEXT NOT NULL DEFAULT ''")
+def _migrate_011(c): _add_column_if_missing(c, "employees", "status", "status TEXT NOT NULL DEFAULT 'active'")
+def _migrate_012(c): _add_column_if_missing(c, "movements", "act_number", "act_number INTEGER")
+def _migrate_013(c): _add_column_if_missing(c, "movements", "department", "department TEXT NOT NULL DEFAULT ''")
+def _migrate_014(c): _add_column_if_missing(c, "movements", "site", "site TEXT NOT NULL DEFAULT ''")
+
+
+MIGRATIONS: list[Migration] = [
+    (1, "assets.repair_quantity", _migrate_001),
+    (2, "assets.retired_quantity", _migrate_002),
+    (3, "assets.min_quantity", _migrate_003),
+    (4, "assets.warranty_end", _migrate_004),
+    (5, "assets.price", _migrate_005),
+    (6, "assets.repair_date", _migrate_006),
+    (7, "assets.location", _migrate_007),
+    (8, "assets.photo_url", _migrate_008),
+    (9, "employees.phone", _migrate_009),
+    (10, "employees.site", _migrate_010),
+    (11, "employees.status", _migrate_011),
+    (12, "movements.act_number", _migrate_012),
+    (13, "movements.department", _migrate_013),
+    (14, "movements.site", _migrate_014),
+]
 
 
 def current_version(connection: sqlite3.Connection) -> int:
