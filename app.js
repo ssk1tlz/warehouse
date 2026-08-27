@@ -3536,6 +3536,29 @@ function bindEvents() {
   document.getElementById("usersOverlay")?.addEventListener("click", (e) => {
     if (e.target === document.getElementById("usersOverlay")) closeUsersModal();
   });
+  document.getElementById("showBackupsBtn")?.addEventListener("click", openBackupsModal);
+  document.getElementById("closeBackupsBtn")?.addEventListener("click", closeBackupsModal);
+  document.getElementById("backupsOverlay")?.addEventListener("click", (e) => {
+    if (e.target === document.getElementById("backupsOverlay")) closeBackupsModal();
+  });
+  document.getElementById("backupsTableBody")?.addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-action='restore-backup']");
+    if (!btn) return;
+    const filename = btn.closest("tr").dataset.filename;
+    if (!confirm(`Восстановить базу данных из «${filename}»? Текущее состояние будет сохранено как резервная копия перед откатом.`)) return;
+    const response = await apiFetch("/api/backups/restore", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filename }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      alert(data.error || "Не удалось восстановить базу данных.");
+      return;
+    }
+    closeBackupsModal();
+    await boot();
+  });
   document.getElementById("labelSelectAllBtn")?.addEventListener("click", () => labelSelectAll(true));
   document.getElementById("labelDeselectAllBtn")?.addEventListener("click", () => labelSelectAll(false));
   document.getElementById("labelSearchInput")?.addEventListener("input", debounce(renderLabelGrid));
@@ -3849,6 +3872,34 @@ async function renderUsersTable() {
         <button type="button" data-action="toggle-active">${u.isActive ? "Деактивировать" : "Активировать"}</button>
         <button type="button" data-action="generate-qr">QR</button>
       </td>
+    </tr>
+  `).join("");
+}
+
+async function openBackupsModal() {
+  document.getElementById("backupsOverlay").classList.remove("hidden");
+  await renderBackupsTable();
+}
+
+function closeBackupsModal() {
+  document.getElementById("backupsOverlay").classList.add("hidden");
+}
+
+function formatBytes(n) {
+  if (n < 1024) return `${n} Б`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} КБ`;
+  return `${(n / (1024 * 1024)).toFixed(1)} МБ`;
+}
+
+async function renderBackupsTable() {
+  const response = await apiFetch("/api/backups");
+  const data = await response.json();
+  document.getElementById("backupsTableBody").innerHTML = data.backups.map((b) => `
+    <tr data-filename="${escapeHtml(b.filename)}">
+      <td>${escapeHtml(b.filename)}</td>
+      <td>${escapeHtml(new Date(b.createdAt).toLocaleString("ru-RU"))}</td>
+      <td>${formatBytes(b.sizeBytes)}</td>
+      <td><button type="button" data-action="restore-backup">Восстановить</button></td>
     </tr>
   `).join("");
 }
