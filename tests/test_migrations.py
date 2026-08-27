@@ -163,3 +163,12 @@ def test_asset_allocations_migration_allows_department_only_row_after(legacy_all
         "VALUES ('ast_1', NULL, 'IT', '', 1)"
     )
     legacy_alloc_conn.commit()
+
+
+@pytest.mark.parametrize("table", ["sites", "audit_log", "kit_templates", "mobile_action_log"])
+def test_table_creation_migrations_create_expected_tables(legacy_alloc_conn, table):
+    migrations.run_migrations(legacy_alloc_conn)
+    row = legacy_alloc_conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+    ).fetchone()
+    assert row is not None

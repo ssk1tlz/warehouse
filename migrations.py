@@ -75,6 +75,49 @@ def _migrate_016(connection: sqlite3.Connection) -> None:
     _add_column_if_missing(connection, "asset_allocations", "site", "site TEXT NOT NULL DEFAULT ''")
 
 
+def _migrate_017_sites_table(c):
+    c.execute("CREATE TABLE IF NOT EXISTS sites (id TEXT PRIMARY KEY, name TEXT NOT NULL)")
+
+
+def _migrate_018_audit_log_table(c):
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            entity_type TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            changes TEXT NOT NULL DEFAULT '{}',
+            timestamp TEXT NOT NULL
+        )
+        """
+    )
+
+
+def _migrate_019_kit_templates_table(c):
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS kit_templates (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            items TEXT NOT NULL DEFAULT '[]'
+        )
+        """
+    )
+
+
+def _migrate_020_mobile_action_log_table(c):
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS mobile_action_log (
+            client_action_id TEXT PRIMARY KEY,
+            response_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+
+
 MIGRATIONS: list[Migration] = [
     (1, "assets.repair_quantity", _migrate_001),
     (2, "assets.retired_quantity", _migrate_002),
@@ -92,6 +135,10 @@ MIGRATIONS: list[Migration] = [
     (14, "movements.site", _migrate_014),
     (15, "asset_allocations rebuild (department, nullable employee_id)", _migrate_015_asset_allocations_rebuild),
     (16, "asset_allocations.site", _migrate_016),
+    (17, "sites table", _migrate_017_sites_table),
+    (18, "audit_log table", _migrate_018_audit_log_table),
+    (19, "kit_templates table", _migrate_019_kit_templates_table),
+    (20, "mobile_action_log table", _migrate_020_mobile_action_log_table),
 ]
 
 
