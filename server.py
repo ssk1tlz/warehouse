@@ -23,6 +23,7 @@ else:
     _ACT_IMPORT_ERROR = ""
 
 import mobile_actions
+import migrations
 
 if getattr(sys, 'frozen', False):
     ROOT = Path(sys.executable).resolve().parent
@@ -66,6 +67,17 @@ def auto_backup() -> str | None:
     backups = sorted(BACKUP_DIR.glob("warehouse_*.db"), key=lambda p: p.stat().st_mtime, reverse=True)
     for old in backups[MAX_BACKUPS:]:
         old.unlink(missing_ok=True)
+    return str(dest)
+
+
+def pre_migration_backup() -> str | None:
+    """Separate, clearly-labeled backup taken only when migrations are about to run."""
+    if not DB_PATH.exists():
+        return None
+    BACKUP_DIR.mkdir(exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    dest = BACKUP_DIR / f"pre_migration_{stamp}.db"
+    shutil.copy2(DB_PATH, dest)
     return str(dest)
 
 
@@ -132,97 +144,12 @@ def get_connection() -> sqlite3.Connection:
 
 def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    is_fresh_install = not DB_PATH.exists()
     with get_connection() as connection:
         connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
-        connection.execute("CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT)")
-        existing_columns = {row["name"] for row in connection.execute("PRAGMA table_info(assets)")}
-        if "repair_quantity" not in existing_columns:
-            connection.execute("ALTER TABLE assets ADD COLUMN repair_quantity INTEGER NOT NULL DEFAULT 0")
-        if "retired_quantity" not in existing_columns:
-            connection.execute("ALTER TABLE assets ADD COLUMN retired_quantity INTEGER NOT NULL DEFAULT 0")
-        if "min_quantity" not in existing_columns:
-            connection.execute("ALTER TABLE assets ADD COLUMN min_quantity INTEGER NOT NULL DEFAULT 0")
-        if "warranty_end" not in existing_columns:
-            connection.execute("ALTER TABLE assets ADD COLUMN warranty_end TEXT NOT NULL DEFAULT ''")
-        if "price" not in existing_columns:
-            connection.execute("ALTER TABLE assets ADD COLUMN price REAL NOT NULL DEFAULT 0")
-        if "repair_date" not in existing_columns:
-            connection.execute("ALTER TABLE assets ADD COLUMN repair_date TEXT NOT NULL DEFAULT ''")
-        if "location" not in existing_columns:
-            connection.execute("ALTER TABLE assets ADD COLUMN location TEXT NOT NULL DEFAULT ''")
-        if "photo_url" not in existing_columns:
-            connection.execute("ALTER TABLE assets ADD COLUMN photo_url TEXT NOT NULL DEFAULT ''")
-        emp_columns = {row["name"] for row in connection.execute("PRAGMA table_info(employees)")}
-        if "phone" not in emp_columns:
-            connection.execute("ALTER TABLE employees ADD COLUMN phone TEXT NOT NULL DEFAULT ''")
-        if "site" not in emp_columns:
-            connection.execute("ALTER TABLE employees ADD COLUMN site TEXT NOT NULL DEFAULT ''")
-        if "status" not in emp_columns:
-            connection.execute("ALTER TABLE employees ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
-        movement_columns = {row["name"] for row in connection.execute("PRAGMA table_info(movements)")}
-        if "act_number" not in movement_columns:
-            connection.execute("ALTER TABLE movements ADD COLUMN act_number INTEGER")
-        if "department" not in movement_columns:
-            connection.execute("ALTER TABLE movements ADD COLUMN department TEXT NOT NULL DEFAULT ''")
-        if "site" not in movement_columns:
-            connection.execute("ALTER TABLE movements ADD COLUMN site TEXT NOT NULL DEFAULT ''")
-        # Migrate asset_allocations: add `department` column and drop NOT NULL on employee_id.
-        alloc_info = list(connection.execute("PRAGMA table_info(asset_allocations)"))
-        alloc_cols = {row["name"] for row in alloc_info}
-        emp_col = next((row for row in alloc_info if row["name"] == "employee_id"), None)
-        needs_alloc_migration = ("department" not in alloc_cols) or (emp_col and emp_col["notnull"] == 1)
-        if needs_alloc_migration:
-            connection.execute("PRAGMA foreign_keys = OFF")
-            connection.executescript("""
-                CREATE TABLE IF NOT EXISTS asset_allocations_new (
-                    asset_id TEXT NOT NULL,
-                    employee_id TEXT,
-                    department TEXT NOT NULL DEFAULT '',
-                    quantity INTEGER NOT NULL DEFAULT 0,
-                    FOREIGN KEY (asset_id) REFERENCES assets(id)
-                );
-            """)
-            select_dept = "department" if "department" in alloc_cols else "''"
-            connection.execute(
-                f"INSERT INTO asset_allocations_new (asset_id, employee_id, department, quantity) "
-                f"SELECT asset_id, employee_id, {select_dept}, quantity FROM asset_allocations"
-            )
-            connection.execute("DROP TABLE asset_allocations")
-            connection.execute("ALTER TABLE asset_allocations_new RENAME TO asset_allocations")
-            connection.execute("PRAGMA foreign_keys = ON")
-        # Add `site` column to allocations (handles both fresh and migrated tables).
-        alloc_cols_now = {row["name"] for row in connection.execute("PRAGMA table_info(asset_allocations)")}
-        if "site" not in alloc_cols_now:
-            connection.execute("ALTER TABLE asset_allocations ADD COLUMN site TEXT NOT NULL DEFAULT ''")
-        # Sites (objects) table — parallel to departments.
-        connection.execute("CREATE TABLE IF NOT EXISTS sites (id TEXT PRIMARY KEY, name TEXT NOT NULL)")
-        # Audit log table
-        connection.execute("""
-            CREATE TABLE IF NOT EXISTS audit_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                entity_type TEXT NOT NULL,
-                entity_id TEXT NOT NULL,
-                action TEXT NOT NULL,
-                changes TEXT NOT NULL,
-                timestamp TEXT NOT NULL
-            )
-        """)
-        # Kit templates table
-        connection.execute("""
-            CREATE TABLE IF NOT EXISTS kit_templates (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                items TEXT NOT NULL DEFAULT '[]'
-            )
-        """)
-        # Mobile action idempotency log
-        connection.execute("""
-            CREATE TABLE IF NOT EXISTS mobile_action_log (
-                client_action_id TEXT PRIMARY KEY,
-                response_json TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            )
-        """)
+        if not is_fresh_install and migrations.pending_migrations(connection):
+            pre_migration_backup()
+        migrations.run_migrations(connection)
 
 
 def read_state_version(connection: sqlite3.Connection) -> int:
