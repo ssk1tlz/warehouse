@@ -44,6 +44,7 @@ async function flushQueue(settings) {
   const pending = await Db.listPendingActions();
   let flushed = 0;
   let failed = 0;
+  let needsReauth = false;
   for (const row of pending) {
     if (row.status === 'failed') continue; // don't auto-retry — surface it, let the user retry explicitly (queue screen, Task 8)
     try {
@@ -57,6 +58,13 @@ async function flushQueue(settings) {
       if (response.ok) {
         await Db.markActionSynced(row.client_action_id);
         flushed += 1;
+      } else if (response.status === 401) {
+        // The session was revoked/expired — the action itself is perfectly
+        // valid, so do NOT mark it 'failed' (failed actions are never
+        // auto-retried). Leave it 'pending' and stop, exactly like the
+        // network-error path below; it flushes once the device is re-paired.
+        needsReauth = true;
+        break;
       } else {
         const body = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
         await Db.markActionFailed(row.client_action_id, body.error || `HTTP ${response.status}`);
@@ -67,30 +75,39 @@ async function flushQueue(settings) {
       break;
     }
   }
-  return { flushed, failed };
+  return { flushed, failed, needsReauth };
 }
 
 async function pullState(settings) {
   const headers = await signedHeaders(settings, 'GET', '/api/state', '');
   const response = await fetch(`${settings.serverUrl}/api/state`, { headers });
-  if (!response.ok) throw new Error(`GET /api/state failed: HTTP ${response.status}`);
+  if (!response.ok) {
+    const error = new Error(`GET /api/state failed: HTTP ${response.status}`);
+    // Distinguishes "your session is gone, re-pair this device" from
+    // "no network" — same flag name apiFetch() uses in the desktop app.js.
+    if (response.status === 401) error.sessionExpired = true;
+    throw error;
+  }
   const state = await response.json();
   await Db.replaceState(state);
 }
 
 async function run() {
   const settings = await Settings.get();
-  if (!settings.serverUrl || !settings.token) return { pulled: false, flushed: 0, failed: 0 };
-  const { flushed, failed } = await flushQueue(settings);
+  if (!settings.serverUrl || !settings.token) return { pulled: false, flushed: 0, failed: 0, needsReauth: false };
+  const { flushed, failed, needsReauth } = await flushQueue(settings);
   let pulled = false;
+  let sessionExpired = Boolean(needsReauth);
   try {
     await pullState(settings);
     pulled = true;
   } catch (err) {
     // Offline or server unreachable — the cache from the last successful pull stays as-is.
+    // A 401 is different in kind: the server IS reachable, it rejected us.
     pulled = false;
+    if (err && err.sessionExpired) sessionExpired = true;
   }
-  return { pulled, flushed, failed };
+  return { pulled, flushed, failed, needsReauth: sessionExpired };
 }
 
 const Sync = { run, flushQueue, pullState, pair, signRequest };

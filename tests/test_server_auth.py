@@ -40,6 +40,16 @@ def _request(base_url, method, path, token=None, json_body=None):
         return exc.code, json.loads(exc.read() or b"{}")
 
 
+def _raw_status(base_url, path):
+    """Status code only — for endpoints whose error body is HTML, not JSON."""
+    req = urllib.request.Request(f"{base_url}{path}", method="GET")
+    try:
+        with urllib.request.urlopen(req) as response:
+            return response.status
+    except urllib.error.HTTPError as exc:
+        return exc.code
+
+
 def _create_admin(base_url):
     status, body = _request(base_url, "POST", "/api/setup", json_body={"username": "admin", "password": "adminpass"})
     assert status == 200, body
@@ -85,9 +95,28 @@ def test_state_requires_authentication(live_server):
 
 
 def test_static_files_are_served_without_authentication(live_server):
-    req = urllib.request.Request(f"{live_server}/index.html", method="GET")
-    with urllib.request.urlopen(req) as response:
-        assert response.status == 200
+    for path in ("/", "/index.html", "/app.js", "/styles.css"):
+        req = urllib.request.Request(f"{live_server}{path}", method="GET")
+        with urllib.request.urlopen(req) as response:
+            assert response.status == 200, path
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/warehouse.db",          # the entire database
+        "/server.py",             # server source
+        "/auth.py",               # password hashing / token logic
+        "/config.json",           # LAN configuration
+        "/backups/anything.db",   # everything under backups/
+        "/schema.sql",
+    ],
+)
+def test_non_allowlisted_static_paths_are_not_served(live_server, path):
+    # Static files are public by necessity (the client shell loads before login),
+    # so only an explicit allowlist keeps the database off the LAN. Anything else
+    # must 404 — including files that really do exist next to the server.
+    assert _raw_status(live_server, path) == 404, f"{path} must not be downloadable"
 
 
 def _seed_asset(live_server_db_path):
@@ -156,6 +185,74 @@ def test_patch_user_deactivate_then_login_fails(live_server):
     assert status == 401
 
 
+def _admin_id(base_url, token):
+    _, body = _request(base_url, "GET", "/api/users", token=token)
+    return next(u["id"] for u in body["users"] if u["username"] == "admin")
+
+
+def test_cannot_deactivate_the_only_admin(live_server):
+    token = _create_admin(live_server)
+    status, body = _request(live_server, "PATCH", f"/api/users/{_admin_id(live_server, token)}",
+                             token=token, json_body={"isActive": False})
+    assert status == 400, body
+    assert "администратор" in body["error"].lower()
+    # And the account still works.
+    status, _ = _request(live_server, "GET", "/api/state", token=token)
+    assert status == 200
+
+
+@pytest.mark.parametrize("role", ["storekeeper", "viewer"])
+def test_cannot_demote_the_only_admin(live_server, role):
+    token = _create_admin(live_server)
+    status, body = _request(live_server, "PATCH", f"/api/users/{_admin_id(live_server, token)}",
+                             token=token, json_body={"role": role})
+    assert status == 400, body
+    status, users = _request(live_server, "GET", "/api/users", token=token)
+    assert next(u for u in users["users"] if u["username"] == "admin")["role"] == "admin"
+
+
+def test_cannot_demote_and_deactivate_the_only_admin_in_one_request(live_server):
+    token = _create_admin(live_server)
+    status, _ = _request(live_server, "PATCH", f"/api/users/{_admin_id(live_server, token)}",
+                          token=token, json_body={"role": "viewer", "isActive": False})
+    assert status == 400
+
+
+def test_demoting_an_admin_is_allowed_when_a_second_active_admin_exists(live_server):
+    token = _create_admin(live_server)
+    status, second = _request(live_server, "POST", "/api/users", token=token,
+                               json_body={"username": "admin2", "password": "pass1234", "role": "admin"})
+    assert status == 200, second
+    # Demote the second admin — the first one is still there.
+    status, _ = _request(live_server, "PATCH", f"/api/users/{second['id']}", token=token,
+                          json_body={"role": "viewer"})
+    assert status == 200
+    # Now the original really is the last one, so it is protected again.
+    status, _ = _request(live_server, "PATCH", f"/api/users/{_admin_id(live_server, token)}",
+                          token=token, json_body={"role": "viewer"})
+    assert status == 400
+
+
+def test_deactivating_an_admin_is_allowed_when_a_second_active_admin_exists(live_server):
+    token = _create_admin(live_server)
+    _, second = _request(live_server, "POST", "/api/users", token=token,
+                          json_body={"username": "admin2", "password": "pass1234", "role": "admin"})
+    status, _ = _request(live_server, "PATCH", f"/api/users/{second['id']}", token=token,
+                          json_body={"isActive": False})
+    assert status == 200
+
+
+def test_changing_only_the_password_of_the_last_admin_still_works(live_server):
+    # The guard must not block an unrelated field.
+    token = _create_admin(live_server)
+    status, _ = _request(live_server, "PATCH", f"/api/users/{_admin_id(live_server, token)}",
+                          token=token, json_body={"password": "newpass123"})
+    assert status == 200
+    status, _ = _request(live_server, "POST", "/api/login",
+                          json_body={"username": "admin", "password": "newpass123"})
+    assert status == 200
+
+
 def test_pairing_generate_requires_admin(live_server):
     admin_token = _create_admin(live_server)
     _, created = _request(live_server, "POST", "/api/users", token=admin_token,
@@ -211,6 +308,22 @@ def test_patch_user_rejects_unknown_user_id(live_server):
     assert status == 400
 
 
+def test_oversized_content_length_is_rejected_before_authentication(live_server):
+    # An unauthenticated caller must not be able to make the server allocate an
+    # arbitrary buffer just by announcing a huge Content-Length. No token is
+    # sent here on purpose: the size check has to run before authenticate().
+    req = urllib.request.Request(f"{live_server}/api/state", data=b"{}", method="POST")
+    req.add_header("Content-Type", "application/json")
+    # urllib sets Content-Length from the data; override it with the lie.
+    req.add_header("Content-Length", str(server.MAX_BODY_BYTES + 1))
+    try:
+        with urllib.request.urlopen(req) as response:
+            status = response.status
+    except urllib.error.HTTPError as exc:
+        status = exc.code
+    assert status == 400
+
+
 def _lan_ip():
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
@@ -242,16 +355,41 @@ def test_loopback_requests_do_not_need_a_signature(live_server):
     assert status == 200  # no X-Signature header sent, and it still works
 
 
-def _connect_via_lan_or_skip(base_url):
+def _connect_via_lan_or_skip(base_url, loopback_url):
     # A firewall on a "Public" network profile can block a machine from
     # reaching its own LAN-facing address even when one exists — treat that
     # the same as "no LAN interface": skip rather than fail the whole suite.
     try:
-        status, body = _request(base_url, "POST", "/api/setup", json_body={"username": "admin", "password": "adminpass"})
+        _request(base_url, "GET", "/api/setup-status")
     except (OSError, urllib.error.URLError) as exc:
         pytest.skip(f"не удалось подключиться к собственному LAN-адресу: {exc}")
+    # /api/setup is loopback-only (bootstrapping the first admin is a
+    # local-console action), so create the admin the way the desktop does.
+    status, body = _request(loopback_url, "POST", "/api/setup",
+                            json_body={"username": "admin", "password": "adminpass"})
     assert status == 200, body
     return body["token"]
+
+
+def test_setup_is_refused_from_a_non_loopback_address(live_server_on_all_interfaces):
+    lan_ip = _lan_ip()
+    if lan_ip is None:
+        pytest.skip("машина без LAN-интерфейса — не может подтвердить не-loopback путь")
+    base_url = f"http://{lan_ip}:{live_server_on_all_interfaces}"
+    try:
+        status, _ = _request(base_url, "GET", "/api/setup-status")
+    except (OSError, urllib.error.URLError) as exc:
+        pytest.skip(f"не удалось подключиться к собственному LAN-адресу: {exc}")
+    status, body = _request(base_url, "POST", "/api/setup",
+                            json_body={"username": "attacker", "password": "pass1234"})
+    assert status == 403, body
+    # Nothing was created, so the local console can still bootstrap.
+    loopback_url = f"http://127.0.0.1:{live_server_on_all_interfaces}"
+    status, _ = _request(loopback_url, "GET", "/api/setup-status")
+    assert status == 200
+    status, body = _request(loopback_url, "POST", "/api/setup",
+                            json_body={"username": "admin", "password": "adminpass"})
+    assert status == 200, body
 
 
 def test_non_loopback_request_without_signature_is_rejected(live_server_on_all_interfaces):
@@ -259,7 +397,8 @@ def test_non_loopback_request_without_signature_is_rejected(live_server_on_all_i
     if lan_ip is None:
         pytest.skip("машина без LAN-интерфейса — не может подтвердить не-loopback путь")
     base_url = f"http://{lan_ip}:{live_server_on_all_interfaces}"
-    admin_token = _connect_via_lan_or_skip(base_url)
+    loopback_url = f"http://127.0.0.1:{live_server_on_all_interfaces}"
+    _connect_via_lan_or_skip(base_url, loopback_url)
     _, login = _request(base_url, "POST", "/api/login", json_body={"username": "admin", "password": "adminpass"})
     status, _ = _request(base_url, "GET", "/api/state", token=login["token"])
     assert status == 401
@@ -270,14 +409,15 @@ def test_non_loopback_request_with_valid_signature_succeeds(live_server_on_all_i
     if lan_ip is None:
         pytest.skip("машина без LAN-интерфейса — не может подтвердить не-loopback путь")
     base_url = f"http://{lan_ip}:{live_server_on_all_interfaces}"
-    admin_token = _connect_via_lan_or_skip(base_url)
-    # Creating the viewer and generating the pairing code are ordinary desktop-admin
-    # actions — the desktop app always talks over 127.0.0.1 (see warehouse_tray.py),
-    # even in LAN mode, so the admin's own (unpaired, no device_secret) session is
-    # not subject to the signature requirement under test here. Route those setup
-    # calls over loopback on the same server/port; only the final request below
-    # goes out over the real LAN address to exercise the non-loopback + signature path.
+    # Creating the admin/viewer and generating the pairing code are ordinary
+    # desktop-admin actions — the desktop app always talks over 127.0.0.1 (see
+    # warehouse_tray.py), even in LAN mode, so the admin's own (unpaired, no
+    # device_secret) session is not subject to the signature requirement under
+    # test here. Route those setup calls over loopback on the same server/port;
+    # only the final request below goes out over the real LAN address to
+    # exercise the non-loopback + signature path.
     loopback_url = f"http://127.0.0.1:{live_server_on_all_interfaces}"
+    admin_token = _connect_via_lan_or_skip(base_url, loopback_url)
     _, created = _request(loopback_url, "POST", "/api/users", token=admin_token,
                            json_body={"username": "v", "password": "pass1234", "role": "viewer"})
     _, pairing = _request(loopback_url, "POST", "/api/pair/generate", token=admin_token, json_body={"userId": created["id"]})

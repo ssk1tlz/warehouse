@@ -128,6 +128,9 @@ async function ensureAuthenticated() {
     showAuthOverlay("login");
     return false;
   }
+  // #authOverlay is visible by default in index.html, so an already-authenticated
+  // session reloading the page would otherwise stare at the login screen forever.
+  hideAuthOverlay();
   return true;
 }
 
@@ -157,6 +160,22 @@ function bindAuthEvents() {
     document.getElementById("authForm").reset();
     await boot();
   });
+}
+
+async function handleLogout() {
+  try {
+    await apiFetch("/api/logout", { method: "POST" });
+  } catch (error) {
+    // A 401 means the session was already gone — apiFetch has cleared the token
+    // and shown the login overlay, which is exactly where we were heading.
+    // Any other failure (server down) still must not trap the user in a
+    // session they asked to end: fall through and clear locally.
+    if (error.sessionExpired) return;
+    console.error(error);
+  }
+  localStorage.removeItem("authToken");
+  localStorage.removeItem("userRole");
+  showAuthOverlay("login");
 }
 
 function applyRoleVisibility() {
@@ -761,10 +780,15 @@ function renderAssetsTable() {
       <td>${getAllocatedQuantity(asset)}</td>
       <td>${getAssetHolderText(asset)}</td>
       <td>${formatDate(asset.purchaseDate)}${asset.warrantyEnd ? `<div class="muted">Гар. до ${formatDate(asset.warrantyEnd)}</div>` : ""}</td>
-      <td><div class="row-actions"><button type="button" class="edit-button" data-action="edit-asset" data-id="${asset.id}">Ред.</button><button type="button" class="ghost" data-action="duplicate-asset" data-id="${asset.id}" title="Дублировать"><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><rect x="5" y="5" width="9" height="9" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M3 11V3h8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></button><button type="button" class="label-button" data-action="quick-label" data-id="${asset.id}"><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 2h6l4 4v8H2V2h2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></button><button type="button" class="danger-button" data-action="delete-asset" data-id="${asset.id}">Удалить</button></div></td>
+      <td><div class="row-actions"><button type="button" class="edit-button" data-requires-role="admin,storekeeper" data-action="edit-asset" data-id="${asset.id}">Ред.</button><button type="button" class="ghost" data-requires-role="admin,storekeeper" data-action="duplicate-asset" data-id="${asset.id}" title="Дублировать"><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><rect x="5" y="5" width="9" height="9" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M3 11V3h8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></button><button type="button" class="label-button" data-action="quick-label" data-id="${asset.id}"><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 2h6l4 4v8H2V2h2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></button><button type="button" class="danger-button" data-requires-role="admin,storekeeper" data-action="delete-asset" data-id="${asset.id}">Удалить</button></div></td>
     </tr>`;
   }).join("");
   renderAssetPagination(rows.length);
+  // These rows are rebuilt on every search/filter/page change, long after
+  // boot()'s applyRoleVisibility() ran — re-apply so a viewer never sees
+  // edit/duplicate/delete on freshly rendered rows. (The label button stays:
+  // printing a label changes nothing server-side.)
+  applyRoleVisibility();
 }
 
 // ─── REGISTRY (full asset table with export) ──────────────────────────
@@ -3468,6 +3492,7 @@ function bindEvents() {
   document.getElementById("printLabelsBtn")?.addEventListener("click", openLabelsModal);
   document.getElementById("closeLabelsBtn")?.addEventListener("click", closeLabelsModal);
   document.getElementById("labelsOverlay")?.addEventListener("click", (e) => { if (e.target === document.getElementById("labelsOverlay")) closeLabelsModal(); });
+  document.getElementById("logoutBtn")?.addEventListener("click", handleLogout);
   document.getElementById("showLanQrBtn")?.addEventListener("click", openUsersModal);
   document.getElementById("closeLanQrBtn")?.addEventListener("click", closeLanQrModal);
   document.getElementById("lanQrOverlay")?.addEventListener("click", (e) => { if (e.target === document.getElementById("lanQrOverlay")) closeLanQrModal(); });
@@ -3816,9 +3841,9 @@ async function renderUsersTable() {
   const response = await apiFetch("/api/users");
   const data = await response.json();
   document.getElementById("usersTableBody").innerHTML = data.users.map((u) => `
-    <tr data-user-id="${u.id}">
-      <td>${u.username}</td>
-      <td>${u.role}</td>
+    <tr data-user-id="${escapeHtml(u.id)}">
+      <td>${escapeHtml(u.username)}</td>
+      <td>${escapeHtml(u.role)}</td>
       <td>${u.isActive ? "да" : "нет"}</td>
       <td>
         <button type="button" data-action="toggle-active">${u.isActive ? "Деактивировать" : "Активировать"}</button>

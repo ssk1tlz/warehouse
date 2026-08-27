@@ -70,6 +70,68 @@ def test_init_db_creates_pre_migration_backup_for_a_legacy_database(tmp_path, mo
     assert row["quantity"] == 3
 
 
+def _write_legacy_db_with_orphaned_allocations(db_path):
+    """A pre-migration-15 database whose asset_allocations rows point at rows
+    that no longer exist (an asset/employee deleted without cleanup — ordinary
+    in a real old install)."""
+    legacy = sqlite3.connect(db_path)
+    legacy.executescript(
+        "CREATE TABLE employees (id TEXT PRIMARY KEY, full_name TEXT NOT NULL);"
+        "CREATE TABLE assets (id TEXT PRIMARY KEY, name TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 1);"
+        "CREATE TABLE movements (id TEXT PRIMARY KEY, type TEXT NOT NULL, asset_id TEXT NOT NULL, "
+        "quantity INTEGER NOT NULL DEFAULT 0, date TEXT NOT NULL);"
+        # OLD asset_allocations shape: no `department`, employee_id NOT NULL,
+        # and FKs on both columns.
+        "CREATE TABLE asset_allocations ("
+        "  asset_id TEXT NOT NULL,"
+        "  employee_id TEXT NOT NULL,"
+        "  quantity INTEGER NOT NULL DEFAULT 0,"
+        "  FOREIGN KEY (asset_id) REFERENCES assets(id),"
+        "  FOREIGN KEY (employee_id) REFERENCES employees(id)"
+        ");"
+        "INSERT INTO employees (id, full_name) VALUES ('emp_1', 'Иванов');"
+        "INSERT INTO assets (id, name, quantity) VALUES ('ast_1', 'Ноутбук', 3);"
+        "INSERT INTO asset_allocations (asset_id, employee_id, quantity) VALUES ('ast_1', 'emp_1', 1);"
+        # Orphans: neither 'emp_gone' nor 'ast_gone' exists any more.
+        "INSERT INTO asset_allocations (asset_id, employee_id, quantity) VALUES ('ast_1', 'emp_gone', 2);"
+        "INSERT INTO asset_allocations (asset_id, employee_id, quantity) VALUES ('ast_gone', 'emp_1', 4);"
+    )
+    legacy.commit()
+    legacy.close()
+
+
+def test_init_db_migrates_a_legacy_database_with_orphaned_allocation_rows(tmp_path, monkeypatch):
+    # Regression guard for the migration-15 rebuild. It does
+    # `PRAGMA foreign_keys = OFF` before copying asset_allocations into its new
+    # shape, but SQLite ignores that pragma while a transaction is open — and
+    # migrations 1-14 leave one open via their schema_version INSERTs. With the
+    # pragma silently a no-op, an orphaned row aborted the rebuild with
+    # IntegrityError, which propagated out of init_db() and stopped the server
+    # from starting at all. Drive the REAL init_db() here, not a bare connection.
+    db_path = tmp_path / "warehouse.db"
+    _write_legacy_db_with_orphaned_allocations(db_path)
+    monkeypatch.setattr(server, "DB_PATH", db_path)
+    monkeypatch.setattr(server, "BACKUP_DIR", tmp_path / "backups")
+
+    server.init_db()  # must not raise
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    columns = {r["name"] for r in conn.execute("PRAGMA table_info(asset_allocations)")}
+    assert "department" in columns
+    rows = {
+        (r["asset_id"], r["employee_id"]): r
+        for r in conn.execute("SELECT asset_id, employee_id, department, quantity FROM asset_allocations")
+    }
+    assert len(rows) == 3, "миграция потеряла строки"
+    # Orphans survive as dangling references with an empty department — the
+    # rebuild preserves rows as-is, it does not clean up.
+    assert rows[("ast_1", "emp_gone")]["quantity"] == 2
+    assert rows[("ast_gone", "emp_1")]["quantity"] == 4
+    assert all(r["department"] == "" for r in rows.values())
+    conn.close()
+
+
 def test_init_db_does_not_create_a_backup_for_a_brand_new_database(tmp_path, monkeypatch):
     db_path = tmp_path / "warehouse.db"
     backup_dir = tmp_path / "backups"

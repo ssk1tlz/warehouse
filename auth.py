@@ -75,6 +75,19 @@ def list_users(connection) -> list[dict]:
     ]
 
 
+def count_active_admins(connection) -> int:
+    """How many accounts can still manage users.
+
+    Used to refuse the change that would leave nobody able to administer the
+    system: /api/setup only runs while there is no user at all, so demoting or
+    deactivating the last admin is unrecoverable short of editing the database.
+    """
+    row = connection.execute(
+        "SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = 1"
+    ).fetchone()
+    return int(row[0])
+
+
 def set_user_role(connection, user_id: str, role: str) -> None:
     if role not in ROLES:
         raise AuthError(f"Неизвестная роль: {role}")

@@ -34,6 +34,24 @@ CONFIG_PATH = ROOT / "config.json"
 BACKUP_DIR = ROOT / "backups"
 MAX_BACKUPS = 30
 
+# Static files are served WITHOUT authentication (the desktop client must be able
+# to load its own shell before anyone can log in), so this is an explicit
+# allowlist rather than "anything under ROOT" — otherwise warehouse.db, the
+# backups/ directory and every .py source file would be downloadable by any
+# unauthenticated LAN client. Every entry below is referenced by index.html;
+# anything not listed returns 404 (never 403 — we don't leak which files exist).
+STATIC_ALLOWLIST = frozenset({
+    "index.html",
+    "app.js",
+    "styles.css",
+    "chart.umd.min.js",
+    "qrcode-lib.js",
+})
+
+# Requests larger than this are refused before the body is read, so an
+# unauthenticated caller can't force a huge allocation with a Content-Length header.
+MAX_BODY_BYTES = 10 * 1024 * 1024
+
 
 def load_config() -> dict:
     """Optional config.json next to the app. Absent file = local-only mode."""
@@ -372,7 +390,27 @@ def import_state(payload: dict, actor: str) -> dict:
 
 class WarehouseHandler(BaseHTTPRequestHandler):
     def read_body(self) -> bytes:
-        length = int(self.headers.get("Content-Length", "0") or "0")
+        """Read the request body, or None if the request must be rejected.
+
+        Callers MUST treat a None return as "response already sent, stop" —
+        the size check runs before any authentication, so an unauthenticated
+        caller can't make the server allocate an arbitrary buffer just by
+        sending a large Content-Length.
+        """
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+        except ValueError:
+            self.send_json_error(HTTPStatus.BAD_REQUEST, "Некорректный заголовок Content-Length.")
+            return None
+        if length < 0:
+            self.send_json_error(HTTPStatus.BAD_REQUEST, "Некорректный заголовок Content-Length.")
+            return None
+        if length > MAX_BODY_BYTES:
+            self.send_json_error(
+                HTTPStatus.BAD_REQUEST,
+                f"Слишком большой запрос: максимум {MAX_BODY_BYTES // (1024 * 1024)} МБ.",
+            )
+            return None
         return self.rfile.read(length) if length else b""
 
     def authenticate(self):
@@ -434,6 +472,8 @@ class WarehouseHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         body = self.read_body()
+        if body is None:
+            return
         if parsed.path == "/api/setup":
             self.handle_setup(body)
             return
@@ -515,6 +555,8 @@ class WarehouseHandler(BaseHTTPRequestHandler):
     def do_PATCH(self) -> None:
         parsed = urlparse(self.path)
         body = self.read_body()
+        if body is None:
+            return
         user = self.authenticate()
         if user is None:
             return
@@ -528,6 +570,15 @@ class WarehouseHandler(BaseHTTPRequestHandler):
         self.send_error(HTTPStatus.NOT_FOUND)
 
     def handle_setup(self, body: bytes) -> None:
+        # Bootstrapping the very first admin is a local-console action. Allowing
+        # it over the network would hand the first account to whoever reaches
+        # the port first on a fresh install.
+        if not auth.is_loopback(self.client_address[0]):
+            self.send_json_error(
+                HTTPStatus.FORBIDDEN,
+                "Первого администратора можно создать только на самом сервере.",
+            )
+            return
         with get_connection() as connection:
             if auth.has_any_user(connection):
                 self.send_json_error(HTTPStatus.CONFLICT, "Администратор уже создан.")
@@ -605,8 +656,23 @@ class WarehouseHandler(BaseHTTPRequestHandler):
             self.send_json_error(HTTPStatus.BAD_REQUEST, "Payload must be a JSON object.")
             return
         with get_connection() as connection:
-            if auth.get_user_by_id(connection, user_id) is None:
+            target = auth.get_user_by_id(connection, user_id)
+            if target is None:
                 self.send_json_error(HTTPStatus.BAD_REQUEST, "Пользователь не найден.")
+                return
+            # Never let the system end up with no active admin: /api/setup
+            # refuses to run once any user exists, so there would be no way back
+            # in. Evaluate role and isActive together — a single request can
+            # demote and deactivate at once.
+            new_role = str(payload["role"]) if "role" in payload else target["role"]
+            new_active = bool(payload["isActive"]) if "isActive" in payload else bool(target["is_active"])
+            was_active_admin = target["role"] == "admin" and bool(target["is_active"])
+            stays_active_admin = new_role == "admin" and new_active
+            if was_active_admin and not stays_active_admin and auth.count_active_admins(connection) <= 1:
+                self.send_json_error(
+                    HTTPStatus.BAD_REQUEST,
+                    "Нельзя деактивировать или понизить единственного администратора.",
+                )
                 return
             try:
                 if "role" in payload:
@@ -744,10 +810,12 @@ class WarehouseHandler(BaseHTTPRequestHandler):
 
     def serve_static(self, raw_path: str) -> None:
         relative = "index.html" if raw_path in {"/", ""} else raw_path.lstrip("/")
-        file_path = (ROOT / relative).resolve()
-        if ROOT not in file_path.parents and file_path != ROOT:
-            self.send_error(HTTPStatus.FORBIDDEN)
+        if relative not in STATIC_ALLOWLIST:
+            # Not on the allowlist: always 404, never 403, so a probe can't tell
+            # "exists but you may not have it" from "does not exist".
+            self.send_error(HTTPStatus.NOT_FOUND)
             return
+        file_path = ROOT / relative
         if not file_path.exists() or not file_path.is_file():
             self.send_error(HTTPStatus.NOT_FOUND)
             return

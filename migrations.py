@@ -43,6 +43,13 @@ def _migrate_015_asset_allocations_rebuild(connection: sqlite3.Connection) -> No
     needs_migration = ("department" not in alloc_cols) or (emp_col is not None and emp_col["notnull"] == 1)
     if not needs_migration:
         return
+    # SQLite silently ignores `PRAGMA foreign_keys` while a transaction is open,
+    # and by now migrations 1-14 have each INSERTed into schema_version, which
+    # makes Python's sqlite3 open an implicit transaction. Without this commit
+    # the pragma below is a no-op and the rebuild INSERT runs with FK checks
+    # still on — a legacy row pointing at a since-deleted asset then aborts the
+    # whole migration, and init_db() (called at startup) fails to start the server.
+    connection.commit()
     connection.execute("PRAGMA foreign_keys = OFF")
     connection.executescript(
         """

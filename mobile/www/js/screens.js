@@ -130,7 +130,7 @@ async function submitEdit(event) {
   };
   await Db.enqueueAction(payload);
   await refreshQueueCount();
-  Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled); });
+  Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled, r.needsReauth); });
   showScreen('screen-scan');
 }
 
@@ -180,7 +180,7 @@ async function submitAction(event) {
   }
   await Db.enqueueAction(payload);
   await refreshQueueCount();
-  Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled); }); // fire-and-forget, but still refresh the badges once sync settles
+  Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled, r.needsReauth); }); // fire-and-forget, but still refresh the badges once sync settles
   showScreen('screen-scan');
 }
 
@@ -223,7 +223,7 @@ async function openQueueScreen() {
         retryBtn.addEventListener('click', async () => {
           await Db.retryAction(row.client_action_id);
           await openQueueScreen();
-          Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled); });
+          Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled, r.needsReauth); });
         });
         li.appendChild(retryBtn);
       }
@@ -317,14 +317,14 @@ async function init() {
   } else {
     showScreen('screen-scan');
     await refreshQueueCount();
-    Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled); });
+    Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled, r.needsReauth); });
   }
 
   document.getElementById('settingsSaveBtn').addEventListener('click', async () => {
     const current = await Settings.get();
     await Settings.set({ serverUrl: document.getElementById('settingsUrl').value, token: current.token, deviceSecret: current.deviceSecret });
     showScreen('screen-scan');
-    Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled); });
+    Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled, r.needsReauth); });
   });
 
   document.getElementById('scanBtn').addEventListener('click', async () => {
@@ -345,7 +345,7 @@ async function init() {
       await Settings.set({ serverUrl: result.serverUrl, token, deviceSecret: result.secret });
       document.getElementById('settingsUrl').value = result.serverUrl;
       showScreen('screen-scan');
-      Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled); });
+      Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled, r.needsReauth); });
     } catch (error) {
       alert(error && error.message ? error.message : 'Не удалось выполнить сканирование.');
     }
