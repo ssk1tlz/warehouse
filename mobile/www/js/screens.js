@@ -1,3 +1,7 @@
+function describeScanError(err, fallback) {
+  return (err && err.message) ? err.message : fallback;
+}
+
 const NAV_SCREEN_MAP = {
   navSearchBtn: 'screen-search',
   navQueueBtn: 'screen-queue',
@@ -28,7 +32,7 @@ async function refreshQueueCount() {
 async function openAssetScreen(assetId) {
   const asset = await Db.getAssetById(assetId);
   if (!asset) {
-    alert('Этот QR не найден в кэше. Подключитесь к сети склада и повторите синхронизацию.');
+    Toast.show('Этот QR не найден в кэше. Подключитесь к сети склада и повторите синхронизацию.', 'error');
     return;
   }
   currentAssetId = assetId;
@@ -130,6 +134,7 @@ async function submitEdit(event) {
     warrantyEnd: document.getElementById('editWarrantyEnd').value,
   };
   await Db.enqueueAction(payload);
+  Toast.show('Действие в очереди', 'info');
   await refreshQueueCount();
   Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled, r.needsReauth); });
   showScreen('screen-scan');
@@ -180,6 +185,7 @@ async function submitAction(event) {
     payload.targetType = payload.employeeId ? 'employee' : 'warehouse';
   }
   await Db.enqueueAction(payload);
+  Toast.show('Действие в очереди', 'info');
   await refreshQueueCount();
   Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled, r.needsReauth); }); // fire-and-forget, but still refresh the badges once sync settles
   showScreen('screen-scan');
@@ -359,7 +365,7 @@ async function init() {
       if (!assetId) return; // cancelled or not a warehouse QR
       await openAssetScreen(assetId);
     } catch (error) {
-      alert(error && error.message ? error.message : 'Не удалось выполнить сканирование.');
+      Toast.show(describeScanError(error, 'Не удалось выполнить сканирование.'), 'error');
     }
   });
 
@@ -373,7 +379,7 @@ async function init() {
       showScreen('screen-scan');
       Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled, r.needsReauth); });
     } catch (error) {
-      alert(error && error.message ? error.message : 'Не удалось выполнить сканирование.');
+      Toast.show(describeScanError(error, 'Не удалось выполнить сканирование.'), 'error');
     }
   });
 
@@ -397,7 +403,7 @@ async function init() {
       if (!serial) return; // отменено
       document.getElementById('editSerialNumber').value = serial;
     } catch (error) {
-      alert(error && error.message ? error.message : 'Не удалось выполнить сканирование.');
+      Toast.show(describeScanError(error, 'Не удалось выполнить сканирование.'), 'error');
     }
   });
 
@@ -408,12 +414,12 @@ async function init() {
       const applied = applyLabelToEditForm(parsed);
       if (!applied) {
         const recognized = [parsed.name, parsed.serialNumber].filter(Boolean).join(' · ');
-        alert(recognized
+        Toast.show(recognized
           ? `Распознано: ${recognized}. Поля уже заполнены — очистите нужное поле и повторите, чтобы подставить.`
-          : 'Не удалось распознать данные на этикетке — попробуйте снять ближе и при лучшем свете.');
+          : 'Не удалось распознать данные на этикетке — попробуйте снять ближе и при лучшем свете.', 'info');
       }
     } catch (error) {
-      alert(error && error.message ? error.message : 'Не удалось распознать этикетку.');
+      Toast.show(describeScanError(error, 'Не удалось распознать этикетку.'), 'error');
     }
   });
 
@@ -486,4 +492,9 @@ function initSwipeBack() {
   document.body.addEventListener('pointercancel', endDrag);
 }
 
-window.App = { init };
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { describeScanError };
+}
+if (typeof window !== 'undefined') {
+  window.App = { init };
+}
