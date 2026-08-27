@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
   entity_id TEXT NOT NULL,
   action TEXT NOT NULL,
   changes TEXT NOT NULL DEFAULT '{}',
+  actor TEXT NOT NULL DEFAULT '',
   timestamp TEXT NOT NULL
 );
 

@@ -222,7 +222,8 @@ def export_state() -> dict:
 
         audit = []
         for row in connection.execute(
-            "SELECT id, entity_type AS entityType, entity_id AS entityId, action, changes, timestamp FROM audit_log ORDER BY id DESC LIMIT 200"
+            "SELECT id, entity_type AS entityType, entity_id AS entityId, action, changes, actor, timestamp "
+            "FROM audit_log ORDER BY id DESC LIMIT 200"
         ):
             entry = dict(row)
             entry["changes"] = json.loads(entry["changes"] or "{}")
@@ -244,7 +245,7 @@ def export_state() -> dict:
     }
 
 
-def import_state(payload: dict) -> dict:
+def import_state(payload: dict, actor: str) -> dict:
     employees = payload.get("employees", [])
     departments = payload.get("departments", [])
     sites = payload.get("sites", [])
@@ -344,9 +345,10 @@ def import_state(payload: dict) -> dict:
         for entry in payload.get("auditLog", []):
             if not entry.get("id"):  # only new entries (without numeric id)
                 connection.execute(
-                    "INSERT INTO audit_log (entity_type, entity_id, action, changes, timestamp) VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO audit_log (entity_type, entity_id, action, changes, actor, timestamp) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
                     (entry.get("entityType", ""), entry.get("entityId", ""), entry.get("action", ""),
-                     json.dumps(entry.get("changes", {}), ensure_ascii=False), entry.get("timestamp", "")),
+                     json.dumps(entry.get("changes", {}), ensure_ascii=False), actor, entry.get("timestamp", "")),
                 )
 
         # Save kit templates
@@ -452,7 +454,7 @@ class WarehouseHandler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
                 return
             auto_backup()
-            state = import_state(payload)
+            state = import_state(payload, actor="")
         self.send_json(state)
 
     def handle_mobile_action(self) -> None:
