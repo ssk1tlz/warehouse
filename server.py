@@ -271,6 +271,17 @@ def import_state(payload: dict, actor: str) -> dict:
 
     with get_connection() as connection:
         connection.execute("BEGIN")
+        old_assets = {
+            row["id"]: (
+                row["name"], row["category"] or "", row["inventory_number"] or "",
+                row["serial_number"] or "", row["location"] or "", row["purchase_date"] or "",
+                row["warranty_end"] or "", row["rev"],
+            )
+            for row in connection.execute(
+                "SELECT id, name, category, inventory_number, serial_number, location, "
+                "purchase_date, warranty_end, rev FROM assets"
+            )
+        }
         connection.execute("DELETE FROM asset_allocations")
         connection.execute("DELETE FROM movements")
         connection.execute("DELETE FROM assets")
@@ -306,10 +317,26 @@ def import_state(payload: dict, actor: str) -> dict:
             )
 
         for asset in assets:
+            new_fields = (
+                asset.get("name") or "Без названия",
+                asset.get("category") or "",
+                asset.get("inventoryNumber") or "",
+                asset.get("serialNumber") or "",
+                asset.get("location") or "",
+                asset.get("purchaseDate") or "",
+                asset.get("warrantyEnd") or "",
+            )
+            old = old_assets.get(asset.get("id"))
+            if old is None:
+                new_rev = 0
+            elif old[:7] == new_fields:
+                new_rev = old[7]
+            else:
+                new_rev = old[7] + 1
             connection.execute(
                 """
-                INSERT INTO assets (id, name, category, inventory_number, serial_number, purchase_date, status, notes, quantity, repair_quantity, retired_quantity, min_quantity, warranty_end, price, repair_date, location, photo_url)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO assets (id, name, category, inventory_number, serial_number, purchase_date, status, notes, quantity, repair_quantity, retired_quantity, min_quantity, warranty_end, price, repair_date, location, photo_url, rev)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     asset.get("id"),
@@ -329,6 +356,7 @@ def import_state(payload: dict, actor: str) -> dict:
                     asset.get("repairDate") or "",
                     asset.get("location") or "",
                     asset.get("photoUrl") or "",
+                    new_rev,
                 ),
             )
             for allocation in asset.get("allocations", []):

@@ -174,6 +174,72 @@ def test_get_state_includes_asset_rev(live_server):
     assert body["assets"][0]["rev"] == 0
 
 
+def _asset_payload(**overrides):
+    payload = {
+        "id": "ast_1",
+        "name": "Ноутбук",
+        "category": "Техника",
+        "inventoryNumber": "INV-1",
+        "serialNumber": "SN-1",
+        "location": "Офис",
+        "purchaseDate": "2024-01-01",
+        "warrantyEnd": "2025-01-01",
+        "quantity": 5,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _state_payload(asset):
+    return {
+        "meta": {"updatedAt": "2026-08-27T00:00:00Z"},
+        "employees": [],
+        "departments": [],
+        "sites": [],
+        "assets": [asset],
+        "movements": [],
+        "auditLog": [],
+        "kitTemplates": [],
+    }
+
+
+def test_import_state_preserves_rev_when_editable_fields_unchanged(live_server):
+    token = _create_admin(live_server)
+    asset = _asset_payload()
+    status, body = _request(live_server, "POST", "/api/state", token=token, json_body=_state_payload(asset))
+    assert status == 200, body
+    assert body["assets"][0]["rev"] == 0
+    # Re-POST the identical asset (as the desktop does on every debounced save).
+    status, body = _request(live_server, "POST", "/api/state", token=token, json_body=_state_payload(asset))
+    assert status == 200, body
+    assert body["assets"][0]["rev"] == 0
+
+
+def test_import_state_bumps_rev_when_name_changes(live_server):
+    token = _create_admin(live_server)
+    asset = _asset_payload()
+    status, body = _request(live_server, "POST", "/api/state", token=token, json_body=_state_payload(asset))
+    assert status == 200, body
+    assert body["assets"][0]["rev"] == 0
+    changed = _asset_payload(name="Ноутбук новый")
+    status, body = _request(live_server, "POST", "/api/state", token=token, json_body=_state_payload(changed))
+    assert status == 200, body
+    assert body["assets"][0]["rev"] == 1
+
+
+def test_import_state_does_not_bump_rev_when_only_quantity_changes(live_server):
+    token = _create_admin(live_server)
+    asset = _asset_payload()
+    status, body = _request(live_server, "POST", "/api/state", token=token, json_body=_state_payload(asset))
+    assert status == 200, body
+    assert body["assets"][0]["rev"] == 0
+    changed = _asset_payload(quantity=10)
+    status, body = _request(live_server, "POST", "/api/state", token=token, json_body=_state_payload(changed))
+    assert status == 200, body
+    assert body["assets"][0]["rev"] == 0
+    assert body["assets"][0]["quantity"] == 10
+
+
 def test_viewer_can_read_state(live_server):
     admin_token = _create_admin(live_server)
     _request(live_server, "POST", "/api/users", token=admin_token,
