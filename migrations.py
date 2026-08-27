@@ -8,12 +8,6 @@ Migration = tuple[int, str, "Callable[[sqlite3.Connection], None]"]
 
 
 def _add_column_if_missing(connection: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
-    # Check if table exists first
-    table_check = connection.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
-    ).fetchone()
-    if table_check is None:
-        return
     existing = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})")}
     if column not in existing:
         connection.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
@@ -71,7 +65,14 @@ def _migrate_015_asset_allocations_rebuild(connection: sqlite3.Connection) -> No
     connection.execute("PRAGMA foreign_keys = ON")
 
 
-def _migrate_016(c): _add_column_if_missing(c, "asset_allocations", "site", "site TEXT NOT NULL DEFAULT ''")
+def _migrate_016(connection: sqlite3.Connection) -> None:
+    # Check if table exists
+    table_check = connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='asset_allocations'"
+    ).fetchone()
+    if table_check is None:
+        return
+    _add_column_if_missing(connection, "asset_allocations", "site", "site TEXT NOT NULL DEFAULT ''")
 
 
 MIGRATIONS: list[Migration] = [
