@@ -11,7 +11,8 @@ const SCHEMA = `
 CREATE TABLE IF NOT EXISTS assets (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT, inventory_number TEXT,
   serial_number TEXT, status TEXT, quantity INTEGER, repair_quantity INTEGER,
-  retired_quantity INTEGER, location TEXT, purchase_date TEXT, warranty_end TEXT
+  retired_quantity INTEGER, location TEXT, purchase_date TEXT, warranty_end TEXT,
+  rev INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS employees (
   id TEXT PRIMARY KEY, full_name TEXT NOT NULL, department TEXT, site TEXT
@@ -39,6 +40,15 @@ async function open() {
   db = await sqliteConnection.createConnection(DB_NAME, false, 'no-encryption', 1, false);
   await db.open();
   await db.execute(SCHEMA);
+  try {
+    await db.execute('ALTER TABLE assets ADD COLUMN rev INTEGER NOT NULL DEFAULT 0');
+  } catch (err) {
+    // Already has the column — either a fresh install (CREATE TABLE above already
+    // added it) or a device that's already been through this upgrade once. SQLite
+    // has no "ADD COLUMN IF NOT EXISTS", so a failed ALTER here is the expected,
+    // safe outcome on every launch after the first; a genuinely different error
+    // would surface immediately on the next db.query/db.run call anyway.
+  }
 }
 
 async function replaceState(state) {
@@ -64,10 +74,10 @@ async function replaceState(state) {
   for (const a of state.assets) {
     txn.push({
       statement: `INSERT INTO assets (id, name, category, inventory_number, serial_number, status, quantity,
-       repair_quantity, retired_quantity, location, purchase_date, warranty_end)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+       repair_quantity, retired_quantity, location, purchase_date, warranty_end, rev)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       values: [a.id, a.name, a.category, a.inventoryNumber, a.serialNumber, a.status, a.quantity,
-        a.repairQuantity, a.retiredQuantity, a.location, a.purchaseDate, a.warrantyEnd],
+        a.repairQuantity, a.retiredQuantity, a.location, a.purchaseDate, a.warrantyEnd, a.rev || 0],
     });
     for (const alloc of a.allocations || []) {
       txn.push({
@@ -144,6 +154,7 @@ async function getAssetById(id) {
     location: row.location,
     purchaseDate: row.purchase_date,
     warrantyEnd: row.warranty_end,
+    rev: row.rev,
     allocations: allocResult.values.map((alloc) => ({
       employeeId: alloc.employee_id,
       department: alloc.department,
