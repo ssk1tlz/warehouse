@@ -96,6 +96,20 @@ def pre_migration_backup() -> str | None:
     return str(dest)
 
 
+def list_backups() -> list[dict]:
+    if not BACKUP_DIR.exists():
+        return []
+    files = sorted(BACKUP_DIR.glob("*.db"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return [
+        {
+            "filename": p.name,
+            "createdAt": datetime.fromtimestamp(p.stat().st_mtime).isoformat(),
+            "sizeBytes": p.stat().st_size,
+        }
+        for p in files
+    ]
+
+
 VALID_STATUSES = {"in_stock", "assigned", "partial", "repair", "retired"}
 VALID_MOVEMENT_TYPES = {"purchase", "issue", "return", "repair", "repair_return", "retire", "edit", "delete"}
 
@@ -161,11 +175,33 @@ def get_connection() -> sqlite3.Connection:
 def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     is_fresh_install = not DB_PATH.exists()
-    with get_connection() as connection:
-        connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
-        if not is_fresh_install and migrations.pending_migrations(connection):
-            pre_migration_backup()
-        migrations.run_migrations(connection)
+    try:
+        with get_connection() as connection:
+            connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+            if not is_fresh_install and migrations.pending_migrations(connection):
+                pre_migration_backup()
+            migrations.run_migrations(connection)
+            result = connection.execute("PRAGMA integrity_check").fetchone()[0]
+    except sqlite3.DatabaseError as exc:
+        # A raw sqlite3.DatabaseError here (not a more specific subclass like
+        # IntegrityError/OperationalError) means SQLite couldn't even read the
+        # file as a database (e.g. "file is not a database") — treat that the
+        # same as a failed integrity_check rather than letting a confusing
+        # traceback crash the server. Subclasses are re-raised as-is: those
+        # indicate a real bug (e.g. in a migration), not file corruption.
+        if type(exc) is not sqlite3.DatabaseError:
+            raise
+        result = str(exc)
+    if result != "ok":
+        available = "\n".join(f"  - {b['filename']} ({b['createdAt']})" for b in list_backups())
+        raise SystemExit(
+            "ОШИБКА: проверка целостности базы данных не пройдена "
+            f"({result}).\n"
+            f"База данных: {DB_PATH}\n"
+            "Доступные резервные копии в backups/:\n"
+            f"{available or '  (нет резервных копий)'}\n"
+            "Скопируйте один из файлов поверх warehouse.db вручную и запустите сервер снова."
+        )
 
 
 def read_state_version(connection: sqlite3.Connection) -> int:

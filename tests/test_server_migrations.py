@@ -147,3 +147,21 @@ def test_get_connection_enables_wal_mode(tmp_path, monkeypatch):
     connection = server.get_connection()
     mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
     assert mode.lower() == "wal"
+
+
+def test_list_backups_returns_files_sorted_newest_first(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "BACKUP_DIR", tmp_path)
+    (tmp_path / "warehouse_20260101_000000.db").write_bytes(b"a")
+    (tmp_path / "pre_migration_20260102_000000.db").write_bytes(b"b")
+    backups = server.list_backups()
+    assert [b["filename"] for b in backups] == ["pre_migration_20260102_000000.db", "warehouse_20260101_000000.db"]
+    assert backups[0]["sizeBytes"] == 1
+
+
+def test_init_db_refuses_to_start_on_corrupt_database(tmp_path, monkeypatch):
+    db_path = tmp_path / "warehouse.db"
+    db_path.write_bytes(b"not a real sqlite file")
+    monkeypatch.setattr(server, "DB_PATH", db_path)
+    monkeypatch.setattr(server, "BACKUP_DIR", tmp_path / "backups")
+    with pytest.raises(SystemExit):
+        server.init_db()
