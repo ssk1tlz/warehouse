@@ -391,6 +391,16 @@ class WarehouseHandler(BaseHTTPRequestHandler):
             return False
         return True
 
+    def verify_channel_signature(self, user, body: bytes) -> bool:
+        if auth.is_loopback(self.client_address[0]):
+            return True
+        secret = user["device_secret"]
+        header_value = self.headers.get("X-Signature", "")
+        if not secret or not auth.verify_signature(self.command, self.path, body, secret, header_value):
+            self.send_json_error(HTTPStatus.UNAUTHORIZED, "Неверная или отсутствующая подпись запроса")
+            return False
+        return True
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if not parsed.path.startswith("/api/"):
@@ -403,6 +413,8 @@ class WarehouseHandler(BaseHTTPRequestHandler):
             return
         user = self.authenticate()
         if user is None:
+            return
+        if not self.verify_channel_signature(user, b""):
             return
         if parsed.path == "/api/state":
             self.send_json(export_state())
@@ -433,6 +445,8 @@ class WarehouseHandler(BaseHTTPRequestHandler):
             return
         user = self.authenticate()
         if user is None:
+            return
+        if not self.verify_channel_signature(user, body):
             return
         if parsed.path == "/api/logout":
             with get_connection() as connection:
@@ -503,6 +517,8 @@ class WarehouseHandler(BaseHTTPRequestHandler):
         body = self.read_body()
         user = self.authenticate()
         if user is None:
+            return
+        if not self.verify_channel_signature(user, body):
             return
         if not self.require_role(user, ("admin",)):
             return
