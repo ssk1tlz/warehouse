@@ -44,9 +44,10 @@ async function flushQueue(settings) {
   const pending = await Db.listPendingActions();
   let flushed = 0;
   let failed = 0;
+  let conflicted = 0;
   let needsReauth = false;
   for (const row of pending) {
-    if (row.status === 'failed') continue; // don't auto-retry — surface it, let the user retry explicitly (queue screen, Task 8)
+    if (row.status === 'failed' || row.status === 'conflict') continue; // surfaced, retried explicitly
     try {
       const bodyText = JSON.stringify(row.payload);
       const headers = { 'Content-Type': 'application/json', ...(await signedHeaders(settings, 'POST', '/api/mobile/action', bodyText)) };
@@ -65,6 +66,10 @@ async function flushQueue(settings) {
         // network-error path below; it flushes once the device is re-paired.
         needsReauth = true;
         break;
+      } else if (response.status === 409) {
+        const body = await response.json().catch(() => ({ currentAsset: {} }));
+        await Db.markActionConflict(row.client_action_id, body.currentAsset || {});
+        conflicted += 1;
       } else {
         const body = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
         await Db.markActionFailed(row.client_action_id, body.error || `HTTP ${response.status}`);
@@ -75,7 +80,7 @@ async function flushQueue(settings) {
       break;
     }
   }
-  return { flushed, failed, needsReauth };
+  return { flushed, failed, conflicted, needsReauth };
 }
 
 async function pullState(settings) {

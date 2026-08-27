@@ -287,4 +287,26 @@ async function retryAction(clientActionId) {
   await db.run("UPDATE pending_actions SET status = 'pending', server_error = NULL WHERE client_action_id = ?", [clientActionId]);
 }
 
-window.Db = { open, replaceState, getAssetById, listEmployeesById, listMovementsForAsset, listMovementHistory, searchAssets, enqueueAction, listPendingActions, markActionSynced, markActionFailed, retryAction, generateClientActionId };
+async function markActionConflict(clientActionId, currentAsset) {
+  await db.run(
+    "UPDATE pending_actions SET status = 'conflict', server_error = ? WHERE client_action_id = ?",
+    [JSON.stringify(currentAsset), clientActionId]
+  );
+}
+
+async function retryActionOnTop(clientActionId, newBaseRev) {
+  const result = await db.query('SELECT payload_json FROM pending_actions WHERE client_action_id = ?', [clientActionId]);
+  if (!result.values.length) return;
+  const payload = JSON.parse(result.values[0].payload_json);
+  payload.baseRev = newBaseRev;
+  await db.run(
+    "UPDATE pending_actions SET status = 'pending', server_error = NULL, payload_json = ? WHERE client_action_id = ?",
+    [JSON.stringify(payload), clientActionId]
+  );
+}
+
+async function cancelAction(clientActionId) {
+  await db.run('DELETE FROM pending_actions WHERE client_action_id = ?', [clientActionId]);
+}
+
+window.Db = { open, replaceState, getAssetById, listEmployeesById, listMovementsForAsset, listMovementHistory, searchAssets, enqueueAction, listPendingActions, markActionSynced, markActionFailed, retryAction, markActionConflict, retryActionOnTop, cancelAction, generateClientActionId };

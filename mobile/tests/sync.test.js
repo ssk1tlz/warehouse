@@ -126,3 +126,41 @@ test('run() reports needsReauth:false when the server is merely unreachable', as
   assert.equal(result.needsReauth, false);
   assert.equal(result.pulled, false);
 });
+
+test('flushQueue marks a 409 edit conflict with status "conflict", not "failed"', async () => {
+  const marked = [];
+  global.fetch = async () => ({
+    ok: false,
+    status: 409,
+    json: async () => ({ error: 'Карточка была изменена на сервере.', currentAsset: { rev: 3, name: 'X' } }),
+  });
+  global.Db = {
+    listPendingActions: async () => ([
+      { client_action_id: 'a1', status: 'pending', payload: { type: 'edit', assetId: 'ast_1', baseRev: 0 } },
+    ]),
+    markActionConflict: async (id, currentAsset) => marked.push({ id, currentAsset }),
+  };
+  const result = await Sync.flushQueue({ serverUrl: 'http://x', token: 't' });
+  assert.equal(result.conflicted, 1);
+  assert.equal(result.failed, 0);
+  assert.deepEqual(marked, [{ id: 'a1', currentAsset: { rev: 3, name: 'X' } }]);
+});
+
+test('flushQueue still marks a plain 400 as "failed", unaffected by conflict handling', async () => {
+  global.fetch = async () => ({
+    ok: false,
+    status: 400,
+    json: async () => ({ error: 'Недостаточно остатка.' }),
+  });
+  const failed = [];
+  global.Db = {
+    listPendingActions: async () => ([
+      { client_action_id: 'a1', status: 'pending', payload: { type: 'issue', assetId: 'ast_1' } },
+    ]),
+    markActionFailed: async (id, error) => failed.push({ id, error }),
+  };
+  const result = await Sync.flushQueue({ serverUrl: 'http://x', token: 't' });
+  assert.equal(result.failed, 1);
+  assert.equal(result.conflicted, 0);
+  assert.deepEqual(failed, [{ id: 'a1', error: 'Недостаточно остатка.' }]);
+});
