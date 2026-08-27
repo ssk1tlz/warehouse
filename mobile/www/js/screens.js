@@ -120,6 +120,7 @@ async function submitEdit(event) {
   const payload = {
     type: 'edit',
     assetId: currentAssetId,
+    baseRev: currentAsset.rev,
     name: document.getElementById('editName').value,
     category: document.getElementById('editCategory').value,
     inventoryNumber: document.getElementById('editInventoryNumber').value,
@@ -215,7 +216,14 @@ async function openQueueScreen() {
   } else {
     for (const row of pending) {
       const li = document.createElement('li');
-      const statusText = row.status === 'failed' ? `Ошибка: ${row.server_error}` : 'Ждёт отправки';
+      let statusText;
+      if (row.status === 'conflict') {
+        statusText = 'Конфликт: карточка изменена на сервере';
+      } else if (row.status === 'failed') {
+        statusText = `Ошибка: ${row.server_error}`;
+      } else {
+        statusText = 'Ждёт отправки';
+      }
       li.textContent = `${MOVEMENT_LABELS[row.payload.type]} · ${row.payload.assetId} · ${statusText}`;
       if (row.status === 'failed') {
         const retryBtn = document.createElement('button');
@@ -226,6 +234,24 @@ async function openQueueScreen() {
           Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled, r.needsReauth); });
         });
         li.appendChild(retryBtn);
+      } else if (row.status === 'conflict') {
+        const currentAssetSnapshot = JSON.parse(row.server_error || '{}');
+        const retryOnTopBtn = document.createElement('button');
+        retryOnTopBtn.textContent = 'Повторить поверх';
+        retryOnTopBtn.addEventListener('click', async () => {
+          await Db.retryActionOnTop(row.client_action_id, currentAssetSnapshot.rev);
+          await openQueueScreen();
+          Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled, r.needsReauth); });
+        });
+        const cancelBtn = document.createElement('button');
+        cancelBtn.textContent = 'Отменить';
+        cancelBtn.addEventListener('click', async () => {
+          await Db.cancelAction(row.client_action_id);
+          await openQueueScreen();
+          await refreshQueueCount();
+        });
+        li.appendChild(retryOnTopBtn);
+        li.appendChild(cancelBtn);
       }
       listEl.appendChild(li);
     }
