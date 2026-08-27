@@ -189,3 +189,21 @@ def test_lan_info_does_not_include_a_password_field(live_server):
     status, body = _request(live_server, "GET", "/api/lan-info", token=token)
     assert status == 200
     assert "password" not in body
+
+
+def test_login_rejects_non_object_json_payload(live_server):
+    _create_admin(live_server)
+    status, _ = _request(live_server, "POST", "/api/login", json_body=["not", "an", "object"])
+    assert status == 400
+
+
+def test_setup_rejects_non_object_json_payload(live_server):
+    status, _ = _request(live_server, "POST", "/api/setup", json_body=5)
+    assert status == 400
+
+
+def test_patch_user_rejects_unknown_user_id(live_server):
+    admin_token = _create_admin(live_server)
+    status, body = _request(live_server, "PATCH", "/api/users/no-such-user", token=admin_token,
+                             json_body={"isActive": False})
+    assert status == 400

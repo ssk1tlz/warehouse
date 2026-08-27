@@ -521,6 +521,9 @@ class WarehouseHandler(BaseHTTPRequestHandler):
             except json.JSONDecodeError as exc:
                 self.send_json_error(HTTPStatus.BAD_REQUEST, f"invalid json: {exc}")
                 return
+            if not isinstance(payload, dict):
+                self.send_json_error(HTTPStatus.BAD_REQUEST, "Payload must be a JSON object.")
+                return
             username = str(payload.get("username") or "").strip()
             password = str(payload.get("password") or "")
             if not username or not password:
@@ -540,6 +543,9 @@ class WarehouseHandler(BaseHTTPRequestHandler):
         except json.JSONDecodeError as exc:
             self.send_json_error(HTTPStatus.BAD_REQUEST, f"invalid json: {exc}")
             return
+        if not isinstance(payload, dict):
+            self.send_json_error(HTTPStatus.BAD_REQUEST, "Payload must be a JSON object.")
+            return
         username = str(payload.get("username") or "")
         password = str(payload.get("password") or "")
         with get_connection() as connection:
@@ -555,6 +561,9 @@ class WarehouseHandler(BaseHTTPRequestHandler):
             payload = json.loads(body or b"{}")
         except json.JSONDecodeError as exc:
             self.send_json_error(HTTPStatus.BAD_REQUEST, f"invalid json: {exc}")
+            return
+        if not isinstance(payload, dict):
+            self.send_json_error(HTTPStatus.BAD_REQUEST, "Payload must be a JSON object.")
             return
         username = str(payload.get("username") or "").strip()
         password = str(payload.get("password") or "")
@@ -576,7 +585,13 @@ class WarehouseHandler(BaseHTTPRequestHandler):
         except json.JSONDecodeError as exc:
             self.send_json_error(HTTPStatus.BAD_REQUEST, f"invalid json: {exc}")
             return
+        if not isinstance(payload, dict):
+            self.send_json_error(HTTPStatus.BAD_REQUEST, "Payload must be a JSON object.")
+            return
         with get_connection() as connection:
+            if auth.get_user_by_id(connection, user_id) is None:
+                self.send_json_error(HTTPStatus.BAD_REQUEST, "Пользователь не найден.")
+                return
             try:
                 if "role" in payload:
                     auth.set_user_role(connection, user_id, str(payload["role"]))
@@ -595,6 +610,9 @@ class WarehouseHandler(BaseHTTPRequestHandler):
         except json.JSONDecodeError as exc:
             self.send_json_error(HTTPStatus.BAD_REQUEST, f"invalid json: {exc}")
             return
+        if not isinstance(payload, dict):
+            self.send_json_error(HTTPStatus.BAD_REQUEST, "Payload must be a JSON object.")
+            return
         user_id = str(payload.get("userId") or "")
         with get_connection() as connection:
             if auth.get_user_by_id(connection, user_id) is None:
@@ -608,6 +626,9 @@ class WarehouseHandler(BaseHTTPRequestHandler):
             payload = json.loads(body or b"{}")
         except json.JSONDecodeError as exc:
             self.send_json_error(HTTPStatus.BAD_REQUEST, f"invalid json: {exc}")
+            return
+        if not isinstance(payload, dict):
+            self.send_json_error(HTTPStatus.BAD_REQUEST, "Payload must be a JSON object.")
             return
         code = str(payload.get("code") or "")
         with get_connection() as connection:
