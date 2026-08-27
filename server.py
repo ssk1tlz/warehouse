@@ -70,6 +70,12 @@ HOST = str(_config.get("host", "127.0.0.1"))
 PORT = int(_config.get("port", 8765))
 
 
+def _prune_backups() -> None:
+    files = sorted(BACKUP_DIR.glob("*.db"), key=lambda p: p.stat().st_mtime, reverse=True)
+    for old in files[MAX_BACKUPS:]:
+        old.unlink(missing_ok=True)
+
+
 def auto_backup() -> str | None:
     """Create a timestamped backup of the database file."""
     if not DB_PATH.exists():
@@ -78,10 +84,7 @@ def auto_backup() -> str | None:
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     dest = BACKUP_DIR / f"warehouse_{stamp}.db"
     shutil.copy2(DB_PATH, dest)
-    # Prune old backups
-    backups = sorted(BACKUP_DIR.glob("warehouse_*.db"), key=lambda p: p.stat().st_mtime, reverse=True)
-    for old in backups[MAX_BACKUPS:]:
-        old.unlink(missing_ok=True)
+    _prune_backups()
     return str(dest)
 
 
@@ -93,6 +96,19 @@ def pre_migration_backup() -> str | None:
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     dest = BACKUP_DIR / f"pre_migration_{stamp}.db"
     shutil.copy2(DB_PATH, dest)
+    _prune_backups()
+    return str(dest)
+
+
+def pre_restore_backup() -> str | None:
+    """Snapshot of the current DB taken right before a one-click restore overwrites it."""
+    if not DB_PATH.exists():
+        return None
+    BACKUP_DIR.mkdir(exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    dest = BACKUP_DIR / f"pre_restore_{stamp}.db"
+    shutil.copy2(DB_PATH, dest)
+    _prune_backups()
     return str(dest)
 
 

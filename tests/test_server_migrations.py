@@ -158,6 +158,32 @@ def test_list_backups_returns_files_sorted_newest_first(tmp_path, monkeypatch):
     assert backups[0]["sizeBytes"] == 1
 
 
+def test_auto_backup_prunes_across_all_backup_prefixes(tmp_path, monkeypatch):
+    db_path = tmp_path / "warehouse.db"
+    db_path.write_bytes(b"x")
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir()
+    monkeypatch.setattr(server, "DB_PATH", db_path)
+    monkeypatch.setattr(server, "BACKUP_DIR", backup_dir)
+    monkeypatch.setattr(server, "MAX_BACKUPS", 2)
+    # Two pre-existing files of a DIFFERENT prefix than auto_backup() writes.
+    (backup_dir / "pre_migration_20260101_000000.db").write_bytes(b"a")
+    (backup_dir / "pre_restore_20260102_000000.db").write_bytes(b"b")
+    server.auto_backup()
+    remaining = {p.name for p in backup_dir.glob("*.db")}
+    assert len(remaining) == 2  # MAX_BACKUPS=2 total, across ALL prefixes together
+
+
+def test_pre_restore_backup_creates_a_labeled_file(tmp_path, monkeypatch):
+    db_path = tmp_path / "warehouse.db"
+    db_path.write_bytes(b"x")
+    monkeypatch.setattr(server, "DB_PATH", db_path)
+    monkeypatch.setattr(server, "BACKUP_DIR", tmp_path / "backups")
+    dest = server.pre_restore_backup()
+    assert dest is not None
+    assert "pre_restore_" in dest
+
+
 def test_init_db_refuses_to_start_on_corrupt_database(tmp_path, monkeypatch):
     db_path = tmp_path / "warehouse.db"
     db_path.write_bytes(b"not a real sqlite file")
