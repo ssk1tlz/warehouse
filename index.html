@@ -4,11 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Склад IT-техники</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="styles.css">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3/dist/JsBarcode.all.min.js"></script>
+  <script src="chart.umd.min.js"></script>
 </head>
 <body>
   <button class="burger-btn" id="burgerBtn" aria-label="Menu">
@@ -87,6 +84,7 @@
         <button id="exportDataBtn" class="secondary">↓ Экспорт JSON</button>
         <button id="exportExcelBtn" class="secondary">↓ Экспорт Excel</button>
         <button id="printLabelsBtn" class="teal-btn"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 2h6l4 4v8H2V2h2z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M5 9h6M5 12h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg> Этикетки</button>
+        <button id="showLanQrBtn" class="secondary"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="5" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="2" width="5" height="5" stroke="currentColor" stroke-width="1.3"/><rect x="2" y="9" width="5" height="5" stroke="currentColor" stroke-width="1.3"/><path d="M9 9h2v2H9zM12 9h2v2h-2zM9 12h2v2H9zM12 12h2v2h-2z" fill="currentColor"/></svg> QR для телефона</button>
         <label class="import-label">
           ↑ Импорт JSON
           <input id="importDataInput" type="file" accept=".json">
@@ -99,10 +97,16 @@
 
       <div class="topbar">
         <div class="topbar-left">
-          <h2>Обзор системы</h2>
+          <h2 id="topbarTitle">Обзор системы</h2>
           <div class="topbar-sub" id="topbarSub">Склад IT‑техники</div>
         </div>
-        <div class="last-update-badge" id="lastUpdateLabel">Нет изменений</div>
+        <div class="topbar-right">
+          <button id="themeToggleBtn" class="theme-toggle-btn" type="button" title="Переключить тему (Светлая / Тёмная)" aria-label="Переключить тему">
+            <span class="theme-toggle-icon" id="themeToggleIcon">☀️</span>
+            <span class="theme-toggle-text" id="themeToggleText">Светлая</span>
+          </button>
+          <div class="last-update-badge" id="lastUpdateLabel">Нет изменений</div>
+        </div>
       </div>
 
       <!-- ─── DASHBOARD ─────────────────────────────────────────── -->
@@ -318,71 +322,182 @@
 
       <!-- ─── EMPLOYEES ─────────────────────────────────────────── -->
       <section id="employees" class="view">
-        <div class="panel form-panel">
-          <div class="panel-header">
-            <h3 id="employeeFormTitle">Добавить сотрудника</h3>
+        
+        <!-- Header -->
+        <div class="emp-page-header">
+          <div class="emp-header-left">
+            <h2 class="emp-page-title">Сотрудники</h2>
+            <p class="emp-page-subtitle">Список всех сотрудников компании</p>
           </div>
-          <form id="employeeForm" class="asset-form">
-            <input type="hidden" name="employeeId">
-            <div class="form-section">
-              <div class="form-section-title">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5" r="3" stroke="currentColor" stroke-width="1.3"/><path d="M2.5 14c0-3 2.5-5 5.5-5s5.5 2 5.5 5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-                Данные сотрудника
-              </div>
-              <div class="form-row">
-                <label class="form-field">
-                  <span class="form-label">ФИО</span>
-                  <input name="fullName" required placeholder="Иванов Иван Иванович">
-                </label>
-                <label class="form-field">
-                  <span class="form-label">Отдел</span>
-                  <select name="department" id="employeeDepartmentSelect" required>
-                    <option value="">Выберите отдел</option>
-                  </select>
-                </label>
-              </div>
-              <div class="form-row">
-                <label class="form-field">
-                  <span class="form-label">Объект</span>
-                  <select name="site" id="employeeSiteSelect">
-                    <option value="">— без объекта —</option>
-                  </select>
-                </label>
-                <label class="form-field">
-                  <span class="form-label">Должность</span>
-                  <input name="position" placeholder="Специалист">
-                </label>
-                <label class="form-field">
-                  <span class="form-label">Телефон</span>
-                  <input type="tel" name="phone" placeholder="+998 (__) ___-__-__">
-                </label>
-              </div>
-            </div>
-            <div class="form-actions">
-              <button type="submit" id="employeeSubmitBtn">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3.5 3.5 7-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                Сохранить сотрудника
-              </button>
-              <button type="button" id="employeeCancelBtn" class="secondary hidden">Отменить</button>
-            </div>
-          </form>
+          <div class="emp-header-actions">
+            <button type="button" class="emp-btn-export" id="employeeExportBtn">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 2v8m0 0l-3-3m3 3l3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              Экспорт
+            </button>
+            <button type="button" class="emp-btn-add" id="openAddEmployeeModalBtn">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              Добавить сотрудника
+            </button>
+            <button type="button" class="emp-btn-more" id="employeeMoreMenuBtn" title="Действия">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="3.5" r="1.3" fill="currentColor"/><circle cx="8" cy="8" r="1.3" fill="currentColor"/><circle cx="8" cy="12.5" r="1.3" fill="currentColor"/></svg>
+            </button>
+          </div>
         </div>
-        <div class="panel">
-          <div class="panel-header">
-            <h3>Сотрудники</h3>
-            <input id="employeeSearchInput" class="search" style="max-width:280px" placeholder="Поиск…">
-            <button type="button" class="secondary filter-toggle" data-target="employeeFilters">
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M2 8h8M2 12h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+
+        <!-- 4 Metric / Stat Cards -->
+        <div class="emp-stats-row">
+          <div class="emp-stat-card">
+            <div class="emp-stat-icon icon-blue">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </div>
+            <div class="emp-stat-info">
+              <div class="emp-stat-val" id="empStatTotal">0</div>
+              <div class="emp-stat-lbl">Всего сотрудников</div>
+            </div>
+          </div>
+
+          <div class="emp-stat-card">
+            <div class="emp-stat-icon icon-green">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            </div>
+            <div class="emp-stat-info">
+              <div class="emp-stat-val" id="empStatActive">0</div>
+              <div class="emp-stat-lbl">Активные</div>
+            </div>
+          </div>
+
+          <div class="emp-stat-card">
+            <div class="emp-stat-icon icon-orange">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" y1="8" x2="23" y2="14"/><line x1="23" y1="8" x2="17" y2="14"/></svg>
+            </div>
+            <div class="emp-stat-info">
+              <div class="emp-stat-val" id="empStatInactive">0</div>
+              <div class="emp-stat-lbl">Уволенные</div>
+            </div>
+          </div>
+
+          <div class="emp-stat-card">
+            <div class="emp-stat-icon icon-indigo">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2" stroke-width="1.8"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01M16 6h.01M8 10h.01M16 10h.01M8 14h.01M16 14h.01"/></svg>
+            </div>
+            <div class="emp-stat-info">
+              <div class="emp-stat-val" id="empStatDepts">0</div>
+              <div class="emp-stat-lbl">Подразделений</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Filter & Search Panel -->
+        <div class="emp-filter-card">
+          <!-- Top filter row -->
+          <div class="emp-filter-top-row">
+            <div class="emp-search-wrap">
+              <input id="employeeSearchInput" type="text" class="emp-search-input" placeholder="Поиск по ФИО, должности, email или телефону…">
+              <svg class="emp-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            </div>
+            <select id="employeeFilterDepartment" class="emp-filter-select">
+              <option value="">Все подразделения</option>
+            </select>
+            <select id="employeeFilterPosition" class="emp-filter-select">
+              <option value="">Все должности</option>
+            </select>
+            <select id="employeeFilterStatus" class="emp-filter-select">
+              <option value="">Все статусы</option>
+              <option value="active">Активные</option>
+              <option value="inactive">Уволенные</option>
+            </select>
+            <button type="button" class="emp-btn-filter-toggle" id="empFilterToggleBtn">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
               Фильтры
             </button>
           </div>
-          <div class="table-filters" id="employeeFilters" style="display:none">
-            <select id="employeeFilterDepartment" class="filter-select">
-              <option value="">Все отделы</option>
+
+          <!-- Bottom filter row with chips and controls -->
+          <div class="emp-filter-bottom-row">
+            <div class="emp-filter-tags-wrap" id="employeeActiveChips">
+              <!-- Rendered via JS -->
+            </div>
+            <button type="button" id="employeeResetAllFiltersBtn" class="emp-reset-filters-btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+              Сбросить все
+            </button>
+
+            <div class="emp-filter-right-controls">
+              <div class="emp-sort-wrap">
+                <span class="emp-sort-lbl">Сортировка:</span>
+                <select id="employeeSortSelect" class="emp-sort-select">
+                  <option value="name_asc">ФИО (А-Я)</option>
+                  <option value="name_desc">ФИО (Я-А)</option>
+                  <option value="department">Подразделение</option>
+                  <option value="position">Должность</option>
+                  <option value="assets">Количество техники</option>
+                </select>
+              </div>
+
+              <div class="emp-view-switch">
+                <button type="button" class="emp-view-btn active" id="empViewTableBtn" title="Таблица">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                </button>
+                <button type="button" class="emp-view-btn" id="empViewCardsBtn" title="Сетка карточек">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bulk actions bar -->
+        <div class="emp-bulk-actions-bar">
+          <span class="emp-bulk-count" id="employeeBulkCount">0 выбрано</span>
+          <button type="button" class="emp-bulk-delete-btn" id="employeeBulkDeleteBtn" disabled>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>
+            Удалить выбранных
+          </button>
+        </div>
+
+        <!-- Table View -->
+        <div class="emp-table-card" id="employeeTableView">
+          <div class="table-wrap">
+            <table class="emp-modern-table">
+              <thead>
+                <tr>
+                  <th style="width:40px;text-align:center"><input type="checkbox" id="empMasterCheckbox" class="emp-checkbox"></th>
+                  <th class="sortable" id="empThName">ФИО <span class="sort-arrows">⇅</span></th>
+                  <th>Должность</th>
+                  <th>Подразделение</th>
+                  <th>Телефон</th>
+                  <th>Email</th>
+                  <th>Статус</th>
+                  <th style="width:130px;text-align:center">Действия</th>
+                </tr>
+              </thead>
+              <tbody id="employeesTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Cards View -->
+        <div class="emp-cards-wrapper hidden" id="employeeCardsView">
+          <div id="employeesCardsGrid" class="emp-cards-grid"></div>
+        </div>
+
+        <!-- Pagination & Summary Footer -->
+        <div class="emp-pagination-bar" id="employeePaginationBar">
+          <div class="emp-per-page-wrap">
+            Показывать по:
+            <select id="employeePerPageSelect" class="emp-per-page-select">
+              <option value="10" selected>10</option>
+              <option value="20">20</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
             </select>
           </div>
-          <div id="employeesList" class="cards-grid"></div>
+
+          <div class="emp-pagination-nav" id="employeePaginationNav"></div>
+
+          <div class="emp-pagination-info" id="employeePaginationInfo">0 – 0 из 0</div>
         </div>
+
       </section>
 
       <!-- ─── DEPARTMENTS ───────────────────────────────────────── -->
@@ -825,6 +940,144 @@
     </div>
   </div>
 
+  <!-- LAN pairing QR -->
+  <div id="lanQrOverlay" class="modal-overlay hidden">
+    <div class="operation-modal">
+      <div class="modal-header">
+        <h3>QR для подключения телефона</h3>
+        <button type="button" class="modal-close" id="closeLanQrBtn">Закрыть</button>
+      </div>
+      <div id="lanQrBody" class="lan-qr-body"></div>
+    </div>
+  </div>
+
+  <!-- ─── EMPLOYEE MODAL (ADD / EDIT) ───────────────────────── -->
+  <div id="employeeModalOverlay" class="modal-overlay hidden">
+    <div class="operation-modal wide emp-edit-modal">
+      <div class="modal-header">
+        <h3 id="employeeModalTitle">Добавить сотрудника</h3>
+        <button type="button" class="modal-close" id="closeEmployeeModalBtn">Закрыть</button>
+      </div>
+
+      <div class="emp-edit-layout">
+        <aside class="emp-edit-aside">
+          <div class="emp-edit-avatar" id="employeeEditAvatar">??</div>
+          <div class="emp-edit-name" id="employeeEditName">Новый сотрудник</div>
+          <span class="emp-status-badge active" id="employeeEditStatusBadge">Активен</span>
+
+          <div class="emp-edit-info-list">
+            <div class="emp-edit-info-item">
+              <span class="emp-edit-info-icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="5" width="12" height="8" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M6 5V3.5A1.5 1.5 0 017.5 2h1A1.5 1.5 0 0110 3.5V5" stroke="currentColor" stroke-width="1.3"/><path d="M2 8.5h12" stroke="currentColor" stroke-width="1.3"/></svg></span>
+              <span class="emp-edit-info-text"><span class="emp-edit-info-label">Должность</span><span class="emp-edit-info-value" id="employeeEditInfoPosition">—</span></span>
+            </div>
+            <div class="emp-edit-info-item">
+              <span class="emp-edit-info-icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="3" y="2" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.3"/><path d="M5.5 5h1M9.5 5h1M5.5 7.5h1M9.5 7.5h1M5.5 10h1M9.5 10h1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span>
+              <span class="emp-edit-info-text"><span class="emp-edit-info-label">Отдел</span><span class="emp-edit-info-value" id="employeeEditInfoDepartment">—</span></span>
+            </div>
+            <div class="emp-edit-info-item">
+              <span class="emp-edit-info-icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 14s5-4.2 5-8a5 5 0 00-10 0c0 3.8 5 8 5 8z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><circle cx="8" cy="6" r="1.6" stroke="currentColor" stroke-width="1.3"/></svg></span>
+              <span class="emp-edit-info-text"><span class="emp-edit-info-label">Объект / Площадка</span><span class="emp-edit-info-value" id="employeeEditInfoSite">— без объекта —</span></span>
+            </div>
+            <div class="emp-edit-info-item">
+              <span class="emp-edit-info-icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4.3 2h1.9l1 3-1.5 1.2a8 8 0 003.8 3.8L10.7 8.5l3 1v1.9a1.3 1.3 0 01-1.4 1.3A10.5 10.5 0 013 4.4 1.3 1.3 0 014.3 2z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></span>
+              <span class="emp-edit-info-text"><span class="emp-edit-info-label">Телефон</span><span class="emp-edit-info-value" id="employeeEditInfoPhone">—</span></span>
+            </div>
+            <div class="emp-edit-info-item">
+              <span class="emp-edit-info-icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="4" width="12" height="8" rx="1.3" stroke="currentColor" stroke-width="1.3"/><path d="M2.5 4.7l5 3.6 5-3.6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              <span class="emp-edit-info-text"><span class="emp-edit-info-label">Email</span><span class="emp-edit-info-value" id="employeeEditInfoEmail">—</span></span>
+            </div>
+            <div class="emp-edit-info-item">
+              <span class="emp-edit-info-icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="3.5" width="12" height="10.5" rx="1.3" stroke="currentColor" stroke-width="1.3"/><path d="M2 6.5h12M5 2v3M11 2v3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>
+              <span class="emp-edit-info-text"><span class="emp-edit-info-label">Дата создания</span><span class="emp-edit-info-value" id="employeeEditInfoCreated">—</span></span>
+            </div>
+            <div class="emp-edit-info-item">
+              <span class="emp-edit-info-icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8.5 2h3.8A1.7 1.7 0 0114 3.7v3.8a1.7 1.7 0 01-.5 1.2l-5.6 5.6a1.7 1.7 0 01-2.4 0L2.2 11a1.7 1.7 0 010-2.4l5.6-5.6c.3-.3.7-.5 1.2-.6z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><circle cx="10.8" cy="5.2" r="1" fill="currentColor"/></svg></span>
+              <span class="emp-edit-info-text"><span class="emp-edit-info-label">ID сотрудника</span><span class="emp-edit-info-value" id="employeeEditInfoId">—</span></span>
+            </div>
+          </div>
+        </aside>
+
+        <form id="employeeForm" class="asset-form emp-edit-form">
+          <input type="hidden" name="employeeId" id="employeeFormId">
+
+          <div class="form-row">
+            <label class="form-field">
+              <span class="form-label">ФИО <strong style="color:var(--danger)">*</strong></span>
+              <input name="fullName" id="employeeFullNameInput" required placeholder="Арипов Абдуазиз Абдуразакович">
+            </label>
+            <label class="form-field">
+              <span class="form-label">Отдел <strong style="color:var(--danger)">*</strong></span>
+              <select name="department" id="employeeDepartmentSelect" required>
+                <option value="">Выберите отдел</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="form-row">
+            <label class="form-field">
+              <span class="form-label"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="5" width="12" height="8" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M6 5V3.5A1.5 1.5 0 017.5 2h1A1.5 1.5 0 0110 3.5V5" stroke="currentColor" stroke-width="1.3"/><path d="M2 8.5h12" stroke="currentColor" stroke-width="1.3"/></svg> Должность</span>
+              <input name="position" id="employeePositionInput" placeholder="Директор / Специалист">
+            </label>
+            <label class="form-field">
+              <span class="form-label"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 14s5-4.2 5-8a5 5 0 00-10 0c0 3.8 5 8 5 8z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><circle cx="8" cy="6" r="1.6" stroke="currentColor" stroke-width="1.3"/></svg> Объект / Площадка</span>
+              <select name="site" id="employeeSiteSelect">
+                <option value="">— без объекта —</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="form-row">
+            <label class="form-field">
+              <span class="form-label">Статус</span>
+              <select name="status" id="employeeStatusSelect">
+                <option value="active">Активен</option>
+                <option value="inactive">Уволен / Неактивен</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="form-row">
+            <label class="form-field">
+              <span class="form-label"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4.3 2h1.9l1 3-1.5 1.2a8 8 0 003.8 3.8L10.7 8.5l3 1v1.9a1.3 1.3 0 01-1.4 1.3A10.5 10.5 0 013 4.4 1.3 1.3 0 014.3 2z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg> Телефон</span>
+              <input type="tel" name="phone" id="employeePhoneInput" placeholder="+998 90 123 45 67">
+            </label>
+            <label class="form-field">
+              <span class="form-label"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="4" width="12" height="8" rx="1.3" stroke="currentColor" stroke-width="1.3"/><path d="M2.5 4.7l5 3.6 5-3.6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg> Email</span>
+              <input type="email" name="email" id="employeeEmailInput" placeholder="employee@company.uz">
+            </label>
+          </div>
+
+          <div class="emp-required-note">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 7.3v3.8M8 5.2v.1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+            Обязательные поля отмечены <strong style="color:var(--danger)">*</strong>
+          </div>
+
+          <div class="form-actions" style="justify-content:flex-end">
+            <button type="button" class="secondary" id="employeeModalCancelBtn">Отмена</button>
+            <button type="submit" id="employeeSubmitBtn">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3.5 3.5 7-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Сохранить сотрудника
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── EMPLOYEE DETAILS & ASSIGNED ASSETS MODAL ─────────────── -->
+  <div id="employeeDetailsOverlay" class="modal-overlay hidden">
+    <div class="operation-modal wide">
+      <div class="modal-header">
+        <h3>Карточка сотрудника</h3>
+        <button type="button" class="modal-close" id="closeEmployeeDetailsBtn">Закрыть</button>
+      </div>
+      
+      <div class="emp-profile-body" id="employeeProfileBody">
+        <!-- Rendered via JS -->
+      </div>
+    </div>
+  </div>
+
   <template id="emptyStateTemplate">
     <div class="empty-state">
       <svg width="48" height="48" fill="none" viewBox="0 0 48 48" style="opacity:0.3;margin-bottom:8px"><rect x="6" y="10" width="36" height="28" rx="4" stroke="currentColor" stroke-width="2"/><path d="M6 18h36M18 18v20M30 18v20" stroke="currentColor" stroke-width="1.5" opacity="0.5"/></svg>
@@ -838,10 +1091,17 @@
   <!-- Confirm modal -->
   <div id="confirmOverlay" class="confirm-overlay hidden">
     <div class="confirm-dialog">
+      <div class="confirm-icon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+      </div>
+      <div class="confirm-title">Подтвердите удаление</div>
       <p id="confirmMessage"></p>
       <div class="confirm-actions">
-        <button id="confirmYes" class="danger-button">Удалить</button>
         <button id="confirmNo" class="secondary">Отмена</button>
+        <button id="confirmYes" class="confirm-danger-btn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>
+          Удалить
+        </button>
       </div>
     </div>
   </div>

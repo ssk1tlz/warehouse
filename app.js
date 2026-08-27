@@ -1,4 +1,4 @@
-﻿const EMPTY_STATE = {
+const EMPTY_STATE = {
   meta: { updatedAt: null },
   employees: [],
   departments: [],
@@ -35,7 +35,6 @@ const dom = {
   recentMovements: document.getElementById("recentMovements"),
   assignedSummary: document.getElementById("assignedSummary"),
   assetsTableBody: document.getElementById("assetsTableBody"),
-  employeesList: document.getElementById("employeesList"),
   movementsTableBody: document.getElementById("movementsTableBody"),
   inStockReport: document.getElementById("inStockReport"),
   employeeBalanceReport: document.getElementById("employeeBalanceReport"),
@@ -46,9 +45,11 @@ const dom = {
   assetSubmitBtn: document.getElementById("assetSubmitBtn"),
   assetCancelBtn: document.getElementById("assetCancelBtn"),
   employeeForm: document.getElementById("employeeForm"),
-  employeeFormTitle: document.getElementById("employeeFormTitle"),
+  employeeFormTitle: document.getElementById("employeeModalTitle"),
   employeeSubmitBtn: document.getElementById("employeeSubmitBtn"),
-  employeeCancelBtn: document.getElementById("employeeCancelBtn"),
+  employeeCancelBtn: document.getElementById("employeeModalCancelBtn"),
+  employeesTableBody: document.getElementById("employeesTableBody"),
+  employeesCardsGrid: document.getElementById("employeesCardsGrid"),
   manualActForm: document.getElementById("manualActForm"),
   manualActTypeSelect: document.getElementById("manualActTypeSelect"),
   manualActEmployeeSelect: document.getElementById("manualActEmployeeSelect"),
@@ -102,14 +103,31 @@ let registryCurrentPage = 1;
 let registryPerPage = 20;
 
 // ─── TOAST SYSTEM ─────────────────────────────────────────────
-function showToast(message, type = 'info') {
+// `action` (optional): { kind, label, onClick } — renders a button and keeps
+// the toast on screen (no auto-dismiss) until clicked, instead of the usual
+// 3.6s fade. Used for retryable errors where losing the message would hide
+// that something still needs the user's attention (e.g. an unsaved save).
+function showToast(message, type = 'info', action = null) {
   const container = document.getElementById('toastContainer');
   if (!container) return;
+  if (action) {
+    container.querySelectorAll(`.toast[data-kind="${action.kind}"]`).forEach((el) => el.remove());
+  }
   const toast = document.createElement('div');
-  toast.className = `toast ${type}`;
+  toast.className = `toast ${type}${action ? ' persistent' : ''}`;
   toast.textContent = message;
+  if (action) {
+    toast.dataset.kind = action.kind;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'toast-action';
+    btn.textContent = action.label;
+    btn.addEventListener('click', () => { toast.remove(); action.onClick(); });
+    toast.appendChild(btn);
+  } else {
+    setTimeout(() => toast.remove(), 3600);
+  }
   container.appendChild(toast);
-  setTimeout(() => toast.remove(), 3600);
 }
 
 // ─── CONFIRM DIALOG ──────────────────────────────────────────
@@ -207,6 +225,8 @@ function hydrateState(parsed) {
       position: entry.position || "",
       email: entry.email || "",
       phone: entry.phone || "",
+      status: entry.status || "active",
+      createdAt: entry.createdAt || "",
     })),
     departments: (parsed.departments || []).map((entry) => ({
       id: entry.id,
@@ -478,11 +498,16 @@ function resetAssetForm() {
 }
 
 function resetEmployeeForm() {
-  dom.employeeForm.reset();
-  dom.employeeForm.elements.employeeId.value = "";
-  dom.employeeFormTitle.textContent = "Добавить сотрудника";
-  dom.employeeSubmitBtn.textContent = "Сохранить сотрудника";
-  dom.employeeCancelBtn.classList.add("hidden");
+  const form = document.getElementById("employeeForm");
+  if (form) form.reset();
+  const idInput = document.getElementById("employeeFormId");
+  if (idInput) idInput.value = "";
+  const title = document.getElementById("employeeModalTitle");
+  if (title) title.textContent = "Добавить сотрудника";
+  const submitBtn = document.getElementById("employeeSubmitBtn");
+  if (submitBtn) submitBtn.textContent = "Сохранить сотрудника";
+  const statusSelect = document.getElementById("employeeStatusSelect");
+  if (statusSelect) statusSelect.value = "active";
 }
 
 function resetOperationForms() {
@@ -941,23 +966,40 @@ function triggerDownload(blob, filename) {
 }
 
 // ─── СОТРУДНИКИ ─────────────────────────────────────────────────
-const CHIP_TONE_ROTATION = ["", "teal", "ok", "warn"];
-const EMPLOYEE_CHIP_LIMIT = 3;
+const AVATAR_COLORS = [
+  "#2563eb", "#16a34a", "#9333ea", "#ea580c", "#0d9488",
+  "#dc2626", "#0284c7", "#d97706", "#db2777", "#4f46e5",
+  "#059669", "#7c3aed"
+];
+
+const EYE_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>`;
 const EDIT_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`;
 const DELETE_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>`;
-const MAIL_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="m22 6-10 7L2 6"/></svg>`;
-const PHONE_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>`;
+const MAIL_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="emp-contact-icon"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>`;
+const PHONE_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="emp-contact-icon"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>`;
 
-function toneRotationFor(value) {
+let employeeCurrentPage = 1;
+let employeePerPage = 10;
+let employeeViewMode = "table"; // 'table' | 'cards'
+
+function getAvatarBgColor(str) {
   let hash = 0;
-  const str = String(value || "");
-  for (let i = 0; i < str.length; i++) hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
-  return CHIP_TONE_ROTATION[hash % CHIP_TONE_ROTATION.length];
+  const s = String(str || "");
+  for (let i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
 }
 
 function getInitials(fullName) {
   const parts = String(fullName || "").trim().split(/\s+/).filter(Boolean);
-  return parts.slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+  if (!parts.length) return "??";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+function formatEmployeeId(employee, index) {
+  if (employee.customId) return employee.customId;
+  const num = index !== undefined ? index + 1 : (state.employees.findIndex((e) => e.id === employee.id) + 1);
+  return `ID: ${String(num || 1).padStart(4, "0")}`;
 }
 
 function updateEmployeeDepartmentFilter() {
@@ -965,53 +1007,453 @@ function updateEmployeeDepartmentFilter() {
   if (!select) return;
   const current = select.value;
   const options = state.departments.map((d) => `<option value="${escapeHtml(d.name)}">${escapeHtml(d.name)}</option>`).join("");
-  select.innerHTML = '<option value="">Все отделы</option>' + options;
-  select.value = current;
+  select.innerHTML = '<option value="">Все подразделения</option>' + options;
+  select.value = Array.from(select.options).some((option) => option.value === current) ? current : "";
+}
+
+function updateEmployeePositionFilter() {
+  const select = document.getElementById("employeeFilterPosition");
+  if (!select) return;
+  const current = select.value;
+  const positions = [...new Set(state.employees.map((employee) => employee.position).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "ru"));
+  const options = positions.map((position) => `<option value="${escapeHtml(position)}">${escapeHtml(position)}</option>`).join("");
+  select.innerHTML = '<option value="">Все должности</option>' + options;
+  select.value = Array.from(select.options).some((option) => option.value === current) ? current : "";
+}
+
+function getEmployeeAssetCount(employeeId) {
+  return state.assets.reduce((count, asset) => {
+    const allocation = getEmployeeAllocation(asset, employeeId);
+    return count + (allocation ? allocation.quantity || 1 : 0);
+  }, 0);
+}
+
+function getEmployeeAllocatedAssets(employeeId) {
+  return state.assets.filter((asset) => {
+    const alloc = getEmployeeAllocation(asset, employeeId);
+    return alloc && alloc.quantity > 0;
+  });
+}
+
+function renderEmployeeStats() {
+  const total = state.employees.length;
+  const active = state.employees.filter((e) => (e.status || "active") !== "inactive").length;
+  const inactive = state.employees.filter((e) => e.status === "inactive").length;
+  const depts = state.departments.length;
+
+  const totalEl = document.getElementById("empStatTotal");
+  const activeEl = document.getElementById("empStatActive");
+  const inactiveEl = document.getElementById("empStatInactive");
+  const deptsEl = document.getElementById("empStatDepts");
+
+  if (totalEl) totalEl.textContent = total;
+  if (activeEl) activeEl.textContent = active;
+  if (inactiveEl) inactiveEl.textContent = inactive;
+  if (deptsEl) deptsEl.textContent = depts;
+}
+
+function renderEmployeeActiveChips(filters) {
+  const container = document.getElementById("employeeActiveChips");
+  if (!container) return;
+  const chips = [];
+
+  if (filters.status) {
+    const label = filters.status === "active" ? "Активные" : "Уволенные";
+    chips.push(`<span class="emp-chip-tag">Статус: ${label} <span class="emp-chip-remove" data-clear="status">✕</span></span>`);
+  }
+  if (filters.department) {
+    chips.push(`<span class="emp-chip-tag">Подразделение: ${escapeHtml(filters.department)} <span class="emp-chip-remove" data-clear="department">✕</span></span>`);
+  }
+  if (filters.position) {
+    chips.push(`<span class="emp-chip-tag">Должность: ${escapeHtml(filters.position)} <span class="emp-chip-remove" data-clear="position">✕</span></span>`);
+  }
+  if (filters.query) {
+    chips.push(`<span class="emp-chip-tag">Поиск: "${escapeHtml(filters.query)}" <span class="emp-chip-remove" data-clear="query">✕</span></span>`);
+  }
+
+  if (!chips.length) {
+    container.innerHTML = `<span class="emp-chip-tag" style="opacity:0.75">Статус: Все</span><span class="emp-chip-tag" style="opacity:0.75">Подразделение: Все</span>`;
+  } else {
+    container.innerHTML = chips.join("");
+  }
+}
+
+function renderEmployeePagination(totalItems) {
+  const container = document.getElementById("employeePaginationNav");
+  const infoEl = document.getElementById("employeePaginationInfo");
+  if (!container) return;
+
+  const totalPages = Math.ceil(totalItems / employeePerPage) || 1;
+  if (employeeCurrentPage > totalPages) employeeCurrentPage = totalPages;
+
+  const start = totalItems > 0 ? (employeeCurrentPage - 1) * employeePerPage + 1 : 0;
+  const end = Math.min(employeeCurrentPage * employeePerPage, totalItems);
+  if (infoEl) infoEl.textContent = `${start} – ${end} из ${totalItems}`;
+
+  if (totalPages <= 1) {
+    container.innerHTML = `<button type="button" class="emp-page-btn active">1</button>`;
+    return;
+  }
+
+  let html = `<button type="button" class="emp-page-btn" ${employeeCurrentPage <= 1 ? "disabled" : ""} data-emp-page="${employeeCurrentPage - 1}">‹</button>`;
+
+  for (let i = 1; i <= totalPages; i++) {
+    if (totalPages > 7 && i > 3 && i < totalPages - 1 && Math.abs(i - employeeCurrentPage) > 1) {
+      if (i === 4 || i === totalPages - 2) html += `<span style="padding:0 4px;color:var(--text-3)">...</span>`;
+      continue;
+    }
+    html += `<button type="button" class="emp-page-btn ${i === employeeCurrentPage ? "active" : ""}" data-emp-page="${i}">${i}</button>`;
+  }
+
+  html += `<button type="button" class="emp-page-btn" ${employeeCurrentPage >= totalPages ? "disabled" : ""} data-emp-page="${employeeCurrentPage + 1}">›</button>`;
+  container.innerHTML = html;
 }
 
 function renderEmployees() {
   updateEmployeeDepartmentFilter();
-  const query = normalizeSearchValue(dom.employeeSearchInput?.value);
+  updateEmployeePositionFilter();
+  renderEmployeeStats();
+
+  const query = normalizeSearchValue(document.getElementById("employeeSearchInput")?.value);
   const departmentFilter = document.getElementById("employeeFilterDepartment")?.value || "";
-  const filtered = state.employees.filter((employee) => {
+  const positionFilter = document.getElementById("employeeFilterPosition")?.value || "";
+  const statusFilter = document.getElementById("employeeFilterStatus")?.value || "";
+  const sortValue = document.getElementById("employeeSortSelect")?.value || "name_asc";
+
+  renderEmployeeActiveChips({ query, department: departmentFilter, position: positionFilter, status: statusFilter });
+
+  const filtered = state.employees.map((employee, originalIndex) => ({
+    employee,
+    originalIndex,
+    assetCount: getEmployeeAssetCount(employee.id),
+  })).filter(({ employee }) => {
+    const isInactive = employee.status === "inactive";
+    if (statusFilter === "active" && isInactive) return false;
+    if (statusFilter === "inactive" && !isInactive) return false;
     if (departmentFilter && employee.department !== departmentFilter) return false;
+    if (positionFilter && employee.position !== positionFilter) return false;
     if (!query) return true;
-    return matchesSearch(query, employee.fullName, employee.department, employee.site, employee.position, employee.email);
+    return matchesSearch(query, employee.fullName, employee.department, employee.site, employee.position, employee.email, employee.phone);
   });
-  if (!filtered.length) return appendEmptyState(dom.employeesList);
-  dom.employeesList.innerHTML = filtered.map((employee) => {
-    const items = state.assets.map((asset) => {
-      const allocation = getEmployeeAllocation(asset, employee.id);
-      return allocation ? { name: asset.name, label: `${asset.name} (${allocation.quantity})` } : null;
-    }).filter(Boolean);
-    const visibleItems = items.slice(0, EMPLOYEE_CHIP_LIMIT);
-    const extraCount = items.length - visibleItems.length;
-    const chipsHtml = items.length
-      ? visibleItems.map((item) => {
-          const tone = toneRotationFor(item.name);
-          return `<span class="chip sm${tone ? " " + tone : ""}">${escapeHtml(item.label)}</span>`;
-        }).join("") + (extraCount > 0 ? `<span class="chip-more">+${extraCount}</span>` : "")
-      : `<span class="muted">Нет техники</span>`;
-    const avatarTone = toneRotationFor(employee.id);
-    const roleParts = [employee.position || "—", employee.department || "—"];
-    if (employee.site) roleParts.push(employee.site);
-    return `<article class="card employee-card" data-id="${employee.id}">
-      <div class="employee-card-top">
-        <div class="employee-avatar${avatarTone ? " tone-" + avatarTone : ""}">${escapeHtml(getInitials(employee.fullName))}</div>
-        <div class="employee-name-wrap">
-          <div class="employee-name" title="${escapeHtml(employee.fullName)}">${escapeHtml(employee.fullName)}</div>
-          <div class="employee-role" title="${escapeHtml(roleParts.join(" · "))}">${escapeHtml(roleParts.join(" · "))}</div>
-        </div>
-        <div class="employee-actions">
-          <button type="button" class="icon-btn" data-action="edit-employee" data-id="${employee.id}" title="Редактировать" aria-label="Редактировать">${EDIT_ICON_SVG}</button>
-          <button type="button" class="icon-btn danger" data-action="delete-employee" data-id="${employee.id}" title="Удалить" aria-label="Удалить">${DELETE_ICON_SVG}</button>
-        </div>
+
+  filtered.sort((left, right) => {
+    const a = left.employee;
+    const b = right.employee;
+    if (sortValue === "name_desc") return (b.fullName || "").localeCompare(a.fullName || "", "ru");
+    if (sortValue === "department") return (a.department || "").localeCompare(b.department || "", "ru") || (a.fullName || "").localeCompare(b.fullName || "", "ru");
+    if (sortValue === "position") return (a.position || "").localeCompare(b.position || "", "ru");
+    if (sortValue === "assets") return right.assetCount - left.assetCount;
+    return (a.fullName || "").localeCompare(b.fullName || "", "ru");
+  });
+
+  const totalPages = Math.ceil(filtered.length / employeePerPage) || 1;
+  if (employeeCurrentPage > totalPages) employeeCurrentPage = totalPages;
+
+  const start = (employeeCurrentPage - 1) * employeePerPage;
+  const pageItems = filtered.slice(start, start + employeePerPage);
+
+  const tbody = document.getElementById("employeesTableBody");
+  const cardsGrid = document.getElementById("employeesCardsGrid");
+  const tableView = document.getElementById("employeeTableView");
+  const cardsView = document.getElementById("employeeCardsView");
+
+  if (tableView && cardsView) {
+    tableView.classList.toggle("hidden", employeeViewMode !== "table");
+    cardsView.classList.toggle("hidden", employeeViewMode !== "cards");
+  }
+
+  // Render Table Rows
+  if (tbody) {
+    if (!pageItems.length) {
+      tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><p>Сотрудники не найдены</p></div></td></tr>`;
+    } else {
+      tbody.innerHTML = pageItems.map(({ employee, originalIndex }) => {
+        const initials = getInitials(employee.fullName);
+        const avatarBg = getAvatarBgColor(employee.fullName || employee.id);
+        const empId = formatEmployeeId(employee, originalIndex);
+        const isInactive = employee.status === "inactive";
+        const statusBadge = isInactive
+          ? `<span class="emp-status-badge inactive">Уволен</span>`
+          : `<span class="emp-status-badge active">Активен</span>`;
+
+        return `<tr data-id="${employee.id}">
+          <td style="text-align:center"><input type="checkbox" class="emp-checkbox emp-row-check" data-id="${employee.id}"></td>
+          <td>
+            <div class="emp-name-cell">
+              <div class="emp-avatar-circle" style="background-color:${avatarBg}">${escapeHtml(initials)}</div>
+              <div class="emp-name-content">
+                <div class="emp-name-title">${escapeHtml(employee.fullName)}</div>
+                <div class="emp-id-badge">${escapeHtml(empId)}</div>
+              </div>
+            </div>
+          </td>
+          <td>${escapeHtml(employee.position || "—")}</td>
+          <td>${escapeHtml(employee.department || "—")}</td>
+          <td>
+            ${employee.phone ? `<span class="emp-contact-item">${PHONE_ICON_SVG} ${escapeHtml(employee.phone)}</span>` : "—"}
+          </td>
+          <td>
+            ${employee.email ? `<span class="emp-contact-item">${MAIL_ICON_SVG} ${escapeHtml(employee.email)}</span>` : "—"}
+          </td>
+          <td>${statusBadge}</td>
+          <td>
+            <div class="emp-action-btns">
+              <button type="button" class="emp-btn-action" data-action="view-employee" data-id="${employee.id}" title="Просмотр карточки">${EYE_ICON_SVG}</button>
+              <button type="button" class="emp-btn-action" data-action="edit-employee" data-id="${employee.id}" title="Редактировать">${EDIT_ICON_SVG}</button>
+              <button type="button" class="emp-btn-action btn-del" data-action="delete-employee" data-id="${employee.id}" title="Удалить">${DELETE_ICON_SVG}</button>
+            </div>
+          </td>
+        </tr>`;
+      }).join("");
+    }
+  }
+
+  // Render Grid Cards
+  if (cardsGrid) {
+    if (!pageItems.length) {
+      cardsGrid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><p>Сотрудники не найдены</p></div>`;
+    } else {
+      cardsGrid.innerHTML = pageItems.map(({ employee, originalIndex, assetCount }) => {
+        const initials = getInitials(employee.fullName);
+        const avatarBg = getAvatarBgColor(employee.fullName || employee.id);
+        const empId = formatEmployeeId(employee, originalIndex);
+        const isInactive = employee.status === "inactive";
+        const statusBadge = isInactive
+          ? `<span class="emp-status-badge inactive">Уволен</span>`
+          : `<span class="emp-status-badge active">Активен</span>`;
+
+        return `<article class="emp-card" data-id="${employee.id}">
+          <div class="emp-card-header">
+            <div class="emp-avatar-circle" style="background-color:${avatarBg}">${escapeHtml(initials)}</div>
+            <div class="emp-card-name-wrap">
+              <div class="emp-card-name" title="${escapeHtml(employee.fullName)}">${escapeHtml(employee.fullName)}</div>
+              <div class="emp-card-role">${escapeHtml(employee.position || "—")} · ${escapeHtml(employee.department || "—")}</div>
+            </div>
+            ${statusBadge}
+          </div>
+          <div class="emp-card-meta">
+            ${employee.phone ? `<div class="emp-contact-item">${PHONE_ICON_SVG} ${escapeHtml(employee.phone)}</div>` : ""}
+            ${employee.email ? `<div class="emp-contact-item">${MAIL_ICON_SVG} ${escapeHtml(employee.email)}</div>` : ""}
+            <div class="emp-id-badge">${escapeHtml(empId)}${employee.site ? ` · Объект: ${escapeHtml(employee.site)}` : ""} · Техника: <strong>${assetCount} шт.</strong></div>
+          </div>
+          <div class="emp-card-actions">
+            <button type="button" class="secondary" style="padding:6px 10px;font-size:12px" data-action="view-employee" data-id="${employee.id}">Просмотр</button>
+            <button type="button" class="secondary" style="padding:6px 10px;font-size:12px" data-action="edit-employee" data-id="${employee.id}">Ред.</button>
+            <button type="button" class="danger-button" style="padding:6px 10px;font-size:12px" data-action="delete-employee" data-id="${employee.id}">Удалить</button>
+          </div>
+        </article>`;
+      }).join("");
+    }
+  }
+
+  renderEmployeePagination(filtered.length);
+  updateEmployeeBulkBar();
+}
+
+// ─── EMPLOYEE MODAL HANDLERS ───────────────────────────────────
+function setEmployeeEditInfo(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
+function syncEmployeeEditAside(employee) {
+  const fullName = document.getElementById("employeeFullNameInput")?.value.trim() || "";
+  const department = document.getElementById("employeeDepartmentSelect")?.value || "";
+  const position = document.getElementById("employeePositionInput")?.value.trim() || "";
+  const site = document.getElementById("employeeSiteSelect")?.value || "";
+  const phone = document.getElementById("employeePhoneInput")?.value.trim() || "";
+  const email = document.getElementById("employeeEmailInput")?.value.trim() || "";
+  const status = document.getElementById("employeeStatusSelect")?.value || "active";
+
+  const avatar = document.getElementById("employeeEditAvatar");
+  if (avatar) {
+    avatar.textContent = getInitials(fullName);
+    avatar.style.backgroundColor = getAvatarBgColor(fullName || "new");
+  }
+  setEmployeeEditInfo("employeeEditName", fullName || "Новый сотрудник");
+
+  const badge = document.getElementById("employeeEditStatusBadge");
+  if (badge) {
+    const isInactive = status === "inactive";
+    badge.textContent = isInactive ? "Уволен / Неактивен" : "Активен";
+    badge.className = `emp-status-badge ${isInactive ? "inactive" : "active"}`;
+  }
+
+  setEmployeeEditInfo("employeeEditInfoPosition", position || "—");
+  setEmployeeEditInfo("employeeEditInfoDepartment", department || "—");
+  setEmployeeEditInfo("employeeEditInfoSite", site || "— без объекта —");
+  setEmployeeEditInfo("employeeEditInfoPhone", phone || "—");
+  setEmployeeEditInfo("employeeEditInfoEmail", email || "—");
+  setEmployeeEditInfo("employeeEditInfoId", employee ? formatEmployeeId(employee) : "Будет присвоен");
+  setEmployeeEditInfo("employeeEditInfoCreated", formatDate(employee?.createdAt || new Date().toISOString()));
+}
+
+function openAddEmployeeModal() {
+  resetEmployeeForm();
+  syncEmployeeEditAside(null);
+  document.getElementById("employeeModalOverlay")?.classList.remove("hidden");
+  document.getElementById("employeeFullNameInput")?.focus();
+}
+
+function openEditEmployeeModal(employeeId) {
+  const employee = getEmployeeById(employeeId);
+  if (!employee) return;
+  const form = document.getElementById("employeeForm");
+  if (!form) return;
+
+  document.getElementById("employeeFormId").value = employee.id;
+  document.getElementById("employeeFullNameInput").value = employee.fullName || "";
+  document.getElementById("employeeDepartmentSelect").value = employee.department || "";
+  document.getElementById("employeePositionInput").value = employee.position || "";
+  document.getElementById("employeeSiteSelect").value = employee.site || "";
+  document.getElementById("employeePhoneInput").value = employee.phone || "";
+  document.getElementById("employeeEmailInput").value = employee.email || "";
+  document.getElementById("employeeStatusSelect").value = employee.status || "active";
+
+  document.getElementById("employeeModalTitle").textContent = "Редактировать сотрудника";
+  document.getElementById("employeeSubmitBtn").textContent = "Сохранить изменения";
+  syncEmployeeEditAside(employee);
+  document.getElementById("employeeModalOverlay")?.classList.remove("hidden");
+}
+
+function closeEmployeeModal() {
+  document.getElementById("employeeModalOverlay")?.classList.add("hidden");
+}
+
+function openEmployeeDetailsModal(employeeId) {
+  const employee = getEmployeeById(employeeId);
+  if (!employee) return;
+
+  const overlay = document.getElementById("employeeDetailsOverlay");
+  const body = document.getElementById("employeeProfileBody");
+  if (!overlay || !body) return;
+
+  const initials = getInitials(employee.fullName);
+  const avatarBg = getAvatarBgColor(employee.fullName || employee.id);
+  const empId = formatEmployeeId(employee);
+  const isInactive = employee.status === "inactive";
+  const statusBadge = isInactive
+    ? `<span class="emp-status-badge inactive">Уволен / Неактивен</span>`
+    : `<span class="emp-status-badge active">Активен</span>`;
+
+  const assignedAssets = getEmployeeAllocatedAssets(employee.id);
+
+  let assetsHtml = `<div class="empty-state" style="padding:20px"><p>За сотрудником не числится техники</p></div>`;
+  if (assignedAssets.length > 0) {
+    assetsHtml = `<table class="emp-profile-assets-table">
+      <thead>
+        <tr>
+          <th>Наименование</th>
+          <th>Инв. №</th>
+          <th>Серийный №</th>
+          <th>Категория</th>
+          <th>Кол-во</th>
+          <th>Статус</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${assignedAssets.map((asset) => {
+          const alloc = getEmployeeAllocation(asset, employee.id);
+          const qty = alloc ? alloc.quantity : 1;
+          return `<tr>
+            <td><strong>${escapeHtml(asset.name)}</strong></td>
+            <td><code>${escapeHtml(asset.inventoryNumber || "—")}</code></td>
+            <td><code>${escapeHtml(asset.serialNumber || "—")}</code></td>
+            <td>${escapeHtml(asset.category || "—")}</td>
+            <td><strong>${qty} шт.</strong></td>
+            <td>${statusChip(getAssetStatus(asset))}</td>
+          </tr>`;
+        }).join("")}
+      </tbody>
+    </table>`;
+  }
+
+  body.innerHTML = `
+    <div class="emp-profile-header">
+      <div class="emp-profile-avatar" style="background-color:${avatarBg}">${escapeHtml(initials)}</div>
+      <div>
+        <div class="emp-profile-title">${escapeHtml(employee.fullName)}</div>
+        <div class="emp-profile-subtitle">${escapeHtml(employee.position || "Без должности")} · ${escapeHtml(employee.department || "Без отдела")}</div>
       </div>
-      ${employee.email ? `<div class="employee-contact-row">${MAIL_ICON_SVG}${escapeHtml(employee.email)}</div>` : ""}
-      ${employee.phone ? `<div class="employee-contact-row">${PHONE_ICON_SVG}${escapeHtml(employee.phone)}</div>` : ""}
-      <div class="employee-chips">${chipsHtml}</div>
-    </article>`;
-  }).join("");
+      <div style="margin-left:auto">${statusBadge}</div>
+    </div>
+
+    <div class="emp-profile-grid">
+      <div class="emp-profile-field">
+        <div class="emp-profile-field-label">Идентификатор</div>
+        <div class="emp-profile-field-value">${escapeHtml(empId)}</div>
+      </div>
+      <div class="emp-profile-field">
+        <div class="emp-profile-field-label">Отдел</div>
+        <div class="emp-profile-field-value">${escapeHtml(employee.department || "—")}</div>
+      </div>
+      <div class="emp-profile-field">
+        <div class="emp-profile-field-label">Должность</div>
+        <div class="emp-profile-field-value">${escapeHtml(employee.position || "—")}</div>
+      </div>
+      <div class="emp-profile-field">
+        <div class="emp-profile-field-label">Объект / Площадка</div>
+        <div class="emp-profile-field-value">${escapeHtml(employee.site || "—")}</div>
+      </div>
+      <div class="emp-profile-field">
+        <div class="emp-profile-field-label">Телефон</div>
+        <div class="emp-profile-field-value">${employee.phone ? `<a href="tel:${escapeHtml(employee.phone)}" style="color:var(--brand);text-decoration:none">${escapeHtml(employee.phone)}</a>` : "—"}</div>
+      </div>
+      <div class="emp-profile-field">
+        <div class="emp-profile-field-label">Email</div>
+        <div class="emp-profile-field-value">${employee.email ? `<a href="mailto:${escapeHtml(employee.email)}" style="color:var(--brand);text-decoration:none">${escapeHtml(employee.email)}</a>` : "—"}</div>
+      </div>
+    </div>
+
+    <div class="emp-profile-assets-sec">
+      <h4>Выданная техника (${assignedAssets.length} поз.)</h4>
+      ${assetsHtml}
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:10px">
+      <button type="button" class="secondary" onclick="closeEmployeeDetailsModal()">Закрыть</button>
+      <button type="button" class="secondary" onclick="closeEmployeeDetailsModal(); openEditEmployeeModal('${employee.id}')">Редактировать</button>
+      <button type="button" class="btn-primary" onclick="closeEmployeeDetailsModal(); openOperationModal('issueModal'); setTimeout(() => { const sel = document.getElementById('issueEmployeeSelect'); if(sel) { sel.value = '${employee.id}'; sel.dispatchEvent(new Event('change')); } }, 100);">Выдать технику</button>
+    </div>
+  `;
+
+  overlay.classList.remove("hidden");
+}
+
+function closeEmployeeDetailsModal() {
+  document.getElementById("employeeDetailsOverlay")?.classList.add("hidden");
+}
+
+function exportEmployeesExcel() {
+  if (!state.employees.length) {
+    showToast("Список сотрудников пуст", "warning");
+    return;
+  }
+
+  const headers = ["ID", "ФИО", "Отдел", "Должность", "Объект", "Телефон", "Email", "Статус", "Техника (шт)"];
+  const rows = state.employees.map((emp, index) => [
+    formatEmployeeId(emp, index),
+    emp.fullName || "",
+    emp.department || "",
+    emp.position || "",
+    emp.site || "",
+    emp.phone || "",
+    emp.email || "",
+    (emp.status || "active") === "inactive" ? "Уволен" : "Активен",
+    getEmployeeAssetCount(emp.id),
+  ]);
+
+  const esc = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="UTF-8"><style>table{border-collapse:collapse}th,td{border:1px solid #999;padding:6px 10px;font-family:Arial,sans-serif;font-size:10.5pt}th{background:#dbeafe;font-weight:bold;text-align:left}</style></head>
+<body><table><thead><tr>${headers.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead>
+<tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${esc(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table></body></html>`;
+
+  const blob = new Blob(["\uFEFF" + html], { type: "application/vnd.ms-excel;charset=utf-8" });
+  const stamp = new Date().toISOString().slice(0, 10);
+  triggerDownload(blob, `Сотрудники_${stamp}.xls`);
+  showToast("Список сотрудников выгружен в Excel.", "info");
 }
 
 // ─── ОТДЕЛЫ ───────────────────────────────────────────────────
@@ -1111,24 +1553,57 @@ async function handleDepartmentSubmit(e) {
   renderSelects();
 }
 
-function handleDepartmentDelete(departmentId) {
+async function handleDepartmentDelete(departmentId) {
   const dept = state.departments.find((d) => d.id === departmentId);
   if (!dept) return;
 
-  const employeeCount = state.employees.filter((emp) => emp.department === dept.name).length;
-  if (employeeCount > 0) {
-    showToast(`Невозможно удалить: в отделе ${employeeCount} сотрудник(ов)`, "warning");
+  const employeesInDept = state.employees.filter((emp) => emp.department === dept.name);
+
+  const deptHasAssets = state.assets.some((asset) => {
+    const alloc = getDepartmentAllocation(asset, dept.name);
+    return alloc && alloc.quantity > 0;
+  });
+  const employeesWithAssets = employeesInDept.filter((emp) =>
+    state.assets.some((asset) => {
+      const alloc = getEmployeeAllocation(asset, emp.id);
+      return alloc && alloc.quantity > 0;
+    })
+  );
+
+  if (deptHasAssets || employeesWithAssets.length > 0) {
+    const reasons = [];
+    if (deptHasAssets) reasons.push("за отделом числится техника");
+    if (employeesWithAssets.length > 0) {
+      reasons.push(`за сотрудниками числится техника (${employeesWithAssets.map((e) => e.fullName).join(", ")})`);
+    }
+    showToast(`Невозможно удалить отдел: ${reasons.join("; ")}. Сначала верните технику на склад.`, "warning");
     return;
   }
 
-  if (confirm(`Удалить отдел "${dept.name}"?`)) {
-    state.departments = state.departments.filter((d) => d.id !== departmentId);
-    addAuditEntry("department", departmentId, "delete", { name: dept.name });
-    persist();
-    renderDepartments();
-    renderSelects();
-    showToast("Отдел удален", "success");
-  }
+  const confirmMessage = employeesInDept.length > 0
+    ? `Удалить отдел "${dept.name}" вместе со всеми сотрудниками (${employeesInDept.length}): ${employeesInDept.map((e) => e.fullName).join(", ")}?\n\nЭто действие необратимо.`
+    : `Удалить отдел "${dept.name}"?`;
+  const confirmed = await showConfirm(confirmMessage);
+  if (!confirmed) return;
+
+  const employeeIds = employeesInDept.map((e) => e.id);
+  state.employees = state.employees.filter((emp) => emp.department !== dept.name);
+  state.movements = state.movements.filter((m) => !employeeIds.includes(m.employeeId));
+  state.departments = state.departments.filter((d) => d.id !== departmentId);
+
+  addAuditEntry("department", departmentId, "delete", { name: dept.name, employeesDeleted: employeeIds.length });
+
+  rebuildLookupMaps();
+  await persist();
+  renderDepartments();
+  renderEmployees();
+  renderSelects();
+  showToast(
+    employeeIds.length > 0
+      ? `Отдел удалён вместе с ${employeeIds.length} сотрудник(ами).`
+      : "Отдел удалён.",
+    "success"
+  );
 }
 
 // ─── SITES (objects) — parallel to departments ────────────────
@@ -1932,6 +2407,7 @@ function persist() {
 async function doPersist() {
   try {
     await saveState();
+    document.querySelectorAll('.toast[data-kind="save-retry"]').forEach((el) => el.remove());
     showToast('Данные сохранены', 'success');
   } catch (error) {
     console.error(error);
@@ -1942,7 +2418,14 @@ async function doPersist() {
       showToast(error.message, 'error');
       await reloadFromServer();
     } else {
-      showToast('Не удалось сохранить данные. Проверьте подключение.', 'error');
+      // Сетевой сбой: правки уже применены к state в памяти и никуда не делись —
+      // просто ещё не ушли на сервер. Кнопка «Повторить» вызывает persist()
+      // заново; тост не исчезает сам, чтобы не потерялось, что сохранение не удалось.
+      showToast('Не удалось сохранить — нет связи с сервером. Изменения не потеряны, но ещё не сохранены.', 'error', {
+        kind: 'save-retry',
+        label: 'Повторить',
+        onClick: () => persist(),
+      });
     }
   }
 }
@@ -1977,20 +2460,7 @@ function enterAssetEditMode(assetId) {
 }
 
 function enterEmployeeEditMode(employeeId) {
-  const employee = getEmployeeById(employeeId);
-  if (!employee) return;
-  dom.employeeForm.elements.employeeId.value = employee.id;
-  dom.employeeForm.elements.fullName.value = employee.fullName;
-  const deptSelect = document.getElementById("employeeDepartmentSelect");
-  if (deptSelect) deptSelect.value = employee.department || "";
-  const siteSelect = document.getElementById("employeeSiteSelect");
-  if (siteSelect) siteSelect.value = employee.site || "";
-  dom.employeeForm.elements.position.value = employee.position;
-  if (dom.employeeForm.elements.phone) dom.employeeForm.elements.phone.value = employee.phone || "";
-  dom.employeeFormTitle.textContent = "Редактировать сотрудника";
-  dom.employeeSubmitBtn.textContent = "Сохранить изменения";
-  dom.employeeCancelBtn.classList.remove("hidden");
-  activateView("employees");
+  openEditEmployeeModal(employeeId);
 }
 
 // ─── CRUD: УДАЛЕНИЕ И СОХРАНЕНИЕ АКТИВОВ/СОТРУДНИКОВ ─────────────
@@ -2013,7 +2483,10 @@ async function deleteAsset(assetId) {
 async function deleteEmployee(employeeId) {
   const employee = getEmployeeById(employeeId);
   if (!employee) return;
-  const hasAssets = state.assets.some((asset) => getEmployeeAllocation(asset, employeeId));
+  const hasAssets = state.assets.some((asset) => {
+    const alloc = getEmployeeAllocation(asset, employeeId);
+    return alloc && alloc.quantity > 0;
+  });
   if (hasAssets) {
     showToast('Нельзя удалить сотрудника, пока за ним числится техника.', 'warning');
     return;
@@ -2023,8 +2496,60 @@ async function deleteEmployee(employeeId) {
   addAuditEntry("employee", employeeId, "delete", { name: employee.fullName });
   state.employees = state.employees.filter((entry) => entry.id !== employeeId);
   state.movements = state.movements.filter((movement) => movement.employeeId !== employeeId);
+  rebuildLookupMaps();
   await persist();
-  if (dom.employeeForm.elements.employeeId.value === employeeId) resetEmployeeForm();
+  renderEmployees();
+  renderSelects();
+  showToast("Сотрудник удален", "success");
+}
+
+// ─── EMPLOYEE BULK SELECT / DELETE ──────────────────────────────
+function getSelectedEmployeeIds() {
+  return Array.from(document.querySelectorAll(".emp-row-check:checked")).map((cb) => cb.dataset.id);
+}
+
+function updateEmployeeBulkBar() {
+  const ids = getSelectedEmployeeIds();
+  const rows = document.querySelectorAll(".emp-row-check");
+  const btn = document.getElementById("employeeBulkDeleteBtn");
+  const count = document.getElementById("employeeBulkCount");
+  if (btn) btn.disabled = ids.length === 0;
+  if (count) count.textContent = `${ids.length} выбрано`;
+  const master = document.getElementById("empMasterCheckbox");
+  if (master) {
+    master.checked = rows.length > 0 && ids.length === rows.length;
+    master.indeterminate = ids.length > 0 && ids.length < rows.length;
+  }
+}
+
+async function bulkDeleteEmployees() {
+  const ids = getSelectedEmployeeIds();
+  if (!ids.length) return;
+
+  const blocked = ids
+    .map((id) => getEmployeeById(id))
+    .filter((emp) => emp && state.assets.some((asset) => {
+      const alloc = getEmployeeAllocation(asset, emp.id);
+      return alloc && alloc.quantity > 0;
+    }));
+  if (blocked.length) {
+    showToast(`Невозможно удалить: за сотрудниками числится техника (${blocked.map((e) => e.fullName).join(", ")}). Сначала верните технику.`, "warning");
+    return;
+  }
+
+  const names = ids.map((id) => getEmployeeById(id)?.fullName).filter(Boolean);
+  const confirmed = await showConfirm(`Удалить ${ids.length} сотрудник(ов)?\n\n${names.join(", ")}\n\nЭто действие необратимо.`);
+  if (!confirmed) return;
+
+  ids.forEach((id) => addAuditEntry("employee", id, "delete", { name: getEmployeeById(id)?.fullName }));
+  state.employees = state.employees.filter((emp) => !ids.includes(emp.id));
+  state.movements = state.movements.filter((m) => !ids.includes(m.employeeId));
+
+  rebuildLookupMaps();
+  await persist();
+  renderEmployees();
+  renderSelects();
+  showToast(`Удалено сотрудников: ${ids.length}.`, "success");
 }
 
 async function handleAssetSubmit(event) {
@@ -2097,26 +2622,56 @@ async function handleEmployeeSubmit(event) {
   event.preventDefault();
   const formData = new FormData(event.currentTarget);
   const employeeId = String(formData.get("employeeId") || "").trim();
+  const fullName = String(formData.get("fullName") || "").trim();
+  const department = String(formData.get("department") || "").trim();
+  const site = String(formData.get("site") || "").trim();
+  const position = String(formData.get("position") || "").trim();
+  const phone = String(formData.get("phone") || "").trim();
+  const email = String(formData.get("email") || "").trim();
+  const status = String(formData.get("status") || "active").trim();
+
+  if (!fullName) {
+    showToast("Введите ФИО сотрудника", "warning");
+    return;
+  }
+  if (!department) {
+    showToast("Выберите отдел сотрудника", "warning");
+    return;
+  }
+
   if (employeeId) {
     const employee = getEmployeeById(employeeId);
     if (!employee) return;
-    employee.fullName = String(formData.get("fullName") || "").trim();
-    employee.department = String(formData.get("department") || "").trim();
-    employee.site = String(formData.get("site") || "").trim();
-    employee.position = String(formData.get("position") || "").trim();
-    employee.phone = String(formData.get("phone") || "").trim();
+    employee.fullName = fullName;
+    employee.department = department;
+    employee.site = site;
+    employee.position = position;
+    employee.phone = phone;
+    employee.email = email;
+    employee.status = status;
+    addAuditEntry("employee", employee.id, "update", { fullName, department, position, status });
+    showToast("Данные сотрудника обновлены", "success");
   } else {
-    state.employees.push({
+    const newEmployee = {
       id: createId("emp"),
-      fullName: String(formData.get("fullName") || "").trim(),
-      department: String(formData.get("department") || "").trim(),
-      site: String(formData.get("site") || "").trim(),
-      position: String(formData.get("position") || "").trim(),
-      phone: String(formData.get("phone") || "").trim(),
-    });
+      fullName,
+      department,
+      site,
+      position,
+      phone,
+      email,
+      status,
+      createdAt: new Date().toISOString(),
+    };
+    state.employees.push(newEmployee);
+    addAuditEntry("employee", newEmployee.id, "create", { fullName, department, position });
+    showToast("Сотрудник добавлен", "success");
   }
-  resetEmployeeForm();
+  rebuildLookupMaps();
+  closeEmployeeModal();
   await persist();
+  renderEmployees();
+  renderSelects();
 }
 
 // ─── ОБРАБОТКА ОПЕРАЦИЙ: ВЫДАЧА / ВОЗВРАТ / РЕМОНТ / СПИСАНИЕ ────
@@ -2768,8 +3323,14 @@ function bindEvents() {
   dom.assetCancelBtn.addEventListener("click", resetAssetForm);
   document.getElementById("inventoryNumberInput")?.addEventListener("input", updateInventoryHint);
   document.getElementById("autoInventoryBtn")?.addEventListener("click", autoFillInventoryNumber);
-  dom.employeeForm.addEventListener("submit", handleEmployeeSubmit);
-  dom.employeeCancelBtn.addEventListener("click", resetEmployeeForm);
+  dom.employeeForm?.addEventListener("submit", handleEmployeeSubmit);
+  const handleEmployeeAsideSync = () => {
+    const employeeId = document.getElementById("employeeFormId")?.value;
+    syncEmployeeEditAside(employeeId ? getEmployeeById(employeeId) : null);
+  };
+  dom.employeeForm?.addEventListener("input", handleEmployeeAsideSync);
+  dom.employeeForm?.addEventListener("change", handleEmployeeAsideSync);
+  dom.employeeCancelBtn?.addEventListener("click", closeEmployeeModal);
   document.getElementById("departmentForm")?.addEventListener("submit", handleDepartmentSubmit);
   document.getElementById("departmentCancelBtn")?.addEventListener("click", resetDepartmentForm);
   document.getElementById("siteForm")?.addEventListener("submit", handleSiteSubmit);
@@ -2822,6 +3383,9 @@ function bindEvents() {
   document.getElementById("printLabelsBtn")?.addEventListener("click", openLabelsModal);
   document.getElementById("closeLabelsBtn")?.addEventListener("click", closeLabelsModal);
   document.getElementById("labelsOverlay")?.addEventListener("click", (e) => { if (e.target === document.getElementById("labelsOverlay")) closeLabelsModal(); });
+  document.getElementById("showLanQrBtn")?.addEventListener("click", openLanQrModal);
+  document.getElementById("closeLanQrBtn")?.addEventListener("click", closeLanQrModal);
+  document.getElementById("lanQrOverlay")?.addEventListener("click", (e) => { if (e.target === document.getElementById("lanQrOverlay")) closeLanQrModal(); });
   document.getElementById("labelSelectAllBtn")?.addEventListener("click", () => labelSelectAll(true));
   document.getElementById("labelDeselectAllBtn")?.addEventListener("click", () => labelSelectAll(false));
   document.getElementById("labelSearchInput")?.addEventListener("input", debounce(renderLabelGrid));
@@ -2840,11 +3404,9 @@ function bindEvents() {
     renderAssignedSummary();
   }));
   dom.assetSearchInput.addEventListener("input", debounce(() => { assetCurrentPage = 1; renderAssetsTable(); }));
-  dom.employeeSearchInput?.addEventListener("input", debounce(renderEmployees));
   dom.movementSearchInput?.addEventListener("input", debounce(renderMovementTable));
   dom.reportSearchInput?.addEventListener("input", debounce(renderReports));
   dom.assetsTableBody.addEventListener("click", handleAssetTableClick);
-  dom.employeesList.addEventListener("click", handleEmployeeListClick);
   document.getElementById("departmentsList")?.addEventListener("click", (e) => {
     const action = e.target.closest("button")?.dataset.action;
     const id = e.target.closest("button")?.dataset.id;
@@ -2873,8 +3435,128 @@ function bindEvents() {
   document.getElementById('assetSortField')?.addEventListener('change', renderAssetsTable);
   document.getElementById('assetSortDir')?.addEventListener('change', renderAssetsTable);
 
-  // Filter events for employees list
-  document.getElementById('employeeFilterDepartment')?.addEventListener('change', renderEmployees);
+  // Theme toggle
+  document.getElementById("themeToggleBtn")?.addEventListener("click", toggleTheme);
+
+  // Employee events
+  document.getElementById("openAddEmployeeModalBtn")?.addEventListener("click", openAddEmployeeModal);
+  document.getElementById("closeEmployeeModalBtn")?.addEventListener("click", closeEmployeeModal);
+  document.getElementById("employeeModalCancelBtn")?.addEventListener("click", closeEmployeeModal);
+  document.getElementById("closeEmployeeDetailsBtn")?.addEventListener("click", closeEmployeeDetailsModal);
+  document.getElementById("employeeExportBtn")?.addEventListener("click", exportEmployeesExcel);
+
+  // Close modals when clicking backdrop
+  document.getElementById("employeeModalOverlay")?.addEventListener("click", (e) => {
+    if (e.target === document.getElementById("employeeModalOverlay")) closeEmployeeModal();
+  });
+  document.getElementById("employeeDetailsOverlay")?.addEventListener("click", (e) => {
+    if (e.target === document.getElementById("employeeDetailsOverlay")) closeEmployeeDetailsModal();
+  });
+
+  // Table vs Cards switch
+  document.getElementById("empViewTableBtn")?.addEventListener("click", () => {
+    employeeViewMode = "table";
+    document.getElementById("empViewTableBtn")?.classList.add("active");
+    document.getElementById("empViewCardsBtn")?.classList.remove("active");
+    renderEmployees();
+  });
+  document.getElementById("empViewCardsBtn")?.addEventListener("click", () => {
+    employeeViewMode = "cards";
+    document.getElementById("empViewCardsBtn")?.classList.add("active");
+    document.getElementById("empViewTableBtn")?.classList.remove("active");
+    renderEmployees();
+  });
+
+  // Master checkbox
+  document.getElementById("empMasterCheckbox")?.addEventListener("change", (e) => {
+    const checked = e.target.checked;
+    document.querySelectorAll(".emp-row-check").forEach((cb) => { cb.checked = checked; });
+    updateEmployeeBulkBar();
+  });
+
+  // Row checkboxes (bulk select) & bulk delete button
+  document.getElementById("employeesTableBody")?.addEventListener("change", (e) => {
+    if (e.target.closest(".emp-row-check")) updateEmployeeBulkBar();
+  });
+  document.getElementById("employeeBulkDeleteBtn")?.addEventListener("click", bulkDeleteEmployees);
+
+  // Per page select
+  document.getElementById("employeePerPageSelect")?.addEventListener("change", (e) => {
+    employeePerPage = parseInt(e.target.value, 10) || 10;
+    employeeCurrentPage = 1;
+    renderEmployees();
+  });
+
+  // Filter & sort change events
+  document.getElementById("employeeSortSelect")?.addEventListener("change", () => {
+    employeeCurrentPage = 1;
+    renderEmployees();
+  });
+  document.getElementById("employeeFilterDepartment")?.addEventListener("change", () => {
+    employeeCurrentPage = 1;
+    renderEmployees();
+  });
+  document.getElementById("employeeFilterPosition")?.addEventListener("change", () => {
+    employeeCurrentPage = 1;
+    renderEmployees();
+  });
+  document.getElementById("employeeFilterStatus")?.addEventListener("change", () => {
+    employeeCurrentPage = 1;
+    renderEmployees();
+  });
+  document.getElementById("employeeSearchInput")?.addEventListener("input", debounce(() => {
+    employeeCurrentPage = 1;
+    renderEmployees();
+  }));
+
+  // Reset filters
+  document.getElementById("employeeResetAllFiltersBtn")?.addEventListener("click", () => {
+    const searchInput = document.getElementById("employeeSearchInput");
+    if (searchInput) searchInput.value = "";
+    const dept = document.getElementById("employeeFilterDepartment");
+    if (dept) dept.value = "";
+    const pos = document.getElementById("employeeFilterPosition");
+    if (pos) pos.value = "";
+    const st = document.getElementById("employeeFilterStatus");
+    if (st) st.value = "";
+    const sort = document.getElementById("employeeSortSelect");
+    if (sort) sort.value = "name_asc";
+    employeeCurrentPage = 1;
+    renderEmployees();
+  });
+
+  // Active chips clear click
+  document.getElementById("employeeActiveChips")?.addEventListener("click", (e) => {
+    const target = e.target.closest("[data-clear]");
+    if (!target) return;
+    const kind = target.dataset.clear;
+    if (kind === "status") document.getElementById("employeeFilterStatus").value = "";
+    if (kind === "department") document.getElementById("employeeFilterDepartment").value = "";
+    if (kind === "position") document.getElementById("employeeFilterPosition").value = "";
+    if (kind === "query") document.getElementById("employeeSearchInput").value = "";
+    employeeCurrentPage = 1;
+    renderEmployees();
+  });
+
+  // Pagination navigation clicks
+  document.getElementById("employeePaginationNav")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-emp-page]");
+    if (!btn || btn.disabled) return;
+    employeeCurrentPage = parseInt(btn.dataset.empPage, 10);
+    renderEmployees();
+  });
+
+  // Table row actions & Cards actions
+  const handleEmpAction = (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    const { action, id } = btn.dataset;
+    if (action === "view-employee") openEmployeeDetailsModal(id);
+    if (action === "edit-employee") openEditEmployeeModal(id);
+    if (action === "delete-employee") deleteEmployee(id);
+  };
+  document.getElementById("employeesTableBody")?.addEventListener("click", handleEmpAction);
+  document.getElementById("employeesCardsGrid")?.addEventListener("click", handleEmpAction);
 
   // Registry events
   document.getElementById('registrySearchInput')?.addEventListener('input', debounce(() => { registryCurrentPage = 1; renderRegistry(); }));
@@ -2952,6 +3634,35 @@ function openLabelsModal() {
 
 function closeLabelsModal() {
   document.getElementById("labelsOverlay").classList.add("hidden");
+}
+
+async function openLanQrModal() {
+  const overlay = document.getElementById("lanQrOverlay");
+  const body = document.getElementById("lanQrBody");
+  overlay.classList.remove("hidden");
+  body.innerHTML = `<p class="muted">Загрузка…</p>`;
+  let info;
+  try {
+    const response = await fetch("/api/lan-info");
+    info = await response.json();
+  } catch {
+    body.innerHTML = `<p class="muted">Не удалось получить данные с сервера.</p>`;
+    return;
+  }
+  if (!info.lanMode || !info.lanIp) {
+    body.innerHTML = `<p class="muted">Сетевой режим выключен — телефон не сможет подключиться.<br>Запустите <code>setup_lan.bat</code> от имени администратора, затем перезапустите приложение.</p>`;
+    return;
+  }
+  const url = `http://${info.lanIp}:${info.port}`;
+  const payload = `WHC1:${JSON.stringify({ url, password: info.password || "" })}`;
+  body.innerHTML = `
+    <div class="lan-qr-code">${qrHtml(payload, 60)}</div>
+    <p class="muted">Отсканируйте в приложении на телефоне (Настройки → «Сканировать QR сервера»).<br>Адрес: <code>${url}</code></p>
+  `;
+}
+
+function closeLanQrModal() {
+  document.getElementById("lanQrOverlay").classList.add("hidden");
 }
 
 function getLabelAssets() {
@@ -3186,6 +3897,10 @@ function buildLabelHtml(asset, { showInv = true, showQr = true, showLoc = false,
   const bcData = (showInv && asset.inventoryNumber)
     ? asset.inventoryNumber
     : (asset.serialNumber && asset.serialNumber !== 'Отсутствует' ? asset.serialNumber : (asset.inventoryNumber || asset.name || ''));
+  // The QR encodes the stable asset id, not bcData — the mobile app's scanner
+  // (mobile/www/js/qr.js, WAREHOUSE_QR_PREFIX) only recognizes this prefix.
+  // The printed caption below still shows bcData (inventory/serial number).
+  const qrData = asset.id ? `WH1:${asset.id}` : '';
 
   const catLine = asset.category
     ? `<div style="font-size:${f.small}pt;color:#666;line-height:${SMALL_LINE_H};margin-top:0.5pt;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(asset.category)}</div>` : '';
@@ -3204,7 +3919,7 @@ function buildLabelHtml(asset, { showInv = true, showQr = true, showLoc = false,
     // separator + paddings (~5pt) + code text line (code size * 1.2) + margin (1.5pt)
     bcBlockMm = qrSize + (5 + f.code * 1.2 + 1.5) * (25.4 / 72);
     bottom = `<div style="border-top:0.4pt solid #ccc;margin-top:2pt;padding-top:2pt;text-align:center">
-        ${qrHtml(bcData, qrSize)}
+        ${qrHtml(qrData, qrSize)}
         <div style="font-size:${f.code}pt;text-align:center;color:#000;margin-top:1.5pt;letter-spacing:0.3px">${escapeHtml(bcData)}</div>
       </div>`;
   }
@@ -3263,6 +3978,8 @@ function drawLabelOnCanvas(ctx, asset, x0mm, y0mm, wMm, hMm, opts, S) {
   const bcData = (showInv && asset.inventoryNumber)
     ? asset.inventoryNumber
     : (asset.serialNumber && asset.serialNumber !== 'Отсутствует' ? asset.serialNumber : (asset.inventoryNumber || asset.name || ''));
+  // See buildLabelHtml: QR encodes the asset id (WH1: prefix), not bcData.
+  const qrData = asset.id ? `WH1:${asset.id}` : '';
   const hasCat = !!asset.category;
   const hasSn = !!(asset.serialNumber && asset.serialNumber !== 'Отсутствует');
   const hasLoc = !!(showLoc && asset.location);
@@ -3314,7 +4031,7 @@ function drawLabelOnCanvas(ctx, asset, x0mm, y0mm, wMm, hMm, opts, S) {
     ctx.strokeStyle = '#ccc'; ctx.lineWidth = Math.max(1, 0.4 * S * 0.3528);
     ctx.beginPath(); ctx.moveTo(x + pad, sepY); ctx.lineTo(x + w - pad, sepY); ctx.stroke();
 
-    const { n, modules } = qrModuleGrid(bcData);
+    const { n, modules } = qrModuleGrid(qrData);
     const cellPx = qrPx / n;
     const qrLeft = x + pad + (cw - qrPx) / 2;
     ctx.fillStyle = '#000';
@@ -3597,8 +4314,30 @@ function exportLabelsWord() {
 }
 
 
+// ─── ТЕМА ОФОРМЛЕНИЯ (СВЕТЛАЯ / ТЁМНАЯ) ───────────────────────────
+function initTheme() {
+  const saved = localStorage.getItem("warehouse_theme") || "light";
+  setTheme(saved);
+}
+
+function setTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  localStorage.setItem("warehouse_theme", theme);
+  const icon = document.getElementById("themeToggleIcon");
+  const text = document.getElementById("themeToggleText");
+  if (icon) icon.textContent = theme === "dark" ? "🌙" : "☀️";
+  if (text) text.textContent = theme === "dark" ? "Тёмная" : "Светлая";
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute("data-theme") || "light";
+  const next = current === "dark" ? "light" : "dark";
+  setTheme(next);
+}
+
 // ─── ИНИЦИАЛИЗАЦИЯ ────────────────────────────────────────────────
 async function init() {
+  initTheme();
   bindEvents();
   try {
     state = await loadState();

@@ -50,6 +50,8 @@ pyinstaller --onefile ^
     --add-data "schema.sql;." ^
     --add-data "act_generator.py;." ^
     --add-data "mobile_actions.py;." ^
+    --add-data "qrcode-lib.js;." ^
+    --add-data "chart.umd.min.js;." ^
     --hidden-import=PyQt5 ^
     --hidden-import=sqlite3 ^
     --clean ^

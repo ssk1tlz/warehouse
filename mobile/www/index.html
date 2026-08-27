@@ -7,21 +7,28 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <section id="screen-settings" class="screen">
+  <div id="connStatus" class="offline">● Офлайн</div>
+
+  <section id="screen-settings" class="screen" data-back="screen-scan">
     <h1>Подключение к складу</h1>
-    <label>Адрес сервера <input id="settingsUrl" placeholder="http://192.168.1.50:8766"></label>
+    <label>Адрес сервера <input id="settingsUrl" placeholder="http://192.168.1.50:8765"></label>
     <label>Пароль (если задан) <input id="settingsPassword" type="password"></label>
     <button id="settingsSaveBtn">Сохранить</button>
+    <button id="settingsScanBtn" class="secondary">Сканировать QR сервера</button>
   </section>
 
   <section id="screen-scan" class="screen hidden">
-    <button id="scanBtn">Сканировать QR</button>
-    <button id="queueBtn">Очередь: <span id="queueCount">0</span></button>
-    <button id="settingsBtn">Настройки</button>
+    <p class="muted">Наведите камеру на QR-код на этикетке техники.</p>
   </section>
 
-  <section id="screen-asset" class="screen hidden">
-    <button id="assetBackBtn">‹ Назад</button>
+  <section id="screen-search" class="screen hidden" data-back="screen-scan">
+    <h1>Поиск</h1>
+    <input id="searchInput" placeholder="Название, инв. № или серийный номер">
+    <ul id="searchResults" class="clickable"></ul>
+  </section>
+
+  <section id="screen-asset" class="screen hidden" data-back="screen-scan">
+    <button id="assetBackBtn" class="ghost">‹ Назад</button>
     <h1 id="assetName"></h1>
     <p id="assetStatus" class="pill"></p>
     <p id="assetMeta"></p>
@@ -32,8 +39,8 @@
     <div id="assetActions"></div>
   </section>
 
-  <section id="screen-action" class="screen hidden">
-    <button id="actionBackBtn">‹ Назад</button>
+  <section id="screen-action" class="screen hidden" data-back="screen-asset">
+    <button id="actionBackBtn" class="ghost">‹ Назад</button>
     <h1 id="actionTitle"></h1>
     <form id="actionForm">
       <label id="actionEmployeeField">Сотрудник <select id="actionEmployee"></select></label>
@@ -44,20 +51,68 @@
     </form>
   </section>
 
-  <section id="screen-queue" class="screen hidden">
-    <button id="queueBackBtn">‹ Назад</button>
+  <section id="screen-edit" class="screen hidden" data-back="screen-asset">
+    <button id="editBackBtn" class="ghost">‹ Назад</button>
+    <h1>Редактировать</h1>
+    <div class="scan-row">
+      <button id="editScanSerialBtn" type="button" class="secondary">Штрихкод → серийный №</button>
+      <button id="editPhotoBtn" type="button" class="secondary">Распознать этикетку</button>
+    </div>
+    <form id="editForm">
+      <label>Название <input id="editName" required></label>
+      <label>Категория <input id="editCategory"></label>
+      <label>Инвентарный номер <input id="editInventoryNumber"></label>
+      <label>Серийный номер <input id="editSerialNumber"></label>
+      <label>Местоположение <input id="editLocation"></label>
+      <label>Дата покупки <input id="editPurchaseDate" type="date"></label>
+      <label>Гарантия до <input id="editWarrantyEnd" type="date"></label>
+      <button type="submit">Сохранить</button>
+    </form>
+  </section>
+
+  <section id="screen-queue" class="screen hidden" data-back="screen-scan">
     <h1>Очередь синхронизации</h1>
     <ul id="queueList"></ul>
   </section>
 
+  <section id="screen-history" class="screen hidden" data-back="screen-scan">
+    <h1>История выдачи и возврата</h1>
+    <ul id="historyList"></ul>
+  </section>
+
+  <nav class="bottom-nav" aria-label="Основная навигация">
+    <button id="navSearchBtn" class="nav-item" type="button" aria-label="Поиск" title="Поиск">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4.3-4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+    <button id="navQueueBtn" class="nav-item" type="button" aria-label="Очередь" title="Очередь">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <span id="queueCount" class="nav-badge hidden">0</span>
+    </button>
+    <button id="scanBtn" class="nav-scan" type="button" aria-label="Сканировать QR">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor"/></svg>
+    </button>
+    <button id="navHistoryBtn" class="nav-item" type="button" aria-label="История" title="История">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3.5 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <button id="navSettingsBtn" class="nav-item" type="button" aria-label="Настройки" title="Настройки">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.4-2.3.9a7.7 7.7 0 0 0-1.7-1L15 3h-6l-.4 2.5a7.7 7.7 0 0 0-1.7 1l-2.3-.9-2 3.4L4.6 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.4 2.3-.9a7.7 7.7 0 0 0 1.7 1L9 21h6l.4-2.5a7.7 7.7 0 0 0 1.7-1l2.3.9 2-3.4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+    </button>
+  </nav>
+
   <script src="js/vendor/capacitor-core.js"></script>
   <script src="js/vendor/capacitor-community-sqlite.js"></script>
+  <script src="js/vendor/capacitor-preferences.js"></script>
+  <script src="js/vendor/capacitor-mlkit-barcode-scanning.js"></script>
+  <script src="js/vendor/capacitor-camera.js"></script>
+  <script src="js/vendor/capacitor-mlkit-text-recognition.js"></script>
   <script src="js/qr.js"></script>
   <script src="js/format.js"></script>
+  <script src="js/label.js"></script>
   <script src="js/db.js"></script>
   <script src="js/settings.js"></script>
   <script src="js/sync.js"></script>
   <script src="js/scanner.js"></script>
+  <script src="js/status.js"></script>
   <script src="js/screens.js"></script>
   <script>App.init();</script>
 </body>

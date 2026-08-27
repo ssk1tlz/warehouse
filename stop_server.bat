@@ -1,18 +1,18 @@
 @echo off
-chcp 65001 >nul
-title ÐžÑÑ‚Ð°Ð½Ð¾Ð²ÐºÐ° Ð¡ÐºÐ»Ð°Ð´ IT-Ñ‚ÐµÑ…Ð½Ð¸ÐºÐ¸
+chcp 866 >nul
+title Žáâ ­®¢ª  ‘ª« ¤ IT-â¥å­¨ª¨
 
 set FOUND=0
 for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":8765" ^| findstr "LISTENING"') do (
     set FOUND=1
-    echo ÐžÑÑ‚Ð°Ð½Ð°Ð²Ð»Ð¸Ð²Ð°ÑŽ Ð¿Ñ€Ð¾Ñ†ÐµÑÑ %%p...
+    echo Žáâ ­ ¢«¨¢ î ¯à®æ¥áá %%p...
     taskkill /PID %%p /F >nul 2>nul
 )
 
 if "%FOUND%"=="0" (
-    echo Ð¡ÐµÑ€Ð²ÐµÑ€ Ð½Ðµ Ð·Ð°Ð¿ÑƒÑ‰ÐµÐ½.
+    echo ‘¥à¢¥à ­¥ § ¯ãé¥­.
 ) else (
-    echo Ð¡ÐµÑ€Ð²ÐµÑ€ Ð¾ÑÑ‚Ð°Ð½Ð¾Ð²Ð»ÐµÐ½.
+    echo ‘¥à¢¥à ®áâ ­®¢«¥­.
 )
 timeout /t 2 /nobreak >nul
 exit /b 0

@@ -157,6 +157,8 @@ def init_db() -> None:
             connection.execute("ALTER TABLE employees ADD COLUMN phone TEXT NOT NULL DEFAULT ''")
         if "site" not in emp_columns:
             connection.execute("ALTER TABLE employees ADD COLUMN site TEXT NOT NULL DEFAULT ''")
+        if "status" not in emp_columns:
+            connection.execute("ALTER TABLE employees ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
         movement_columns = {row["name"] for row in connection.execute("PRAGMA table_info(movements)")}
         if "act_number" not in movement_columns:
             connection.execute("ALTER TABLE movements ADD COLUMN act_number INTEGER")
@@ -241,7 +243,7 @@ def export_state() -> dict:
         meta_row = connection.execute("SELECT value FROM app_meta WHERE key = 'updated_at'").fetchone()
         version = read_state_version(connection)
         employees = [dict(row) for row in connection.execute(
-            "SELECT id, full_name AS fullName, department, site, position, email, phone FROM employees ORDER BY full_name"
+            "SELECT id, full_name AS fullName, department, site, position, email, phone, status FROM employees ORDER BY full_name"
         )]
 
         departments = [dict(row) for row in connection.execute(
@@ -334,7 +336,7 @@ def import_state(payload: dict) -> dict:
 
         for employee in employees:
             connection.execute(
-                "INSERT INTO employees (id, full_name, department, site, position, email, phone) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO employees (id, full_name, department, site, position, email, phone, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     employee.get("id"),
                     employee.get("fullName") or "",
@@ -343,6 +345,7 @@ def import_state(payload: dict) -> dict:
                     employee.get("position") or "",
                     employee.get("email") or "",
                     employee.get("phone") or "",
+                    employee.get("status") or "active",
                 ),
             )
 
@@ -466,6 +469,14 @@ class WarehouseHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/api/state":
             self.send_json(export_state())
+            return
+        if parsed.path == "/api/lan-info":
+            self.send_json({
+                "lanMode": HOST != "127.0.0.1",
+                "lanIp": get_lan_ip(),
+                "port": PORT,
+                "password": PASSWORD,
+            })
             return
         self.serve_static(parsed.path)
 

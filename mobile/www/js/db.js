@@ -29,6 +29,10 @@ CREATE TABLE IF NOT EXISTS movements (
   id TEXT PRIMARY KEY, type TEXT NOT NULL, asset_id TEXT NOT NULL, employee_id TEXT,
   department TEXT, site TEXT, act_number INTEGER, quantity INTEGER, date TEXT, notes TEXT
 );
+CREATE TABLE IF NOT EXISTS movements_history (
+  id TEXT PRIMARY KEY, type TEXT NOT NULL, asset_id TEXT NOT NULL, asset_name TEXT,
+  employee_id TEXT, department TEXT, site TEXT, act_number INTEGER, quantity INTEGER, date TEXT, notes TEXT
+);
 `;
 
 async function open() {
@@ -54,7 +58,9 @@ async function replaceState(state) {
     { statement: 'DELETE FROM sites' },
     { statement: 'DELETE FROM allocations' },
     { statement: 'DELETE FROM movements' },
+    { statement: 'DELETE FROM movements_history' },
   ];
+  const assetNameById = new Map(state.assets.map((a) => [a.id, a.name]));
   for (const a of state.assets) {
     txn.push({
       statement: `INSERT INTO assets (id, name, category, inventory_number, serial_number, status, quantity,
@@ -99,6 +105,16 @@ async function replaceState(state) {
         values: [m.id, m.type, m.assetId, m.employeeId, m.department, m.site, m.actNumber, m.quantity, m.date, m.notes],
       });
     }
+  }
+  // Full (uncapped) issue/return log for the global "История" screen — unlike
+  // `movements` above, this isn't trimmed to 3-per-asset, since its whole
+  // purpose is showing more than the asset card already does.
+  for (const m of state.movements || []) {
+    if (m.type !== 'issue' && m.type !== 'return') continue;
+    txn.push({
+      statement: 'INSERT INTO movements_history (id, type, asset_id, asset_name, employee_id, department, site, act_number, quantity, date, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+      values: [m.id, m.type, m.assetId, assetNameById.get(m.assetId) || '', m.employeeId, m.department, m.site, m.actNumber, m.quantity, m.date, m.notes],
+    });
   }
   // executeTransaction() begins the transaction, runs each task with transaction:false,
   // commits on success, and rolls back + rejects on any failure — equivalent to (and safer
@@ -169,6 +185,61 @@ async function listMovementsForAsset(assetId) {
   }));
 }
 
+async function listMovementHistory(limit = 200) {
+  const result = await db.query(
+    'SELECT * FROM movements_history ORDER BY date DESC, id DESC LIMIT ?',
+    [limit]
+  );
+  return result.values.map((row) => ({
+    id: row.id,
+    type: row.type,
+    assetId: row.asset_id,
+    assetName: row.asset_name,
+    employeeId: row.employee_id,
+    department: row.department,
+    site: row.site,
+    actNumber: row.act_number,
+    quantity: row.quantity,
+    date: row.date,
+    notes: row.notes,
+  }));
+}
+
+async function searchAssets(query, limit = 30) {
+  // Manual fallback for when scanning isn't possible (no camera, damaged
+  // label) — matches by substring against name/inventory/serial, same three
+  // fields the printed label itself shows. Empty query intentionally matches
+  // everything (LIKE '%%'), so opening the screen with no input yet browses
+  // the first `limit` assets alphabetically instead of showing nothing.
+  const q = `%${String(query || '').trim()}%`;
+  const result = await db.query(
+    'SELECT * FROM assets WHERE name LIKE ? OR inventory_number LIKE ? OR serial_number LIKE ? ORDER BY name LIMIT ?',
+    [q, q, q, limit]
+  );
+  const assets = [];
+  for (const row of result.values) {
+    const allocResult = await db.query('SELECT * FROM allocations WHERE asset_id = ?', [row.id]);
+    assets.push({
+      id: row.id,
+      name: row.name,
+      category: row.category,
+      inventoryNumber: row.inventory_number,
+      serialNumber: row.serial_number,
+      status: row.status,
+      quantity: row.quantity,
+      repairQuantity: row.repair_quantity,
+      retiredQuantity: row.retired_quantity,
+      allocations: allocResult.values.map((alloc) => ({
+        employeeId: alloc.employee_id,
+        department: alloc.department,
+        site: alloc.site,
+        quantity: alloc.quantity,
+      })),
+    });
+  }
+  return assets;
+}
+
 function generateClientActionId() {
   // RFC-4122-ish v4 UUID, good enough as a dedup key — Capacitor's JS runtime
   // has crypto.randomUUID() on modern Android WebViews; fall back if not.
@@ -205,4 +276,4 @@ async function retryAction(clientActionId) {
   await db.run("UPDATE pending_actions SET status = 'pending', server_error = NULL WHERE client_action_id = ?", [clientActionId]);
 }
 
-window.Db = { open, replaceState, getAssetById, listEmployeesById, listMovementsForAsset, enqueueAction, listPendingActions, markActionSynced, markActionFailed, retryAction, generateClientActionId };
+window.Db = { open, replaceState, getAssetById, listEmployeesById, listMovementsForAsset, listMovementHistory, searchAssets, enqueueAction, listPendingActions, markActionSynced, markActionFailed, retryAction, generateClientActionId };

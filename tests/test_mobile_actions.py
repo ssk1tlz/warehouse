@@ -386,6 +386,72 @@ def test_apply_retire_rejects_insufficient_available(conn):
         })
 
 
+def test_apply_edit_updates_editable_fields_and_logs_movement(conn):
+    mobile_actions.apply_edit(conn, {
+        "assetId": "ast_1", "name": "Ноутбук Dell XPS", "category": "Ноутбуки премиум",
+        "inventoryNumber": "INV-002", "serialNumber": "SN-002", "location": "Каб. 305",
+        "purchaseDate": "2026-02-01", "warrantyEnd": "2028-02-01",
+    })
+    asset = conn.execute(
+        "SELECT name, category, inventory_number, serial_number, location, purchase_date, warranty_end "
+        "FROM assets WHERE id='ast_1'"
+    ).fetchone()
+    assert asset["name"] == "Ноутбук Dell XPS"
+    assert asset["category"] == "Ноутбуки премиум"
+    assert asset["inventory_number"] == "INV-002"
+    assert asset["serial_number"] == "SN-002"
+    assert asset["location"] == "Каб. 305"
+    assert asset["purchase_date"] == "2026-02-01"
+    assert asset["warranty_end"] == "2028-02-01"
+    movement = conn.execute("SELECT type, quantity FROM movements WHERE asset_id='ast_1'").fetchone()
+    assert movement["type"] == "edit"
+    assert movement["quantity"] == 5  # asset's quantity at edit time, unchanged by editing
+
+
+def test_apply_edit_does_not_touch_quantity_or_allocations(conn):
+    conn.execute(
+        "INSERT INTO asset_allocations (asset_id, employee_id, department, site, quantity) "
+        "VALUES ('ast_1', 'emp_1', '', '', 2)"
+    )
+    mobile_actions.apply_edit(conn, {
+        "assetId": "ast_1", "name": "Ноутбук Dell", "category": "Ноутбуки",
+        "inventoryNumber": "INV-001", "serialNumber": "SN-001", "location": "",
+        "purchaseDate": "2026-01-01", "warrantyEnd": "",
+    })
+    asset = conn.execute("SELECT quantity FROM assets WHERE id='ast_1'").fetchone()
+    assert asset["quantity"] == 5
+    alloc = conn.execute(
+        "SELECT quantity FROM asset_allocations WHERE asset_id='ast_1' AND employee_id='emp_1'"
+    ).fetchone()
+    assert alloc["quantity"] == 2
+
+
+def test_apply_edit_rejects_blank_name(conn):
+    with pytest.raises(mobile_actions.MobileActionError, match="Название"):
+        mobile_actions.apply_edit(conn, {
+            "assetId": "ast_1", "name": "   ", "category": "Ноутбуки",
+            "inventoryNumber": "INV-001", "serialNumber": "SN-001",
+        })
+
+
+def test_apply_edit_rejects_unknown_asset(conn):
+    with pytest.raises(mobile_actions.MobileActionError, match="не найден"):
+        mobile_actions.apply_edit(conn, {"assetId": "ast_missing", "name": "X"})
+
+
+def test_apply_action_dispatches_edit(conn):
+    result = mobile_actions.apply_action(conn, {
+        "clientActionId": "44444444-4444-4444-4444-444444444444",
+        "type": "edit", "assetId": "ast_1", "name": "Ноутбук Dell Renamed",
+        "category": "Ноутбуки", "inventoryNumber": "INV-001", "serialNumber": "SN-001",
+        "location": "", "purchaseDate": "2026-01-01", "warrantyEnd": "",
+    })
+    assert result["assetId"] == "ast_1"
+    assert result["replayed"] is False
+    asset = conn.execute("SELECT name FROM assets WHERE id='ast_1'").fetchone()
+    assert asset["name"] == "Ноутбук Dell Renamed"
+
+
 def test_apply_action_dispatches_issue(conn):
     result = mobile_actions.apply_action(conn, {
         "clientActionId": "11111111-1111-1111-1111-111111111111",

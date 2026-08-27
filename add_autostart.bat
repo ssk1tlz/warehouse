@@ -1,23 +1,23 @@
 @echo off
-chcp 65001 >nul
+chcp 866 >nul
 cd /d "%~dp0"
-title ╨Р╨▓╤В╨╛╨╖╨░╨┐╤Г╤Б╨║ ╨┐╤А╨╕ ╨▓╨║╨╗╤О╤З╨╡╨╜╨╕╨╕ ╨║╨╛╨╝╨┐╤М╤О╤В╨╡╤А╨░
+title Автозапуск при включении компьютера
 
 if not exist "%~dp0WarehouseApp.exe" (
-    echo ╨Ю╨и╨Ш╨С╨Ъ╨Р: WarehouseApp.exe ╨╜╨╡ ╨╜╨░╨╣╨┤╨╡╨╜ ╤А╤П╨┤╨╛╨╝ ╤Б ╤Н╤В╨╕╨╝ ╤Б╨║╤А╨╕╨┐╤В╨╛╨╝.
+    echo ОШИБКА: WarehouseApp.exe не найден рядом с этим скриптом.
     pause
     exit /b 1
 )
 
-powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $sc = $ws.CreateShortcut([IO.Path]::Combine($ws.SpecialFolders['Startup'], 'WarehouseApp.lnk')); $sc.TargetPath = '%~dp0WarehouseApp.exe'; $sc.WorkingDirectory = '%~dp0'; $sc.Description = '╨б╨║╨╗╨░╨┤ IT-╤В╨╡╤Е╨╜╨╕╨║╨╕'; $sc.Save()"
+powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $sc = $ws.CreateShortcut([IO.Path]::Combine($ws.SpecialFolders['Startup'], 'WarehouseApp.lnk')); $sc.TargetPath = '%~dp0WarehouseApp.exe'; $sc.WorkingDirectory = '%~dp0'; $sc.Description = 'Склад IT-техники'; $sc.Save()"
 
 if errorlevel 1 (
-    echo ╨Ю╨и╨Ш╨С╨Ъ╨Р: ╨╜╨╡ ╤Г╨┤╨░╨╗╨╛╤Б╤М ╤Б╨╛╨╖╨┤╨░╤В╤М ╤П╤А╨╗╤Л╨║ ╨░╨▓╤В╨╛╨╖╨░╨┐╤Г╤Б╨║╨░.
+    echo ОШИБКА: не удалось создать ярлык автозапуска.
 ) else (
-    echo ╨У╨Ю╨в╨Ю╨Т╨Ю. WarehouseApp.exe ╨▒╤Г╨┤╨╡╤В ╨╖╨░╨┐╤Г╤Б╨║╨░╤В╤М╤Б╤П ╨░╨▓╤В╨╛╨╝╨░╤В╨╕╤З╨╡╤Б╨║╨╕
-    echo ╨┐╤А╨╕ ╨▓╤Е╨╛╨┤╨╡ ╤В╨╡╨║╤Г╤Й╨╡╨│╨╛ ╨┐╨╛╨╗╤М╨╖╨╛╨▓╨░╤В╨╡╨╗╤П ╨▓ ╤Б╨╕╤Б╤В╨╡╨╝╤Г.
+    echo ГОТОВО. WarehouseApp.exe будет запускаться автоматически
+    echo при входе текущего пользователя в систему.
     echo.
-    echo ╨з╤В╨╛╨▒╤Л ╤Г╨▒╤А╨░╤В╤М ╨░╨▓╤В╨╛╨╖╨░╨┐╤Г╤Б╨║: Win+R -^> shell:startup -^> ╤Г╨┤╨░╨╗╨╕╤В╨╡ ╤П╤А╨╗╤Л╨║ WarehouseApp
+    echo Чтобы убрать автозапуск: Win+R -^> shell:startup -^> удалите ярлык WarehouseApp
 )
 echo.
 pause

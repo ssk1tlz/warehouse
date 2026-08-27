@@ -1,0 +1,498 @@
+<title>ТЗ на дизайн Warehouse Scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Golos+Text:wght@400;500;600;800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  :root {
+    --paper: #F6F8FA;
+    --surface: #FFFFFF;
+    --surface-2: #EEF2F7;
+    --ink: #182230;
+    --ink-2: #51617A;
+    --ink-3: #8494AB;
+    --line: #DCE3EC;
+    --line-2: #C6D0DE;
+    --accent: #2563EB;
+    --accent-soft: rgba(37, 99, 235, 0.08);
+    --ok: #178A4C;
+    --ok-soft: rgba(23, 138, 76, 0.1);
+    --warn: #B45309;
+    --warn-soft: rgba(180, 83, 9, 0.1);
+    --danger: #DC2626;
+    --danger-soft: rgba(220, 38, 38, 0.09);
+    --display: 'Unbounded', 'Arial Black', sans-serif;
+    --body: 'Golos Text', 'Segoe UI', system-ui, sans-serif;
+    --mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #0C121C;
+      --surface: #141D2B;
+      --surface-2: #1B2637;
+      --ink: #E7EDF5;
+      --ink-2: #93A4BC;
+      --ink-3: #5E7089;
+      --line: #223047;
+      --line-2: #2E405C;
+      --accent: #5B95F5;
+      --accent-soft: rgba(91, 149, 245, 0.12);
+      --ok: #3DC97B;
+      --ok-soft: rgba(61, 201, 123, 0.12);
+      --warn: #E8A13C;
+      --warn-soft: rgba(232, 161, 60, 0.12);
+      --danger: #F26D6D;
+      --danger-soft: rgba(242, 109, 109, 0.12);
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #0C121C;
+    --surface: #141D2B;
+    --surface-2: #1B2637;
+    --ink: #E7EDF5;
+    --ink-2: #93A4BC;
+    --ink-3: #5E7089;
+    --line: #223047;
+    --line-2: #2E405C;
+    --accent: #5B95F5;
+    --accent-soft: rgba(91, 149, 245, 0.12);
+    --ok: #3DC97B;
+    --ok-soft: rgba(61, 201, 123, 0.12);
+    --warn: #E8A13C;
+    --warn-soft: rgba(232, 161, 60, 0.12);
+    --danger: #F26D6D;
+    --danger-soft: rgba(242, 109, 109, 0.12);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 56px 24px 96px; }
+
+  /* ── header ── */
+  .doc-eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  h1 {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: clamp(26px, 5vw, 40px);
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    margin: 10px 0 8px;
+    text-wrap: balance;
+  }
+  .doc-sub { color: var(--ink-2); max-width: 60ch; margin: 0 0 28px; }
+  .meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+  .meta > div { background: var(--surface); padding: 12px 16px; }
+  .meta dt { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-3); margin: 0 0 2px; }
+  .meta dd { margin: 0; font-weight: 600; font-size: 14px; }
+
+  /* ── sections ── */
+  section { margin-top: 64px; }
+  .sec-head { display: flex; align-items: baseline; gap: 14px; border-bottom: 2px solid var(--ink); padding-bottom: 10px; margin-bottom: 22px; }
+  .sec-num { font-family: var(--display); font-weight: 500; font-size: 15px; color: var(--accent); }
+  h2 { font-size: 24px; font-weight: 800; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+  h3 { font-size: 17px; font-weight: 800; margin: 32px 0 10px; }
+  p { max-width: 68ch; }
+  section > p:first-of-type { margin-top: 0; }
+  ul, ol { max-width: 68ch; padding-left: 22px; }
+  li { margin: 5px 0; }
+  li::marker { color: var(--accent); }
+  strong { font-weight: 600; }
+  .note {
+    background: var(--accent-soft);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    padding: 12px 16px;
+    max-width: 68ch;
+    font-size: 15px;
+  }
+  code {
+    font-family: var(--mono);
+    font-size: 0.85em;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 1px 6px;
+    white-space: nowrap;
+  }
+
+  /* ── tables ── */
+  .tbl-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; background: var(--surface); }
+  th {
+    font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em;
+    color: var(--ink-3); text-align: left; font-weight: 600;
+    padding: 10px 14px; border-bottom: 1px solid var(--line-2); background: var(--surface-2);
+  }
+  td { padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td:first-child { font-weight: 600; white-space: nowrap; }
+
+  .chip {
+    display: inline-block; padding: 2px 10px; border-radius: 99px;
+    font-family: var(--mono); font-size: 12px; font-weight: 600; white-space: nowrap;
+  }
+  .chip.ok { background: var(--ok-soft); color: var(--ok); }
+  .chip.warn { background: var(--warn-soft); color: var(--warn); }
+  .chip.danger { background: var(--danger-soft); color: var(--danger); }
+  .chip.neutral { background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--line-2); }
+
+  /* ── flow diagram ── */
+  .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 0; }
+  .flow-step {
+    background: var(--surface); border: 1px solid var(--line-2); border-radius: 8px;
+    padding: 8px 14px; font-size: 14px; font-weight: 600;
+  }
+  .flow-step small { display: block; font-weight: 400; font-size: 12px; color: var(--ink-3); }
+  .flow-arrow { color: var(--ink-3); font-size: 15px; }
+  .flow-step.hl { border-color: var(--accent); background: var(--accent-soft); }
+
+  /* ── screen cards ── */
+  .screen-card { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); padding: 20px 22px; margin: 16px 0; }
+  .screen-card h3 { margin: 0 0 2px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .screen-id { font-family: var(--mono); font-size: 12px; font-weight: 400; color: var(--ink-3); }
+  .screen-card .purpose { color: var(--ink-2); font-size: 14.5px; margin: 2px 0 12px; }
+  .screen-card ul { margin: 8px 0; font-size: 15px; }
+
+  /* ── wireframes (нарисованы в тёмной теме самого приложения — цвета фиксированы) ── */
+  .frames { display: flex; gap: 20px; overflow-x: auto; padding: 8px 2px 16px; }
+  .frame { flex-shrink: 0; width: 210px; }
+  .frame-title { font-family: var(--mono); font-size: 12px; color: var(--ink-2); text-align: center; margin-top: 10px; }
+  .phone {
+    background: #0A0F18; border: 2px solid var(--line-2); border-radius: 22px;
+    height: 400px; padding: 12px 10px 10px; display: flex; flex-direction: column; gap: 8px;
+    color: #D7E1EE; font-size: 10.5px; line-height: 1.4; position: relative; overflow: hidden;
+  }
+  .ph-conn { position: absolute; top: 8px; right: 10px; font-family: var(--mono); font-size: 8px; color: #43B26D; background: rgba(67,178,109,0.15); border-radius: 99px; padding: 1px 6px; }
+  .ph-h { font-weight: 800; font-size: 13px; margin-top: 14px; }
+  .ph-sub { color: #7285A0; font-size: 9.5px; }
+  .ph-pill { align-self: flex-start; font-family: var(--mono); font-size: 8.5px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: rgba(226,160,66,0.18); color: #E2A042; }
+  .ph-row { background: #17202F; border: 1px solid #232F44; border-radius: 8px; padding: 6px 8px; color: #93A4BC; }
+  .ph-label { font-family: var(--mono); font-size: 7.5px; text-transform: uppercase; letter-spacing: 0.08em; color: #55677F; margin-top: 4px; }
+  .ph-btn { background: #2E6BE0; color: #fff; border-radius: 8px; padding: 7px 8px; text-align: center; font-weight: 600; }
+  .ph-btn.sec { background: #1B2536; color: #93A4BC; border: 1px solid #2A3A54; }
+  .ph-input { background: #101725; border: 1px solid #2A3A54; border-radius: 8px; padding: 6px 8px; color: #55677F; }
+  .ph-spacer { flex: 1; }
+  .ph-nav {
+    display: flex; align-items: center; justify-content: space-around;
+    background: #17202F; border: 1px solid #232F44; border-radius: 99px; padding: 6px 8px;
+  }
+  .ph-nav span { width: 14px; height: 14px; border-radius: 50%; background: #3A4C68; }
+  .ph-nav .scan { width: 26px; height: 26px; background: #2E6BE0; margin-top: -14px; border: 3px solid #0A0F18; position: relative; }
+  .ph-nav .badge { position: relative; }
+  .ph-nav .badge::after {
+    content: '2'; position: absolute; top: -4px; right: -5px; background: #E5484D; color: #fff;
+    font-family: var(--mono); font-size: 7px; font-weight: 600; border-radius: 99px; padding: 0 3px;
+  }
+  .ph-center { text-align: center; color: #55677F; margin: auto 8px; }
+
+  /* ── deliverables checklist ── */
+  .check { list-style: none; padding: 0; max-width: 68ch; }
+  .check li { padding-left: 26px; position: relative; margin: 8px 0; }
+  .check li::before {
+    content: ''; position: absolute; left: 0; top: 5px; width: 14px; height: 14px;
+    border: 2px solid var(--accent); border-radius: 4px;
+  }
+
+  /* ── palette swatches ── */
+  .swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+  .sw { display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px 6px 6px; font-family: var(--mono); font-size: 12px; }
+  .sw i { width: 26px; height: 26px; border-radius: 6px; display: block; border: 1px solid var(--line-2); }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .screen-card { transition: border-color 0.15s ease; }
+    .screen-card:hover { border-color: var(--line-2); }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="doc-eyebrow">Техническое задание · v1.0 · 26.08.2026</div>
+    <h1>Дизайн мобильного приложения Warehouse Scanner</h1>
+    <p class="doc-sub">Android-компаньон складской системы: кладовщик сканирует QR-этикетку на технике и прямо у стеллажа выдаёт её сотруднику, принимает возврат, отправляет в ремонт или списывает. Работает офлайн, синхронизируется с сервером склада по локальной сети.</p>
+    <dl class="meta">
+      <div><dt>Платформа</dt><dd>Android · Capacitor 8</dd></div>
+      <div><dt>Технология UI</dt><dd>WebView · HTML/CSS</dd></div>
+      <div><dt>Язык</dt><dd>Русский</dd></div>
+      <div><dt>Экранов</dt><dd>7 + сканер системы</dd></div>
+      <div><dt>Ориентация</dt><dd>Портрет, одна рука</dd></div>
+      <div><dt>Тема</dt><dd>Тёмная (светлая — опц.)</dd></div>
+    </dl>
+  </header>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><h2>Продукт и пользователь</h2></div>
+    <p>Приложение — «полевой» инструмент учёта техники. Основной пользователь — кладовщик или ИТ-специалист, который перемещается по складу и офисам с телефоном в одной руке. Каждая единица техники маркирована QR-этикеткой; телефон превращает её в карточку с действиями.</p>
+    <p>Контекст использования, важный для дизайна:</p>
+    <ul>
+      <li><strong>Одна рука, на ходу.</strong> Главное действие (скан) — большая кнопка в зоне большого пальца. Типовая сессия: 10–30 секунд на единицу техники.</li>
+      <li><strong>Плохой свет и спешка.</strong> Крупные касаемые зоны, контрастные статусы, минимум чтения.</li>
+      <li><strong>Сеть ненадёжна.</strong> Приложение полноценно работает без связи; пользователь всегда должен видеть, онлайн он или нет, и что его действия «доехали» до сервера.</li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><h2>Как приложение работает</h2></div>
+    <p>Это важно понимать, потому что офлайн-логика — источник половины состояний интерфейса.</p>
+    <ul>
+      <li>Все данные склада (техника, сотрудники, движения) хранятся <strong>локально</strong> в SQLite-кэше на телефоне. Экраны всегда читают кэш — мгновенно и без сети.</li>
+      <li>Каждое действие пользователя (выдача, возврат, ремонт, списание, правка) <strong>не отправляется сразу</strong>, а кладётся в очередь. Фоновая синхронизация раз в 15 секунд отправляет очередь на сервер и забирает свежее состояние склада.</li>
+      <li>Если сервер отклонил действие (например, не хватает остатка) — действие остаётся в очереди со статусом <strong>«Ошибка»</strong> и кнопкой «Повторить». Количество неотправленных действий показывается бейджем на иконке очереди.</li>
+      <li>Сканер QR — <strong>системный полноэкранный интерфейс Google ML Kit</strong>, он открывается поверх приложения и не кастомизируется. Дизайнить его не нужно; нужно дизайнить то, что до и после.</li>
+      <li>Индикатор соединения (<span class="chip ok">● Подключено</span> / <span class="chip neutral">● Офлайн</span>) закреплён в правом верхнем углу на всех экранах.</li>
+    </ul>
+    <h3>Главный сценарий</h3>
+    <div class="flow">
+      <div class="flow-step hl">Скан QR<small>системный сканер</small></div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step">Карточка техники<small>статус, держатели, действия</small></div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step">Форма действия<small>сотрудник, кол-во, дата</small></div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step">В очередь<small>+1 на бейдже</small></div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step">Синхронизация<small>фоном, 15 с</small></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">03</span><h2>Навигация</h2></div>
+    <p>Нижняя панель из пяти элементов присутствует на всех экранах. Центральная кнопка «Скан» — доминанта всего приложения, визуально приподнята над панелью.</p>
+    <div class="tbl-scroll"><table>
+      <tr><th>Позиция</th><th>Элемент</th><th>Ведёт на</th></tr>
+      <tr><td>1</td><td>Поиск (лупа)</td><td>Экран поиска — ручной поиск без сканера</td></tr>
+      <tr><td>2</td><td>Очередь (список) + бейдж</td><td>Очередь синхронизации; бейдж = число неотправленных действий</td></tr>
+      <tr><td>3</td><td><strong>Скан (QR)</strong> — акцентная FAB</td><td>Открывает системный сканер</td></tr>
+      <tr><td>4</td><td>История (часы)</td><td>История выдач и возвратов</td></tr>
+      <tr><td>5</td><td>Настройки (шестерёнка)</td><td>Подключение к серверу</td></tr>
+    </table></div>
+    <p style="margin-top:14px">Дополнительно: <strong>свайп вправо</strong> с любого экрана — жест «назад» (экран уезжает за палец); на карточке и формах есть и текстовая кнопка «‹ Назад».</p>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">04</span><h2>Экраны</h2></div>
+
+    <div class="frames" aria-label="Схемы ключевых экранов">
+      <div class="frame">
+        <div class="phone">
+          <span class="ph-conn">● Подключено</span>
+          <div class="ph-center" style="margin-top:auto">Наведите камеру на QR-код на этикетке техники</div>
+          <div class="ph-spacer"></div>
+          <div class="ph-nav"><span></span><span class="badge"></span><span class="scan"></span><span></span><span></span></div>
+        </div>
+        <div class="frame-title">Главный (скан)</div>
+      </div>
+      <div class="frame">
+        <div class="phone">
+          <span class="ph-conn">● Подключено</span>
+          <div class="ph-h">Ноутбук Dell Latitude</div>
+          <div class="ph-pill">Частично выдано</div>
+          <div class="ph-sub">Ноутбуки · Инв. № 0042 · С/н ABC12 · Склад А</div>
+          <div class="ph-label">Закреплено за</div>
+          <div class="ph-row">Иванов И. И. — 1 шт.</div>
+          <div class="ph-label">Последние движения</div>
+          <div class="ph-row">Выдача · 2026-08-20</div>
+          <div class="ph-spacer"></div>
+          <div class="ph-btn">Выдать</div>
+          <div class="ph-btn">Принять возврат</div>
+          <div class="ph-btn sec">Редактировать</div>
+        </div>
+        <div class="frame-title">Карточка техники</div>
+      </div>
+      <div class="frame">
+        <div class="phone">
+          <span class="ph-conn">● Подключено</span>
+          <div class="ph-h">Выдача</div>
+          <div class="ph-label">Сотрудник</div>
+          <div class="ph-input">Иванов И. И. ▾</div>
+          <div class="ph-label">Количество</div>
+          <div class="ph-input">1</div>
+          <div class="ph-label">Дата</div>
+          <div class="ph-input">2026-08-26</div>
+          <div class="ph-label">Заметка</div>
+          <div class="ph-input">&nbsp;</div>
+          <div class="ph-spacer"></div>
+          <div class="ph-btn">Подтвердить</div>
+        </div>
+        <div class="frame-title">Форма действия</div>
+      </div>
+      <div class="frame">
+        <div class="phone">
+          <span class="ph-conn" style="color:#7285A0;background:#1B2536">● Офлайн</span>
+          <div class="ph-h">Очередь синхронизации</div>
+          <div class="ph-row">Выдача · Ноутбук Dell<br><span style="color:#55677F">Ждёт отправки</span></div>
+          <div class="ph-row" style="border-color:#7A3040">Списание · Монитор LG<br><span style="color:#E5748A">Ошибка: недостаточно остатка</span><br><span style="color:#2E6BE0">[ Повторить ]</span></div>
+          <div class="ph-spacer"></div>
+          <div class="ph-nav"><span></span><span class="badge"></span><span class="scan"></span><span></span><span></span></div>
+        </div>
+        <div class="frame-title">Очередь</div>
+      </div>
+    </div>
+
+    <div class="screen-card">
+      <h3>1 · Подключение к складу <span class="screen-id">screen-settings</span></h3>
+      <p class="purpose">Первый запуск и настройки. Пока сервер не задан — это стартовый экран.</p>
+      <ul>
+        <li>Поля: адрес сервера (плейсхолдер <code>http://192.168.1.50:8765</code>), пароль (опционально).</li>
+        <li>Кнопка «Сохранить» и второстепенная «Сканировать QR сервера» — десктопное приложение показывает QR, который заполняет оба поля автоматически. Это основной путь подключения: продать его визуально.</li>
+      </ul>
+    </div>
+
+    <div class="screen-card">
+      <h3>2 · Главный экран <span class="screen-id">screen-scan</span></h3>
+      <p class="purpose">Домашний экран между сканированиями. Сейчас почти пуст — одна строка-подсказка.</p>
+      <ul>
+        <li>Подсказка «Наведите камеру на QR-код на этикетке техники»; сканирование запускается центральной кнопкой панели.</li>
+        <li>Свобода для дизайна: экран может стать информативнее (последние сканы, состояние синхронизации), но не должен конкурировать с кнопкой «Скан».</li>
+      </ul>
+    </div>
+
+    <div class="screen-card">
+      <h3>3 · Поиск <span class="screen-id">screen-search</span></h3>
+      <p class="purpose">Запасной путь, когда этикетка повреждена или камеры нет.</p>
+      <ul>
+        <li>Одно поле: ищет по названию, инвентарному и серийному номеру (живой поиск, задержка 200 мс).</li>
+        <li>Пустой запрос показывает первые 30 позиций по алфавиту — экран никогда не пустой.</li>
+        <li>Строка результата: название · инв. № · статус; тап открывает карточку.</li>
+        <li>Пустое состояние: «Ничего не найдено».</li>
+      </ul>
+    </div>
+
+    <div class="screen-card">
+      <h3>4 · Карточка техники <span class="screen-id">screen-asset</span></h3>
+      <p class="purpose">Центральный экран — сюда приводит скан. Ответ на два вопроса: «что это и у кого?» и «что я могу сделать?».</p>
+      <ul>
+        <li>Шапка: название, статус-пилюля (см. раздел 05), мета-строка «категория · инв. № · с/н · местоположение».</li>
+        <li>Блок «Закреплено за»: держатели с количеством (сотрудник / отдел / объект), либо «Не закреплено — на складе».</li>
+        <li>Блок «Последние движения»: до 3 записей «тип · дата», либо «Нет движений».</li>
+        <li><strong>Кнопки действий — динамические</strong>, показываются только осмысленные: «Выдать», «В ремонт», «Списать» (если есть свободный остаток), «Принять возврат» (если что-то выдано), «Вернуть из ремонта» (если что-то в ремонте). «Редактировать» — всегда, второстепенной кнопкой.</li>
+        <li>Ошибка сценария: QR валидный, но техники нет в кэше — сейчас системный alert «Этот QR не найден в кэше…». Можно заменить на встроенное состояние.</li>
+      </ul>
+    </div>
+
+    <div class="screen-card">
+      <h3>5 · Форма действия <span class="screen-id">screen-action</span></h3>
+      <p class="purpose">Одна форма обслуживает все пять операций; заголовок = название операции.</p>
+      <ul>
+        <li>Поля: «Сотрудник» (выпадающий список; скрыт для списания), «Количество» (по умолчанию 1), «Дата» (по умолчанию сегодня), «Заметка».</li>
+        <li>«Подтвердить» кладёт действие в очередь и возвращает на главный — без экрана успеха. Дизайну стоит предложить подтверждение (тост «В очереди» и т.п.).</li>
+      </ul>
+    </div>
+
+    <div class="screen-card">
+      <h3>6 · Редактирование <span class="screen-id">screen-edit</span></h3>
+      <p class="purpose">Правка паспорта техники прямо со склада.</p>
+      <ul>
+        <li>7 полей: название (обязательное), категория, инвентарный №, серийный №, местоположение, дата покупки, гарантия до.</li>
+        <li>Над формой — две кнопки автозаполнения: «Штрихкод → серийный №» (скан заводского штрихкода подставляет серийник) и «Распознать этикетку» (фото этикетки → OCR подставляет название, категорию и серийник в пустые поля). Распознавание идёт на устройстве, офлайн.</li>
+        <li>«Сохранить» — тоже через очередь синхронизации, как и действия.</li>
+      </ul>
+    </div>
+
+    <div class="screen-card">
+      <h3>7 · Очередь синхронизации <span class="screen-id">screen-queue</span></h3>
+      <p class="purpose">Прозрачность офлайн-работы: что ещё не дошло до сервера и почему.</p>
+      <ul>
+        <li>Строка: тип действия · техника · статус. Два статуса: «Ждёт отправки» и «Ошибка: &lt;текст сервера&gt;» с кнопкой «Повторить».</li>
+        <li>Ошибочные действия не ретраятся автоматически — только вручную. Это осознанное поведение: ошибку должен увидеть человек.</li>
+        <li>Пустое состояние: «Очередь пуста» — это хорошее состояние, можно подать позитивно.</li>
+      </ul>
+    </div>
+
+    <div class="screen-card">
+      <h3>8 · История <span class="screen-id">screen-history</span></h3>
+      <p class="purpose">Журнал выдач и возвратов (до 200 записей, новые сверху).</p>
+      <ul>
+        <li>Свёрнутая строка: тип («Выдача»/«Возврат»), название техники, дата, шеврон.</li>
+        <li>Развёрнутая: получатель/от кого, количество, № акта, заметка — только заполненные поля.</li>
+        <li>Пустое состояние: «История пуста».</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">05</span><h2>Статусы и словарь</h2></div>
+    <p>Статус техники — главный смысловой цвет системы. Он вычисляется из остатков и показывается пилюлей на карточке и в результатах поиска.</p>
+    <div class="tbl-scroll"><table>
+      <tr><th>Статус</th><th>Тон</th><th>Когда</th></tr>
+      <tr><td>На складе</td><td><span class="chip ok">позитивный</span></td><td>Ничего не выдано, есть свободный остаток</td></tr>
+      <tr><td>Выдано</td><td><span class="chip warn">внимание</span></td><td>Весь остаток на руках у держателей</td></tr>
+      <tr><td>Частично выдано</td><td><span class="chip warn">внимание</span></td><td>Часть на руках, часть на складе</td></tr>
+      <tr><td>В ремонте</td><td><span class="chip danger">критичный</span></td><td>Всё доступное количество в ремонте</td></tr>
+      <tr><td>Списано</td><td><span class="chip danger">критичный</span></td><td>Техника выведена из эксплуатации</td></tr>
+    </table></div>
+    <h3>Типы движений</h3>
+    <p>Встречаются в истории, очереди и карточке: Поступление · Выдача · Возврат · Ремонт · Возврат из ремонта · Списание · Редактирование · Удаление.</p>
+    <h3>Системные сообщения (сейчас — alert, можно переосмыслить)</h3>
+    <ul>
+      <li>«Нет доступа к камере — разрешите доступ в настройках телефона.»</li>
+      <li>«Модуль сканера ещё устанавливается — попробуйте снова через несколько секунд.» (первый запуск на новом телефоне)</li>
+      <li>«Это не похоже на этикетку склада — QR не распознан.»</li>
+      <li>«Этот QR не найден в кэше. Подключитесь к сети склада и повторите синхронизацию.»</li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">06</span><h2>Текущий стиль — отправная точка</h2></div>
+    <p>Сейчас приложение оформлено в тёмной сине-графитовой гамме, единой с десктопом. Дизайнер не обязан её сохранять, но результат должен ощущаться семьёй с десктопным приложением склада.</p>
+    <div class="swatches">
+      <div class="sw"><i style="background:#080c14"></i>фон #080C14</div>
+      <div class="sw"><i style="background:#1a2236"></i>поверхность #1A2236</div>
+      <div class="sw"><i style="background:#3b82f6"></i>акцент #3B82F6</div>
+      <div class="sw"><i style="background:#22c55e"></i>ok #22C55E</div>
+      <div class="sw"><i style="background:#f59e0b"></i>warn #F59E0B</div>
+      <div class="sw"><i style="background:#f43f5e"></i>danger #F43F5E</div>
+    </div>
+    <ul style="margin-top:16px">
+      <li>Шрифты — системные (Segoe UI / Roboto) + моноширинный для номеров, дат и бейджей. Замена допустима; кириллица обязательна.</li>
+      <li>Радиусы 6–18 px, плавающая нижняя панель-«пилюля», статусы-пилюли, карточки-списки.</li>
+      <li>Кнопки трёх весов: акцентная, второстепенная (surface + рамка), призрачная (текстовая «‹ Назад»).</li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">07</span><h2>Ограничения</h2></div>
+    <ul>
+      <li><strong>Состав экранов и логика фиксированы</strong> — набор полей, действий и переходов менять нельзя без согласования; визуальную подачу — можно и нужно.</li>
+      <li>Вёрстка — HTML/CSS в WebView: без нативных компонентов, карт, теней сложнее CSS. Всё, что можно сверстать вебом, — доступно.</li>
+      <li>Интерфейс сканера (полноэкранная камера) — системный, не кастомизируется.</li>
+      <li>Учесть <code>safe-area</code> (вырезы, жестовая полоса) и жест свайп-назад.</li>
+      <li>Минимальная касаемая зона 44×44 px; работа одной рукой.</li>
+      <li>Никаких внешних изображений/CDN — приложение полностью офлайн.</li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">08</span><h2>Что нужно сдать</h2></div>
+    <ul class="check">
+      <li>Макеты всех 7 экранов + ключевые состояния: пустые («Очередь пуста», «Ничего не найдено», «История пуста»), ошибка в очереди, офлайн-режим, первый запуск.</li>
+      <li>Нижняя навигация: обычное / активное состояние иконок, бейдж очереди, акцентная кнопка «Скан».</li>
+      <li>Компоненты: кнопки (3 веса), поля форм (текст, select, дата, textarea), статус-пилюли (5 статусов), строки списков (результат поиска, держатель, движение, очередь, разворачиваемая история), индикатор соединения.</li>
+      <li>UI-токены: палитра, типографическая шкала, радиусы, отступы — в виде, переносимом в CSS-переменные.</li>
+      <li>Замена системных alert: тосты / встроенные состояния для ошибок и подтверждений действий.</li>
+      <li>Опционально: светлая тема, экран-подтверждение «действие в очереди», информативный главный экран.</li>
+    </ul>
+    <p class="note" style="margin-top:24px">Источник истины — код в <code>mobile/www/</code>: разметка экранов в <code>index.html</code>, поведение в <code>js/screens.js</code>, текущие стили в <code>style.css</code>. Все тексты интерфейса в этом ТЗ приведены дословно из приложения.</p>
+  </section>
+</div>

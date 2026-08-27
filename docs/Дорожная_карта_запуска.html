@@ -1,0 +1,284 @@
+<title>Дорожная карта Warehouse</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Golos+Text:wght@400;500;600;800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  :root {
+    --paper: #F6F8FA;
+    --surface: #FFFFFF;
+    --surface-2: #EEF2F7;
+    --ink: #182230;
+    --ink-2: #51617A;
+    --ink-3: #8494AB;
+    --line: #DCE3EC;
+    --line-2: #C6D0DE;
+    --accent: #2563EB;
+    --accent-soft: rgba(37, 99, 235, 0.08);
+    --ok: #178A4C;
+    --ok-soft: rgba(23, 138, 76, 0.1);
+    --warn: #B45309;
+    --warn-soft: rgba(180, 83, 9, 0.1);
+    --danger: #DC2626;
+    --danger-soft: rgba(220, 38, 38, 0.09);
+    --display: 'Unbounded', 'Arial Black', sans-serif;
+    --body: 'Golos Text', 'Segoe UI', system-ui, sans-serif;
+    --mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #0C121C;
+      --surface: #141D2B;
+      --surface-2: #1B2637;
+      --ink: #E7EDF5;
+      --ink-2: #93A4BC;
+      --ink-3: #5E7089;
+      --line: #223047;
+      --line-2: #2E405C;
+      --accent: #5B95F5;
+      --accent-soft: rgba(91, 149, 245, 0.12);
+      --ok: #3DC97B;
+      --ok-soft: rgba(61, 201, 123, 0.12);
+      --warn: #E8A13C;
+      --warn-soft: rgba(232, 161, 60, 0.12);
+      --danger: #F26D6D;
+      --danger-soft: rgba(242, 109, 109, 0.12);
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #0C121C;
+    --surface: #141D2B;
+    --surface-2: #1B2637;
+    --ink: #E7EDF5;
+    --ink-2: #93A4BC;
+    --ink-3: #5E7089;
+    --line: #223047;
+    --line-2: #2E405C;
+    --accent: #5B95F5;
+    --accent-soft: rgba(91, 149, 245, 0.12);
+    --ok: #3DC97B;
+    --ok-soft: rgba(61, 201, 123, 0.12);
+    --warn: #E8A13C;
+    --warn-soft: rgba(232, 161, 60, 0.12);
+    --danger: #F26D6D;
+    --danger-soft: rgba(242, 109, 109, 0.12);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 840px; margin: 0 auto; padding: 56px 24px 96px; }
+
+  .doc-eyebrow {
+    font-family: var(--mono); font-size: 12px; font-weight: 600;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent);
+  }
+  h1 {
+    font-family: var(--display); font-weight: 700;
+    font-size: clamp(26px, 5vw, 38px); line-height: 1.2;
+    margin: 10px 0 8px; text-wrap: balance;
+  }
+  .doc-sub { color: var(--ink-2); max-width: 62ch; margin: 0 0 28px; }
+
+  section { margin-top: 60px; }
+  .sec-head { display: flex; align-items: baseline; gap: 14px; border-bottom: 2px solid var(--ink); padding-bottom: 10px; margin-bottom: 8px; }
+  .sec-num { font-family: var(--display); font-weight: 500; font-size: 15px; color: var(--accent); }
+  h2 { font-size: 23px; font-weight: 800; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+  .sec-goal { color: var(--ink-2); font-size: 15px; max-width: 66ch; margin: 0 0 20px; }
+  p { max-width: 68ch; }
+  ul { max-width: 68ch; padding-left: 22px; }
+  li { margin: 5px 0; }
+  li::marker { color: var(--accent); }
+  strong { font-weight: 600; }
+  code {
+    font-family: var(--mono); font-size: 0.85em;
+    background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 5px; padding: 1px 6px; white-space: nowrap;
+  }
+
+  /* строка «сейчас в коде» внутри карточек */
+  .now {
+    font-size: 13.5px; color: var(--ink-3); border-top: 1px dashed var(--line-2);
+    margin-top: 12px; padding-top: 10px;
+  }
+  .now b { color: var(--ink-2); font-weight: 600; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
+
+  .item {
+    border: 1px solid var(--line); border-radius: 12px; background: var(--surface);
+    padding: 18px 20px; margin: 14px 0;
+  }
+  .item-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+  .item h3 { font-size: 16.5px; font-weight: 800; margin: 0; }
+  .item p { font-size: 15px; margin: 6px 0 0; color: var(--ink-2); }
+  .item p.how { color: var(--ink); }
+
+  .chip {
+    display: inline-block; padding: 2px 10px; border-radius: 99px;
+    font-family: var(--mono); font-size: 11.5px; font-weight: 600; white-space: nowrap;
+  }
+  .chip.must { background: var(--danger-soft); color: var(--danger); }
+  .chip.should { background: var(--warn-soft); color: var(--warn); }
+  .chip.nice { background: var(--ok-soft); color: var(--ok); }
+  .chip.doing { background: var(--accent-soft); color: var(--accent); }
+  .chip.size { background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--line-2); }
+
+  .good { border-color: var(--ok); border-width: 1px; background: var(--surface); }
+  .good-list { list-style: none; padding: 0; max-width: none; columns: 2; column-gap: 24px; }
+  .good-list li { padding-left: 24px; position: relative; break-inside: avoid; font-size: 15px; margin: 7px 0; }
+  .good-list li::before { content: '✓'; position: absolute; left: 0; color: var(--ok); font-weight: 800; }
+  @media (max-width: 640px) { .good-list { columns: 1; } }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0 0; font-size: 13.5px; color: var(--ink-2); align-items: center; }
+
+  .note {
+    background: var(--accent-soft); border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0; padding: 12px 16px; max-width: 68ch; font-size: 15px;
+  }
+
+  .tbl-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; margin-top: 14px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; background: var(--surface); }
+  th {
+    font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em;
+    color: var(--ink-3); text-align: left; font-weight: 600;
+    padding: 10px 14px; border-bottom: 1px solid var(--line-2); background: var(--surface-2);
+  }
+  td { padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="doc-eyebrow">Дорожная карта · 27.08.2026</div>
+    <h1>Warehouse: путь к массовому запуску</h1>
+    <p class="doc-sub">Что добавить и что исправить, чтобы связка «десктоп-сервер + Android-сканер» превратилась из внутреннего инструмента в продукт, который можно ставить чужим людям на чужие склады. Оценки основаны на текущем коде проекта.</p>
+    <div class="legend">
+      <span class="chip must">обязательно</span> без этого запускать нельзя ·
+      <span class="chip should">важно</span> заметно поднимает ценность ·
+      <span class="chip nice">рост</span> после запуска ·
+      <span class="chip doing">в работе</span> уже реализуется ·
+      <span class="chip size">S / M / L</span> объём работы
+    </div>
+  </header>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">00</span><h2>Что уже сильно</h2></div>
+    <p class="sec-goal">Это фундамент, который не нужно переделывать — на нём стоит всё остальное.</p>
+    <div class="item good">
+      <ul class="good-list">
+        <li>Офлайн-first мобильное приложение: локальный кэш, очередь действий, защита от дублей (<code>mobile_action_log</code>)</li>
+        <li>QR-сопряжение телефона с сервером — подключение без ручного ввода адреса</li>
+        <li>Журнал аудита всех изменений уже в схеме БД</li>
+        <li>Полностью офлайн: ни одной CDN-зависимости</li>
+        <li>Автоснапшоты базы при изменениях в <code>backups/</code></li>
+        <li>Генерация актов приёма-передачи с нумерацией</li>
+        <li>Сборка в один EXE + трей-приложение + автозапуск</li>
+        <li>Тесты на критичную серверную логику и разбор QR</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><h2>Исправить до запуска</h2></div>
+    <p class="sec-goal">Дыры, которые простительны внутреннему инструменту и непростительны продукту.</p>
+
+    <div class="item">
+      <div class="item-head"><h3>Безопасность передачи и входа</h3><span class="chip must">обязательно</span><span class="chip size">L</span></div>
+      <p class="how">Перевести LAN-обмен на HTTPS (самоподписанный сертификат, отпечаток зашивается в QR сопряжения — телефон доверяет только своему серверу). Вместо одного общего пароля — учётные записи с ролями: администратор, кладовщик, просмотр. Токены вместо Basic-auth.</p>
+      <p class="now"><b>сейчас</b> — пароль один на всех и летит по сети открытым HTTP в base64; любой в той же Wi-Fi-сети может его перехватить и писать в базу.</p>
+    </div>
+
+    <div class="item">
+      <div class="item-head"><h3>Версионные миграции схемы БД</h3><span class="chip must">обязательно</span><span class="chip size">M</span></div>
+      <p class="how">Таблица <code>schema_version</code> и упорядоченный список миграций. У чужих пользователей будут все версии базы вперемешку — обновления должны применяться предсказуемо и с автобэкапом перед миграцией.</p>
+      <p class="now"><b>сейчас</b> — набор ad-hoc проверок «если колонки нет — ALTER TABLE» в <code>init_db()</code>; работает, но не масштабируется на годы обновлений.</p>
+    </div>
+
+    <div class="item">
+      <div class="item-head"><h3>Установщик, подпись, обновления</h3><span class="chip must">обязательно</span><span class="chip size">M</span></div>
+      <p class="how">Windows: установщик (Inno Setup / MSI) вместо набора bat-файлов, подпись кода — иначе SmartScreen пугает каждого нового пользователя. Android: подписанный release-APK вместо debug-сборки, публикация в RuStore / Google Play. Обоим — механизм автообновления или хотя бы проверку «доступна новая версия».</p>
+      <p class="now"><b>сейчас</b> — неподписанный EXE + bat-скрипты и debug-APK, который ставится только через «разрешить неизвестные источники».</p>
+    </div>
+
+    <div class="item">
+      <div class="item-head"><h3>Конфликты и целостность при синхронизации</h3><span class="chip must">обязательно</span><span class="chip size">M</span></div>
+      <p class="how">Определить правила: что происходит, когда технику правят одновременно с десктопа и с телефона, у которого действие лежало в очереди офлайн. Минимум — версия записи и понятное сообщение «данные изменились, обновите»; включить SQLite WAL для параллельных читателей.</p>
+      <p class="now"><b>сейчас</b> — последняя запись побеждает молча; при одном кладовщике незаметно, при трёх — потерянные правки.</p>
+    </div>
+
+    <div class="item">
+      <div class="item-head"><h3>Человеческие ошибки вместо alert()</h3><span class="chip should">важно</span><span class="chip size">S</span></div>
+      <p class="how">Тосты и встроенные состояния в мобильном приложении: подтверждение «действие в очереди», ошибка сервера в очереди — по ТЗ на дизайн. Плюс восстановление из бэкапа в один клик на десктопе (снапшоты уже делаются — интерфейса восстановления нет).</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><h2>Добавить: функции, которые продают продукт</h2></div>
+    <p class="sec-goal">В порядке отдачи на вложенный час. Первые две — то, ради чего складские команды выбирают инструмент.</p>
+
+    <div class="item">
+      <div class="item-head"><h3>Режим инвентаризации</h3><span class="chip should">важно</span><span class="chip size">L</span></div>
+      <p class="how">Киллер-фича сканера: запускаешь «Инвентаризацию», ходишь по складу и сканируешь всё подряд — приложение отмечает найденное, а в конце отдаёт расхождения: чего не хватает, что лишнее, что не на своём месте. Отчёт уходит на десктоп и в акт.</p>
+      <p class="now"><b>сейчас</b> — сканер умеет только открывать карточку по одной единице; сверка склада руками.</p>
+    </div>
+
+    <div class="item">
+      <div class="item-head"><h3>Печать QR-этикеток пачкой</h3><span class="chip should">важно</span><span class="chip size">M</span></div>
+      <p class="how">Мастер на десктопе: выбрать позиции → лист этикеток под обычный принтер или ленточный термопринтер (название, инв. №, QR). Без удобной печати этикеток сканер не взлетает у новых пользователей — им нечего сканировать.</p>
+    </div>
+
+    <div class="item">
+      <div class="item-head"><h3>Распознавание этикеток: серийник и модель с фото</h3><span class="chip doing">в работе</span><span class="chip size">M</span></div>
+      <p class="how">Заполнение карточки техники «наведи камеру»: заводской штрихкод на этикетке даёт точный серийный номер, а распознавание текста (Google ML Kit, работает на устройстве — офлайн и бесплатно, без облачных API) вытаскивает производителя, модель и категорию. Поля формы предзаполняются, последнее слово — за человеком. Собственную нейросеть обучать не нужно.</p>
+      <p class="now"><b>статус</b> — первые два этапа реализованы в августе 2026: на экране редактирования мобильного приложения появились кнопки «Штрихкод → серийный №» и «Распознать этикетку»; разбор этикетки покрыт юнит-тестами. Возможное развитие: автозаполнение гарантии по публичным API производителей (Dell/Lenovo/HP) через десктопный сервер.</p>
+    </div>
+
+    <div class="item">
+      <div class="item-head"><h3>Уведомления по гарантии и минимальным остаткам</h3><span class="chip should">важно</span><span class="chip size">S</span></div>
+      <p class="how">Поля <code>warranty_end</code> и <code>min_quantity</code> уже есть в базе — осталось показать: панель «требует внимания» на десктопе (гарантия истекает за 30 дней, остаток ниже минимума) и счётчик на мобильном.</p>
+    </div>
+
+    <div class="item">
+      <div class="item-head"><h3>Экран «сотрудник» на мобильном</h3><span class="chip should">важно</span><span class="chip size">S</span></div>
+      <p class="how">«Что на руках у Иванова» — список закреплённой техники с быстрым возвратом. Особенно вместе со свежим полем «статус сотрудника»: при увольнении — чек-лист сдачи техники одним экраном.</p>
+    </div>
+
+    <div class="item">
+      <div class="item-head"><h3>Фото техники</h3><span class="chip nice">рост</span><span class="chip size">M</span></div>
+      <p class="how">Поле <code>photo_url</code> уже в схеме. Камера телефона — естественный источник: сфотографировал при приёмке — фото в карточке и в акте (состояние техники при выдаче/возврате).</p>
+    </div>
+
+    <div class="item">
+      <div class="item-head"><h3>Отчёты и экспорт</h3><span class="chip nice">рост</span><span class="chip size">M</span></div>
+      <p class="how">Экспорт в Excel/CSV (ведомость по отделу, по сотруднику, движения за период), итоги по стоимости. Графики на десктопе уже есть — не хватает выгрузки, которую можно отдать бухгалтерии.</p>
+    </div>
+
+    <div class="item">
+      <div class="item-head"><h3>Живая синхронизация вместо опроса раз в 15 секунд</h3><span class="chip nice">рост</span><span class="chip size">M</span></div>
+      <p class="how">Server-Sent Events или WebSocket: изменения на десктопе прилетают на телефоны мгновенно, телефон меньше жжёт батарею впустую. Текущий опрос — нормальный компромисс для старта, менять не срочно.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">03</span><h2>Запуск в массы: упаковка и распространение</h2></div>
+    <p class="sec-goal">Продукт — это не только код. Минимум, чтобы чужой человек установил и не написал вам в панике в первый час.</p>
+    <div class="tbl-scroll"><table>
+      <tr><th>Направление</th><th>Что нужно</th></tr>
+      <tr><td>Онбординг</td><td>Мастер первого запуска: создать склад → демо-данные на попробовать → напечатать первые этикетки → подключить телефон по QR. Сейчас эту роль играют txt-инструкции.</td></tr>
+      <tr><td>Распространение</td><td>Сайт-страница с установщиком, APK в RuStore (для РФ) и Google Play; подписанные сборки. Канал обновлений.</td></tr>
+      <tr><td>Надёжность</td><td>Opt-in отчёты об ошибках (иначе о падениях у пользователей вы не узнаете никогда), лог-файлы с ротацией.</td></tr>
+      <tr><td>Право</td><td>В базе — ФИО, телефоны и почты сотрудников: это персональные данные (152-ФЗ). Нужна политика обработки ПДн и упоминание в договоре/оферте. Выбрать лицензию и модель: разовая покупка / подписка / бесплатно до N единиц техники.</td></tr>
+      <tr><td>Документация</td><td>Короткая база знаний со скриншотами: приёмка, выдача, инвентаризация, восстановление из бэкапа. FAQ по сети (файрвол, Wi-Fi изоляция — главный источник «у меня не подключается»).</td></tr>
+      <tr><td>Дальше</td><td>iOS-сборка (Capacitor уже это умеет), мультисклад, светлая тема, английская локализация — только после того, как всё выше работает.</td></tr>
+    </table></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">04</span><h2>Порядок работ</h2></div>
+    <p class="note"><strong>Здравый маршрут:</strong> сначала раздел 01 целиком (безопасность → миграции → упаковка → конфликты) — это «лицензия на запуск». Параллельно с упаковкой — новый дизайн мобильного приложения по готовому ТЗ. Затем две продающие фичи: печать этикеток и инвентаризация. После этого продукт можно показывать первым чужим пользователям, а разделы «рост» и «масштаб» наполнять по их отзывам, а не по догадкам.</p>
+  </section>
+</div>

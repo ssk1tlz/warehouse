@@ -9,7 +9,8 @@ CREATE TABLE IF NOT EXISTS employees (
   position TEXT,
   email TEXT,
   phone TEXT NOT NULL DEFAULT '',
-  site TEXT NOT NULL DEFAULT ''
+  site TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'active'
 );
 
 CREATE TABLE IF NOT EXISTS departments (

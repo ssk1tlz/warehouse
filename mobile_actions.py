@@ -289,12 +289,49 @@ def apply_retire(connection: sqlite3.Connection, action: dict) -> None:
     )
 
 
+def apply_edit(connection: sqlite3.Connection, action: dict) -> None:
+    """Edit an asset's identifying/descriptive fields from the mobile app.
+
+    Deliberately narrower than the desktop's full edit form: only the fields
+    that don't interact with the allocation/quantity accounting (issue/return/
+    repair/retire own that math) are editable here, so a mobile edit can never
+    desync quantity vs. asset_allocations the way changing quantity or status
+    directly could.
+    """
+    asset = _load_asset(connection, action["assetId"])
+    name = str(action.get("name") or "").strip()
+    if not name:
+        raise MobileActionError("Название не может быть пустым.")
+
+    connection.execute(
+        "UPDATE assets SET name = ?, category = ?, inventory_number = ?, serial_number = ?, "
+        "location = ?, purchase_date = ?, warranty_end = ? WHERE id = ?",
+        (
+            name,
+            str(action.get("category") or "").strip(),
+            str(action.get("inventoryNumber") or "").strip(),
+            str(action.get("serialNumber") or "").strip(),
+            str(action.get("location") or "").strip(),
+            str(action.get("purchaseDate") or "").strip(),
+            str(action.get("warrantyEnd") or "").strip(),
+            asset["id"],
+        ),
+    )
+    connection.execute(
+        "INSERT INTO movements (id, type, asset_id, employee_id, department, site, act_number, "
+        "quantity, date, notes) VALUES (?, 'edit', ?, NULL, '', '', NULL, ?, ?, ?)",
+        (_new_movement_id(), asset["id"], asset["quantity"],
+         datetime.now(timezone.utc).date().isoformat(), "Обновлена карточка техники (с телефона)"),
+    )
+
+
 _DISPATCH = {
     "issue": apply_issue,
     "return": apply_return,
     "repair": apply_repair,
     "repair_return": apply_repair_return,
     "retire": apply_retire,
+    "edit": apply_edit,
 }
 
 
