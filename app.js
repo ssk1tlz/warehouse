@@ -3545,7 +3545,7 @@ function bindEvents() {
     const btn = e.target.closest("button[data-action='restore-backup']");
     if (!btn) return;
     const filename = btn.closest("tr").dataset.filename;
-    if (!confirm(`Восстановить базу данных из «${filename}»? Текущее состояние будет сохранено как резервная копия перед откатом.`)) return;
+    if (!(await showConfirm(`Восстановить базу данных из «${filename}»? Текущее состояние будет сохранено как резервная копия перед откатом.`))) return;
     const response = await apiFetch("/api/backups/restore", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -3553,7 +3553,7 @@ function bindEvents() {
     });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
-      alert(data.error || "Не удалось восстановить базу данных.");
+      showToast(data.error || "Не удалось восстановить базу данных.", "error");
       return;
     }
     closeBackupsModal();
