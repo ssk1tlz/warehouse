@@ -105,3 +105,51 @@ def authenticate_user(connection, username: str, password: str):
     if not verify_password(password, user["password_hash"], user["salt"], user["iterations"]):
         return None
     return user
+
+
+SESSION_LIFETIME_DAYS = 90
+
+
+def create_session(connection, user_id: str, *, device_secret: str | None = None) -> dict:
+    token = secrets.token_urlsafe(32)
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(days=SESSION_LIFETIME_DAYS)
+    connection.execute(
+        "INSERT INTO sessions (token, user_id, device_secret, created_at, last_used_at, expires_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (token, user_id, device_secret, now.isoformat(), now.isoformat(), expires_at.isoformat()),
+    )
+    connection.commit()
+    return {"token": token, "expiresAt": expires_at.isoformat()}
+
+
+def validate_token(connection, token: str):
+    if not token:
+        return None
+    row = connection.execute(
+        """
+        SELECT sessions.token AS token, sessions.user_id AS user_id, sessions.device_secret AS device_secret,
+               sessions.expires_at AS expires_at, users.username AS username, users.role AS role,
+               users.is_active AS is_active
+        FROM sessions JOIN users ON users.id = sessions.user_id
+        WHERE sessions.token = ?
+        """,
+        (token,),
+    ).fetchone()
+    if row is None or not row["is_active"]:
+        return None
+    now = datetime.now(timezone.utc)
+    if datetime.fromisoformat(row["expires_at"]) < now:
+        return None
+    new_expiry = now + timedelta(days=SESSION_LIFETIME_DAYS)
+    connection.execute(
+        "UPDATE sessions SET last_used_at = ?, expires_at = ? WHERE token = ?",
+        (now.isoformat(), new_expiry.isoformat(), token),
+    )
+    connection.commit()
+    return row
+
+
+def revoke_token(connection, token: str) -> None:
+    connection.execute("DELETE FROM sessions WHERE token = ?", (token,))
+    connection.commit()

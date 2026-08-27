@@ -92,3 +92,66 @@ def test_list_users_excludes_password_fields(conn):
     users = auth.list_users(conn)
     assert users == [{"id": users[0]["id"], "username": "bob", "role": "viewer",
                        "isActive": True, "createdAt": users[0]["createdAt"]}]
+
+
+def test_create_session_returns_token_and_expiry(conn):
+    user = auth.create_user(conn, "bob", "pass1234", "storekeeper")
+    session = auth.create_session(conn, user["id"])
+    assert session["token"]
+    assert session["expiresAt"]
+
+
+def test_validate_token_returns_user_row_for_valid_token(conn):
+    user = auth.create_user(conn, "bob", "pass1234", "storekeeper")
+    session = auth.create_session(conn, user["id"])
+    row = auth.validate_token(conn, session["token"])
+    assert row is not None
+    assert row["username"] == "bob"
+    assert row["role"] == "storekeeper"
+
+
+def test_validate_token_returns_none_for_unknown_token(conn):
+    assert auth.validate_token(conn, "not-a-real-token") is None
+
+
+def test_validate_token_returns_none_for_expired_token(conn, monkeypatch):
+    import datetime as dt
+    user = auth.create_user(conn, "bob", "pass1234", "storekeeper")
+    session = auth.create_session(conn, user["id"])
+    far_future = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=auth.SESSION_LIFETIME_DAYS + 1)
+
+    class FrozenDatetime(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return far_future
+
+    monkeypatch.setattr(auth, "datetime", FrozenDatetime)
+    assert auth.validate_token(conn, session["token"]) is None
+
+
+def test_validate_token_returns_none_for_deactivated_user(conn):
+    user = auth.create_user(conn, "bob", "pass1234", "storekeeper")
+    session = auth.create_session(conn, user["id"])
+    auth.set_user_active(conn, user["id"], False)
+    assert auth.validate_token(conn, session["token"]) is None
+
+
+def test_revoke_token_invalidates_it(conn):
+    user = auth.create_user(conn, "bob", "pass1234", "storekeeper")
+    session = auth.create_session(conn, user["id"])
+    auth.revoke_token(conn, session["token"])
+    assert auth.validate_token(conn, session["token"]) is None
+
+
+def test_create_session_stores_device_secret(conn):
+    user = auth.create_user(conn, "bob", "pass1234", "storekeeper")
+    session = auth.create_session(conn, user["id"], device_secret="abc123")
+    row = auth.validate_token(conn, session["token"])
+    assert row["device_secret"] == "abc123"
+
+
+def test_create_session_device_secret_defaults_to_none(conn):
+    user = auth.create_user(conn, "bob", "pass1234", "storekeeper")
+    session = auth.create_session(conn, user["id"])
+    row = auth.validate_token(conn, session["token"])
+    assert row["device_secret"] is None

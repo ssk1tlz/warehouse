@@ -135,6 +135,21 @@ def _migrate_021_users_table(c):
     )
 
 
+def _migrate_022_sessions_table(c):
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sessions (
+            token TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id),
+            device_secret TEXT,
+            created_at TEXT NOT NULL,
+            last_used_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL
+        )
+        """
+    )
+
+
 MIGRATIONS: list[Migration] = [
     (1, "assets.repair_quantity", _migrate_001),
     (2, "assets.retired_quantity", _migrate_002),
@@ -157,6 +172,7 @@ MIGRATIONS: list[Migration] = [
     (19, "kit_templates table", _migrate_019_kit_templates_table),
     (20, "mobile_action_log table", _migrate_020_mobile_action_log_table),
     (21, "users table", _migrate_021_users_table),
+    (22, "sessions table", _migrate_022_sessions_table),
 ]
 
 

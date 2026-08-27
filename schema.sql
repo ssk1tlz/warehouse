@@ -108,3 +108,12 @@ CREATE TABLE IF NOT EXISTS users (
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS sessions (
+  token TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  device_secret TEXT,
+  created_at TEXT NOT NULL,
+  last_used_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
