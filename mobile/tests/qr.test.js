@@ -24,18 +24,19 @@ test('trims incidental whitespace some scanners add', () => {
   assert.equal(parseWarehouseQr('  WH1:ast_1  '), 'ast_1');
 });
 
-test('extracts url and password from a valid connect QR', () => {
+test('extracts url, code and secret from a valid connect QR', () => {
   assert.deepEqual(
-    parseConnectQr('WHC1:{"url":"http://192.168.0.115:8765","password":"secret"}'),
-    { serverUrl: 'http://192.168.0.115:8765', password: 'secret' }
+    parseConnectQr('WHC1:{"url":"http://192.168.0.115:8765","code":"abc","secret":"deadbeef"}'),
+    { serverUrl: 'http://192.168.0.115:8765', code: 'abc', secret: 'deadbeef' }
   );
 });
 
-test('connect QR defaults password to empty string when omitted', () => {
-  assert.deepEqual(
-    parseConnectQr('WHC1:{"url":"http://192.168.0.115:8765"}'),
-    { serverUrl: 'http://192.168.0.115:8765', password: '' }
-  );
+test('returns null for a connect QR missing the code', () => {
+  assert.equal(parseConnectQr('WHC1:{"url":"http://192.168.0.115:8765","secret":"deadbeef"}'), null);
+});
+
+test('returns null for a connect QR missing the secret', () => {
+  assert.equal(parseConnectQr('WHC1:{"url":"http://192.168.0.115:8765","code":"abc"}'), null);
 });
 
 test('returns null for text without the WHC1: prefix', () => {
@@ -47,7 +48,7 @@ test('returns null for a connect QR with malformed JSON', () => {
 });
 
 test('returns null for a connect QR JSON payload missing url', () => {
-  assert.equal(parseConnectQr('WHC1:{"password":"secret"}'), null);
+  assert.equal(parseConnectQr('WHC1:{"code":"abc","secret":"deadbeef"}'), null);
 });
 
 test('returns null for an empty or missing connect QR scan result', () => {

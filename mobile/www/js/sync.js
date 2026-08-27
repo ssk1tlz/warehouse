@@ -1,9 +1,18 @@
-async function authHeader(settings) {
-  if (!settings.password) return {};
-  const bytes = new TextEncoder().encode(`:${settings.password}`);
-  const binary = String.fromCharCode(...bytes);
-  const encoded = btoa(binary);
-  return { Authorization: `Basic ${encoded}` };
+function authHeaders(settings) {
+  return settings.token ? { Authorization: `Bearer ${settings.token}` } : {};
+}
+
+async function pair(serverUrl, code) {
+  const response = await fetch(`${serverUrl}/api/pair`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error || `HTTP ${response.status}`);
+  }
+  return data;
 }
 
 async function flushQueue(settings) {
@@ -15,7 +24,7 @@ async function flushQueue(settings) {
     try {
       const response = await fetch(`${settings.serverUrl}/api/mobile/action`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(await authHeader(settings)) },
+        headers: { 'Content-Type': 'application/json', ...authHeaders(settings) },
         body: JSON.stringify(row.payload),
       });
       if (response.ok) {
@@ -36,7 +45,7 @@ async function flushQueue(settings) {
 
 async function pullState(settings) {
   const response = await fetch(`${settings.serverUrl}/api/state`, {
-    headers: await authHeader(settings),
+    headers: authHeaders(settings),
   });
   if (!response.ok) throw new Error(`GET /api/state failed: HTTP ${response.status}`);
   const state = await response.json();
@@ -45,7 +54,7 @@ async function pullState(settings) {
 
 async function run() {
   const settings = await Settings.get();
-  if (!settings.serverUrl) return { pulled: false, flushed: 0, failed: 0 };
+  if (!settings.serverUrl || !settings.token) return { pulled: false, flushed: 0, failed: 0 };
   const { flushed, failed } = await flushQueue(settings);
   let pulled = false;
   try {
@@ -58,4 +67,10 @@ async function run() {
   return { pulled, flushed, failed };
 }
 
-window.Sync = { run, flushQueue, pullState };
+const Sync = { run, flushQueue, pullState, pair };
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = Sync;
+}
+if (typeof window !== 'undefined') {
+  window.Sync = Sync;
+}

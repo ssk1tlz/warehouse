@@ -321,10 +321,8 @@ async function init() {
   }
 
   document.getElementById('settingsSaveBtn').addEventListener('click', async () => {
-    await Settings.set({
-      serverUrl: document.getElementById('settingsUrl').value,
-      password: document.getElementById('settingsPassword').value,
-    });
+    const current = await Settings.get();
+    await Settings.set({ serverUrl: document.getElementById('settingsUrl').value, token: current.token, deviceSecret: current.deviceSecret });
     showScreen('screen-scan');
     Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled); });
   });
@@ -343,9 +341,9 @@ async function init() {
     try {
       const result = await Scanner.scanConnectQr();
       if (!result) return; // cancelled
-      await Settings.set(result);
+      const { token } = await Sync.pair(result.serverUrl, result.code);
+      await Settings.set({ serverUrl: result.serverUrl, token, deviceSecret: result.secret });
       document.getElementById('settingsUrl').value = result.serverUrl;
-      document.getElementById('settingsPassword').value = result.password;
       showScreen('screen-scan');
       Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled); });
     } catch (error) {
@@ -359,7 +357,6 @@ async function init() {
   document.getElementById('navSettingsBtn').addEventListener('click', async () => {
     const currentSettings = await Settings.get();
     document.getElementById('settingsUrl').value = currentSettings.serverUrl;
-    document.getElementById('settingsPassword').value = currentSettings.password;
     showScreen('screen-settings');
   });
   document.getElementById('assetBackBtn').addEventListener('click', () => showScreen('screen-scan'));

@@ -18,7 +18,9 @@ function parseConnectQr(text) {
     return null;
   }
   if (!payload || typeof payload.url !== 'string' || !payload.url) return null;
-  return { serverUrl: payload.url, password: typeof payload.password === 'string' ? payload.password : '' };
+  if (typeof payload.code !== 'string' || !payload.code) return null;
+  if (typeof payload.secret !== 'string' || !payload.secret) return null;
+  return { serverUrl: payload.url, code: payload.code, secret: payload.secret };
 }
 
 if (typeof module !== 'undefined' && module.exports) {
