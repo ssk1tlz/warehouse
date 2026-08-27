@@ -35,6 +35,15 @@ CREATE TABLE movements (
 );
 """
 
+LEGACY_ALLOCATIONS_SCHEMA = LEGACY_SCHEMA + """
+CREATE TABLE asset_allocations (
+  asset_id TEXT NOT NULL,
+  employee_id TEXT NOT NULL,
+  quantity INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY (asset_id) REFERENCES assets(id)
+);
+"""
+
 
 @pytest.fixture
 def conn():
@@ -51,6 +60,21 @@ def legacy_conn():
     connection.executescript(LEGACY_SCHEMA)
     connection.execute(
         "INSERT INTO assets (id, name, quantity) VALUES ('ast_1', 'Ноутбук', 5)"
+    )
+    connection.commit()
+    yield connection
+    connection.close()
+
+
+@pytest.fixture
+def legacy_alloc_conn():
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    connection.executescript(LEGACY_ALLOCATIONS_SCHEMA)
+    connection.execute("INSERT INTO assets (id, name, quantity) VALUES ('ast_1', 'Ноутбук', 5)")
+    connection.execute("INSERT INTO employees (id, full_name) VALUES ('emp_1', 'Иванов')")
+    connection.execute(
+        "INSERT INTO asset_allocations (asset_id, employee_id, quantity) VALUES ('ast_1', 'emp_1', 2)"
     )
     connection.commit()
     yield connection
@@ -113,3 +137,29 @@ def test_column_migrations_are_noop_on_already_current_schema(legacy_conn):
     migrations.run_migrations(legacy_conn)
     applied_twice = migrations.run_migrations(legacy_conn)
     assert applied_twice == []
+
+
+def test_asset_allocations_migration_adds_department_and_nullable_employee(legacy_alloc_conn):
+    migrations.run_migrations(legacy_alloc_conn)
+    cols = {row["name"]: row for row in legacy_alloc_conn.execute("PRAGMA table_info(asset_allocations)")}
+    assert "department" in cols
+    assert "site" in cols
+    assert cols["employee_id"]["notnull"] == 0
+
+
+def test_asset_allocations_migration_preserves_existing_rows(legacy_alloc_conn):
+    migrations.run_migrations(legacy_alloc_conn)
+    row = legacy_alloc_conn.execute(
+        "SELECT asset_id, employee_id, quantity FROM asset_allocations WHERE asset_id='ast_1'"
+    ).fetchone()
+    assert row["employee_id"] == "emp_1"
+    assert row["quantity"] == 2
+
+
+def test_asset_allocations_migration_allows_department_only_row_after(legacy_alloc_conn):
+    migrations.run_migrations(legacy_alloc_conn)
+    legacy_alloc_conn.execute(
+        "INSERT INTO asset_allocations (asset_id, employee_id, department, site, quantity) "
+        "VALUES ('ast_1', NULL, 'IT', '', 1)"
+    )
+    legacy_alloc_conn.commit()

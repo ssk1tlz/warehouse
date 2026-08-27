@@ -8,6 +8,12 @@ Migration = tuple[int, str, "Callable[[sqlite3.Connection], None]"]
 
 
 def _add_column_if_missing(connection: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
+    # Check if table exists first
+    table_check = connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+    ).fetchone()
+    if table_check is None:
+        return
     existing = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})")}
     if column not in existing:
         connection.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
@@ -29,6 +35,45 @@ def _migrate_013(c): _add_column_if_missing(c, "movements", "department", "depar
 def _migrate_014(c): _add_column_if_missing(c, "movements", "site", "site TEXT NOT NULL DEFAULT ''")
 
 
+def _migrate_015_asset_allocations_rebuild(connection: sqlite3.Connection) -> None:
+    # Check if table exists
+    table_check = connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='asset_allocations'"
+    ).fetchone()
+    if table_check is None:
+        return
+
+    alloc_info = list(connection.execute("PRAGMA table_info(asset_allocations)"))
+    alloc_cols = {row["name"] for row in alloc_info}
+    emp_col = next((row for row in alloc_info if row["name"] == "employee_id"), None)
+    needs_migration = ("department" not in alloc_cols) or (emp_col is not None and emp_col["notnull"] == 1)
+    if not needs_migration:
+        return
+    connection.execute("PRAGMA foreign_keys = OFF")
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS asset_allocations_new (
+            asset_id TEXT NOT NULL,
+            employee_id TEXT,
+            department TEXT NOT NULL DEFAULT '',
+            quantity INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (asset_id) REFERENCES assets(id)
+        );
+        """
+    )
+    select_dept = "department" if "department" in alloc_cols else "''"
+    connection.execute(
+        f"INSERT INTO asset_allocations_new (asset_id, employee_id, department, quantity) "
+        f"SELECT asset_id, employee_id, {select_dept}, quantity FROM asset_allocations"
+    )
+    connection.execute("DROP TABLE asset_allocations")
+    connection.execute("ALTER TABLE asset_allocations_new RENAME TO asset_allocations")
+    connection.execute("PRAGMA foreign_keys = ON")
+
+
+def _migrate_016(c): _add_column_if_missing(c, "asset_allocations", "site", "site TEXT NOT NULL DEFAULT ''")
+
+
 MIGRATIONS: list[Migration] = [
     (1, "assets.repair_quantity", _migrate_001),
     (2, "assets.retired_quantity", _migrate_002),
@@ -44,6 +89,8 @@ MIGRATIONS: list[Migration] = [
     (12, "movements.act_number", _migrate_012),
     (13, "movements.department", _migrate_013),
     (14, "movements.site", _migrate_014),
+    (15, "asset_allocations rebuild (department, nullable employee_id)", _migrate_015_asset_allocations_rebuild),
+    (16, "asset_allocations.site", _migrate_016),
 ]
 
 
