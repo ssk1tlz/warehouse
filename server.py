@@ -89,11 +89,30 @@ def _checkpoint_wal() -> None:
     try:
         connection = sqlite3.connect(DB_PATH)
         try:
-            connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            busy, _log_frames, checkpointed = connection.execute(
+                "PRAGMA wal_checkpoint(TRUNCATE)"
+            ).fetchone()
+            if busy:
+                # A concurrent reader (e.g. GET /api/state, which doesn't take
+                # STATE_LOCK) can hold back a full TRUNCATE checkpoint. The
+                # checkpoint isn't fatal — it just may not have flushed every
+                # frame — but silently claiming success would hide exactly the
+                # kind of gap this function exists to close, so surface it.
+                print(
+                    "ПРЕДУПРЕЖДЕНИЕ: не удалось полностью зафиксировать WAL перед "
+                    f"копированием базы (busy={busy}, checkpointed={checkpointed})."
+                )
         finally:
             connection.close()
-    except sqlite3.DatabaseError:
-        pass
+    except sqlite3.DatabaseError as exc:
+        # As in init_db() and handle_restore_backup(): a raw sqlite3.DatabaseError
+        # (not a more specific subclass like OperationalError/IntegrityError) means
+        # SQLite couldn't even read the file as a database — fresh install, or
+        # already corrupt — safe to skip and let the copy/integrity-check below
+        # handle it. Subclasses indicate a real problem (e.g. "database is
+        # locked") and must not be swallowed.
+        if type(exc) is not sqlite3.DatabaseError:
+            raise
 
 
 def auto_backup() -> str | None:
