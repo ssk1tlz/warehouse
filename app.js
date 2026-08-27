@@ -82,6 +82,82 @@ const dom = {
   emptyStateTemplate: document.getElementById("emptyStateTemplate"),
 };
 
+// ─── АУТЕНТИФИКАЦИЯ ─────────────────────────────────────────────
+async function apiFetch(path, options = {}) {
+  const token = localStorage.getItem("authToken");
+  const headers = Object.assign({}, options.headers, token ? { Authorization: `Bearer ${token}` } : {});
+  const response = await fetch(path, Object.assign({}, options, { headers }));
+  if (response.status === 401) {
+    localStorage.removeItem("authToken");
+    localStorage.removeItem("userRole");
+    showAuthOverlay("login");
+    throw new Error("Сессия истекла — войдите снова.");
+  }
+  return response;
+}
+
+function showAuthOverlay(mode) {
+  const overlay = document.getElementById("authOverlay");
+  document.getElementById("authOverlayTitle").textContent =
+    mode === "setup" ? "Создание администратора" : "Вход";
+  document.getElementById("authSubmitBtn").textContent = mode === "setup" ? "Создать" : "Войти";
+  overlay.dataset.mode = mode;
+  overlay.classList.remove("hidden");
+}
+
+function hideAuthOverlay() {
+  document.getElementById("authOverlay").classList.add("hidden");
+}
+
+async function ensureAuthenticated() {
+  const status = await fetch("/api/setup-status").then((r) => r.json()).catch(() => ({ needsSetup: false }));
+  if (status.needsSetup) {
+    showAuthOverlay("setup");
+    return false;
+  }
+  if (!localStorage.getItem("authToken")) {
+    showAuthOverlay("login");
+    return false;
+  }
+  return true;
+}
+
+function bindAuthEvents() {
+  document.getElementById("authForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const mode = document.getElementById("authOverlay").dataset.mode;
+    const username = document.getElementById("authUsername").value.trim();
+    const password = document.getElementById("authPassword").value;
+    const path = mode === "setup" ? "/api/setup" : "/api/login";
+    const response = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await response.json().catch(() => ({}));
+    const errorEl = document.getElementById("authError");
+    if (!response.ok) {
+      errorEl.textContent = data.error || "Не удалось войти.";
+      errorEl.classList.remove("hidden");
+      return;
+    }
+    errorEl.classList.add("hidden");
+    localStorage.setItem("authToken", data.token);
+    localStorage.setItem("userRole", data.role);
+    hideAuthOverlay();
+    document.getElementById("authForm").reset();
+    await boot();
+  });
+}
+
+function applyRoleVisibility() {
+  const role = localStorage.getItem("userRole");
+  document.querySelectorAll("[data-requires-role]").forEach((el) => {
+    const allowed = el.dataset.requiresRole.split(",");
+    el.classList.toggle("hidden", !allowed.includes(role));
+  });
+}
+
 const VIEW_RENDERERS = {
   dashboard: () => { renderStats(); renderDashboardAlerts(); renderCharts(); renderRecentMovements(); renderAssignedSummary(); },
   inventory: () => { renderAssetsTable(); },
@@ -256,14 +332,14 @@ function addAuditEntry(entityType, entityId, action, changes = {}) {
 
 // ─── ЗАГРУЗКА И СОХРАНЕНИЕ СОСТОЯНИЯ (сервер) ──────────────────
 async function loadState() {
-  const response = await fetch("/api/state");
+  const response = await apiFetch("/api/state");
   if (!response.ok) throw new Error(`Не удалось загрузить данные: ${response.status}`);
   return hydrateState(await response.json());
 }
 
 async function saveState() {
   state.meta.updatedAt = new Date().toISOString();
-  const response = await fetch("/api/state", {
+  const response = await apiFetch("/api/state", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(state),
@@ -2948,7 +3024,7 @@ async function downloadActDocx({ actNumber, date, employee, items, isIssue }) {
       items,
       filename: `Акт_${actNumber || "документ"}.docx`,
     };
-    const response = await fetch("/api/act", {
+    const response = await apiFetch("/api/act", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -3383,9 +3459,49 @@ function bindEvents() {
   document.getElementById("printLabelsBtn")?.addEventListener("click", openLabelsModal);
   document.getElementById("closeLabelsBtn")?.addEventListener("click", closeLabelsModal);
   document.getElementById("labelsOverlay")?.addEventListener("click", (e) => { if (e.target === document.getElementById("labelsOverlay")) closeLabelsModal(); });
-  document.getElementById("showLanQrBtn")?.addEventListener("click", openLanQrModal);
+  document.getElementById("showLanQrBtn")?.addEventListener("click", openUsersModal);
   document.getElementById("closeLanQrBtn")?.addEventListener("click", closeLanQrModal);
   document.getElementById("lanQrOverlay")?.addEventListener("click", (e) => { if (e.target === document.getElementById("lanQrOverlay")) closeLanQrModal(); });
+  document.getElementById("usersTableBody")?.addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-action]");
+    if (!btn) return;
+    const userId = btn.closest("tr").dataset.userId;
+    if (btn.dataset.action === "toggle-active") {
+      const isActive = btn.textContent.trim() === "Активировать";
+      await apiFetch(`/api/users/${userId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive }),
+      });
+      await renderUsersTable();
+    }
+    if (btn.dataset.action === "generate-qr") {
+      document.getElementById("usersOverlay").classList.add("hidden");
+      await openLanQrModal(userId);
+    }
+  });
+  document.getElementById("createUserForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const username = document.getElementById("newUserUsername").value.trim();
+    const password = document.getElementById("newUserPassword").value;
+    const role = document.getElementById("newUserRole").value;
+    const response = await apiFetch("/api/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password, role }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      showToast(data.error || "Не удалось создать пользователя.", "error");
+      return;
+    }
+    e.target.reset();
+    await renderUsersTable();
+  });
+  document.getElementById("closeUsersBtn")?.addEventListener("click", closeUsersModal);
+  document.getElementById("usersOverlay")?.addEventListener("click", (e) => {
+    if (e.target === document.getElementById("usersOverlay")) closeUsersModal();
+  });
   document.getElementById("labelSelectAllBtn")?.addEventListener("click", () => labelSelectAll(true));
   document.getElementById("labelDeselectAllBtn")?.addEventListener("click", () => labelSelectAll(false));
   document.getElementById("labelSearchInput")?.addEventListener("input", debounce(renderLabelGrid));
@@ -3636,14 +3752,14 @@ function closeLabelsModal() {
   document.getElementById("labelsOverlay").classList.add("hidden");
 }
 
-async function openLanQrModal() {
+async function openLanQrModal(userId) {
   const overlay = document.getElementById("lanQrOverlay");
   const body = document.getElementById("lanQrBody");
   overlay.classList.remove("hidden");
   body.innerHTML = `<p class="muted">Загрузка…</p>`;
   let info;
   try {
-    const response = await fetch("/api/lan-info");
+    const response = await apiFetch("/api/lan-info");
     info = await response.json();
   } catch {
     body.innerHTML = `<p class="muted">Не удалось получить данные с сервера.</p>`;
@@ -3653,16 +3769,54 @@ async function openLanQrModal() {
     body.innerHTML = `<p class="muted">Сетевой режим выключен — телефон не сможет подключиться.<br>Запустите <code>setup_lan.bat</code> от имени администратора, затем перезапустите приложение.</p>`;
     return;
   }
+  let pairing;
+  try {
+    const pairResponse = await apiFetch("/api/pair/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId }),
+    });
+    pairing = await pairResponse.json();
+    if (!pairResponse.ok) throw new Error(pairing.error || "Не удалось сгенерировать код сопряжения.");
+  } catch (error) {
+    body.innerHTML = `<p class="muted">${error.message}</p>`;
+    return;
+  }
   const url = `http://${info.lanIp}:${info.port}`;
-  const payload = `WHC1:${JSON.stringify({ url, password: info.password || "" })}`;
+  const payload = `WHC1:${JSON.stringify({ url, code: pairing.code, secret: pairing.secret })}`;
   body.innerHTML = `
     <div class="lan-qr-code">${qrHtml(payload, 60)}</div>
-    <p class="muted">Отсканируйте в приложении на телефоне (Настройки → «Сканировать QR сервера»).<br>Адрес: <code>${url}</code></p>
+    <p class="muted">Отсканируйте в приложении на телефоне (Настройки → «Сканировать QR сервера») в течение 10 минут.<br>Адрес: <code>${url}</code></p>
   `;
 }
 
 function closeLanQrModal() {
   document.getElementById("lanQrOverlay").classList.add("hidden");
+}
+
+async function openUsersModal() {
+  document.getElementById("usersOverlay").classList.remove("hidden");
+  await renderUsersTable();
+}
+
+function closeUsersModal() {
+  document.getElementById("usersOverlay").classList.add("hidden");
+}
+
+async function renderUsersTable() {
+  const response = await apiFetch("/api/users");
+  const data = await response.json();
+  document.getElementById("usersTableBody").innerHTML = data.users.map((u) => `
+    <tr data-user-id="${u.id}">
+      <td>${u.username}</td>
+      <td>${u.role}</td>
+      <td>${u.isActive ? "да" : "нет"}</td>
+      <td>
+        <button type="button" data-action="toggle-active">${u.isActive ? "Деактивировать" : "Активировать"}</button>
+        <button type="button" data-action="generate-qr">QR</button>
+      </td>
+    </tr>
+  `).join("");
 }
 
 function getLabelAssets() {
@@ -4339,6 +4493,13 @@ function toggleTheme() {
 async function init() {
   initTheme();
   bindEvents();
+  bindAuthEvents();
+  const ready = await ensureAuthenticated();
+  if (!ready) return;
+  await boot();
+}
+
+async function boot() {
   try {
     state = await loadState();
     rebuildLookupMaps();
@@ -4351,6 +4512,7 @@ async function init() {
   resetAssetForm();
   resetEmployeeForm();
   resetOperationForms();
+  applyRoleVisibility();
   render();
 }
 
