@@ -238,7 +238,7 @@ def test_verify_signature_accepts_a_freshly_signed_request():
 
 def test_verify_signature_rejects_wrong_secret():
     header = auth.sign_request("GET", "/api/state", b"", "deadbeef")
-    assert auth.verify_signature("GET", "/api/state", b"", "wrongsecret", header) is False
+    assert auth.verify_signature("GET", "/api/state", b"", "deadbeee", header) is False
 
 
 def test_verify_signature_rejects_tampered_body():

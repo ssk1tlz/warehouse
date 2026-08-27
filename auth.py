@@ -217,7 +217,7 @@ def _signing_string(method: str, path: str, timestamp: str, body: bytes) -> byte
 
 def sign_request(method: str, path: str, body: bytes, secret: str, *, timestamp: str | None = None) -> str:
     ts = timestamp or str(int(time.time()))
-    digest = hmac.new(secret.encode("utf-8"), _signing_string(method, path, ts, body), hashlib.sha256).hexdigest()
+    digest = hmac.new(bytes.fromhex(secret), _signing_string(method, path, ts, body), hashlib.sha256).hexdigest()
     return f"{ts}.{digest}"
 
 
@@ -232,5 +232,5 @@ def verify_signature(method: str, path: str, body: bytes, secret: str, header_va
     current = now if now is not None else int(time.time())
     if abs(current - ts) > SIGNATURE_WINDOW_SECONDS:
         return False
-    expected = hmac.new(secret.encode("utf-8"), _signing_string(method, path, ts_str, body), hashlib.sha256).hexdigest()
+    expected = hmac.new(bytes.fromhex(secret), _signing_string(method, path, ts_str, body), hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, digest)
