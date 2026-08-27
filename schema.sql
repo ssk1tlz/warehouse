@@ -117,3 +117,12 @@ CREATE TABLE IF NOT EXISTS sessions (
   last_used_at TEXT NOT NULL,
   expires_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS pairing_codes (
+  code TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  device_secret TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  used_at TEXT
+);

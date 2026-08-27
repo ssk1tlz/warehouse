@@ -155,3 +155,57 @@ def test_create_session_device_secret_defaults_to_none(conn):
     session = auth.create_session(conn, user["id"])
     row = auth.validate_token(conn, session["token"])
     assert row["device_secret"] is None
+
+
+def test_generate_pairing_code_returns_code_secret_and_expiry(conn):
+    user = auth.create_user(conn, "bob", "pass1234", "storekeeper")
+    pairing = auth.generate_pairing_code(conn, user["id"])
+    assert pairing["code"]
+    assert pairing["secret"]
+    assert pairing["expiresAt"]
+
+
+def test_redeem_pairing_code_returns_token_for_the_right_user(conn):
+    user = auth.create_user(conn, "bob", "pass1234", "storekeeper")
+    pairing = auth.generate_pairing_code(conn, user["id"])
+    result = auth.redeem_pairing_code(conn, pairing["code"])
+    assert result["username"] == "bob"
+    assert result["role"] == "storekeeper"
+    assert result["token"]
+
+
+def test_redeem_pairing_code_session_carries_the_device_secret(conn):
+    user = auth.create_user(conn, "bob", "pass1234", "storekeeper")
+    pairing = auth.generate_pairing_code(conn, user["id"])
+    result = auth.redeem_pairing_code(conn, pairing["code"])
+    row = auth.validate_token(conn, result["token"])
+    assert row["device_secret"] == pairing["secret"]
+
+
+def test_redeem_pairing_code_rejects_unknown_code(conn):
+    with pytest.raises(auth.PairingError):
+        auth.redeem_pairing_code(conn, "not-a-real-code")
+
+
+def test_redeem_pairing_code_rejects_reuse(conn):
+    user = auth.create_user(conn, "bob", "pass1234", "storekeeper")
+    pairing = auth.generate_pairing_code(conn, user["id"])
+    auth.redeem_pairing_code(conn, pairing["code"])
+    with pytest.raises(auth.PairingError):
+        auth.redeem_pairing_code(conn, pairing["code"])
+
+
+def test_redeem_pairing_code_rejects_expired_code(conn, monkeypatch):
+    import datetime as dt
+    user = auth.create_user(conn, "bob", "pass1234", "storekeeper")
+    pairing = auth.generate_pairing_code(conn, user["id"])
+    far_future = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=auth.PAIRING_CODE_LIFETIME_MINUTES + 1)
+
+    class FrozenDatetime(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return far_future
+
+    monkeypatch.setattr(auth, "datetime", FrozenDatetime)
+    with pytest.raises(auth.PairingError):
+        auth.redeem_pairing_code(conn, pairing["code"])

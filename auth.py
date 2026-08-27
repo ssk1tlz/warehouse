@@ -153,3 +153,46 @@ def validate_token(connection, token: str):
 def revoke_token(connection, token: str) -> None:
     connection.execute("DELETE FROM sessions WHERE token = ?", (token,))
     connection.commit()
+
+
+PAIRING_CODE_LIFETIME_MINUTES = 10
+
+
+class PairingError(Exception):
+    """Raised when a pairing code is invalid, expired, or already used."""
+
+
+def generate_pairing_code(connection, user_id: str) -> dict:
+    code = secrets.token_urlsafe(16)
+    device_secret = secrets.token_hex(32)
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(minutes=PAIRING_CODE_LIFETIME_MINUTES)
+    connection.execute(
+        "INSERT INTO pairing_codes (code, user_id, device_secret, created_at, expires_at, used_at) "
+        "VALUES (?, ?, ?, ?, ?, NULL)",
+        (code, user_id, device_secret, now.isoformat(), expires_at.isoformat()),
+    )
+    connection.commit()
+    return {"code": code, "secret": device_secret, "expiresAt": expires_at.isoformat()}
+
+
+def redeem_pairing_code(connection, code: str) -> dict:
+    row = connection.execute(
+        "SELECT user_id, device_secret, expires_at, used_at FROM pairing_codes WHERE code = ?",
+        (code,),
+    ).fetchone()
+    if row is None:
+        raise PairingError("Код сопряжения не найден.")
+    if row["used_at"] is not None:
+        raise PairingError("Код сопряжения уже использован.")
+    if datetime.fromisoformat(row["expires_at"]) < datetime.now(timezone.utc):
+        raise PairingError("Код сопряжения истёк — сгенерируйте новый QR.")
+    connection.execute(
+        "UPDATE pairing_codes SET used_at = ? WHERE code = ?",
+        (datetime.now(timezone.utc).isoformat(), code),
+    )
+    session = create_session(connection, row["user_id"], device_secret=row["device_secret"])
+    user = get_user_by_id(connection, row["user_id"])
+    connection.commit()
+    return {"token": session["token"], "expiresAt": session["expiresAt"],
+             "role": user["role"], "username": user["username"]}

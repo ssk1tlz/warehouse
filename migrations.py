@@ -150,6 +150,21 @@ def _migrate_022_sessions_table(c):
     )
 
 
+def _migrate_023_pairing_codes_table(c):
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pairing_codes (
+            code TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id),
+            device_secret TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            used_at TEXT
+        )
+        """
+    )
+
+
 MIGRATIONS: list[Migration] = [
     (1, "assets.repair_quantity", _migrate_001),
     (2, "assets.retired_quantity", _migrate_002),
@@ -173,6 +188,7 @@ MIGRATIONS: list[Migration] = [
     (20, "mobile_action_log table", _migrate_020_mobile_action_log_table),
     (21, "users table", _migrate_021_users_table),
     (22, "sessions table", _migrate_022_sessions_table),
+    (23, "pairing_codes table", _migrate_023_pairing_codes_table),
 ]
 
 
