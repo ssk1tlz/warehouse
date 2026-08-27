@@ -375,6 +375,22 @@ def test_pairing_redeem_rejects_unknown_code(live_server):
     assert status == 400
 
 
+def test_get_backups_requires_admin_role(live_server):
+    admin_token = _create_admin(live_server)
+    _request(live_server, "POST", "/api/users", token=admin_token,
+             json_body={"username": "v", "password": "pass1234", "role": "viewer"})
+    _, body = _request(live_server, "POST", "/api/login", json_body={"username": "v", "password": "pass1234"})
+    status, _ = _request(live_server, "GET", "/api/backups", token=body["token"])
+    assert status == 403
+
+
+def test_get_backups_returns_list_for_admin(live_server):
+    admin_token = _create_admin(live_server)
+    status, body = _request(live_server, "GET", "/api/backups", token=admin_token)
+    assert status == 200, body
+    assert "backups" in body
+
+
 def test_lan_info_does_not_include_a_password_field(live_server):
     token = _create_admin(live_server)
     status, body = _request(live_server, "GET", "/api/lan-info", token=token)

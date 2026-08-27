@@ -549,6 +549,11 @@ class WarehouseHandler(BaseHTTPRequestHandler):
                 users = auth.list_users(connection)
             self.send_json({"users": users})
             return
+        if parsed.path == "/api/backups":
+            if not self.require_role(user, ("admin",)):
+                return
+            self.handle_list_backups()
+            return
         self.send_error(HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:
@@ -899,6 +904,9 @@ class WarehouseHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(docx_bytes)))
         self.end_headers()
         self.wfile.write(docx_bytes)
+
+    def handle_list_backups(self) -> None:
+        self.send_json({"backups": list_backups()})
 
     def serve_static(self, raw_path: str) -> None:
         relative = "index.html" if raw_path in {"/", ""} else raw_path.lstrip("/")
