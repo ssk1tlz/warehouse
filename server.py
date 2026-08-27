@@ -206,7 +206,7 @@ def export_state() -> dict:
 
         assets = []
         for row in connection.execute(
-            "SELECT id, name, category, inventory_number, serial_number, purchase_date, status, notes, quantity, repair_quantity, retired_quantity, min_quantity, warranty_end, price, repair_date, location, photo_url FROM assets ORDER BY name"
+            "SELECT id, name, category, inventory_number, serial_number, purchase_date, status, notes, quantity, repair_quantity, retired_quantity, min_quantity, warranty_end, price, repair_date, location, photo_url, rev FROM assets ORDER BY name"
         ):
             assets.append(
                 {
@@ -227,6 +227,7 @@ def export_state() -> dict:
                     "repairDate": row["repair_date"] or "",
                     "location": row["location"] or "",
                     "photoUrl": row["photo_url"] or "",
+                    "rev": row["rev"],
                     "allocations": allocations_by_asset.get(row["id"], []),
                 }
             )
@@ -745,6 +746,16 @@ class WarehouseHandler(BaseHTTPRequestHandler):
                         )
                     else:
                         new_version = read_state_version(connection)
+            except mobile_actions.EditConflictError as exc:
+                body = json.dumps(
+                    {"error": exc.message, "currentAsset": exc.current_asset}, ensure_ascii=False
+                ).encode("utf-8")
+                self.send_response(HTTPStatus.CONFLICT)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             except mobile_actions.MobileActionError as exc:
                 self.send_json_error(HTTPStatus.BAD_REQUEST, exc.message)
                 return

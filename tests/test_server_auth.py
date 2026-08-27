@@ -149,6 +149,31 @@ def test_mobile_action_role_matrix(live_server, role, expected_status):
     assert status == expected_status, body
 
 
+def test_mobile_edit_conflict_returns_409_with_current_asset(live_server):
+    _seed_asset(server.DB_PATH)
+    admin_token = _create_admin(live_server)
+    status, body = _request(live_server, "POST", "/api/mobile/action", token=admin_token,
+                             json_body={"clientActionId": "edit-1", "type": "edit", "assetId": "ast_1",
+                                        "baseRev": 0, "name": "A"})
+    assert status == 200, body
+    # Second edit still claims baseRev=0, but the first edit above already
+    # bumped the asset's rev to 1 — this must be rejected as a conflict.
+    status, body = _request(live_server, "POST", "/api/mobile/action", token=admin_token,
+                             json_body={"clientActionId": "edit-2", "type": "edit", "assetId": "ast_1",
+                                        "baseRev": 0, "name": "B"})
+    assert status == 409, body
+    assert body["currentAsset"]["rev"] == 1
+    assert body["currentAsset"]["name"] == "A"
+
+
+def test_get_state_includes_asset_rev(live_server):
+    _seed_asset(server.DB_PATH)
+    token = _create_admin(live_server)
+    status, body = _request(live_server, "GET", "/api/state", token=token)
+    assert status == 200, body
+    assert body["assets"][0]["rev"] == 0
+
+
 def test_viewer_can_read_state(live_server):
     admin_token = _create_admin(live_server)
     _request(live_server, "POST", "/api/users", token=admin_token,
