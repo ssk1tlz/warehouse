@@ -165,3 +165,26 @@ def test_init_db_refuses_to_start_on_corrupt_database(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "BACKUP_DIR", tmp_path / "backups")
     with pytest.raises(SystemExit):
         server.init_db()
+
+
+def test_init_db_does_not_mask_a_real_migration_bug_as_corruption(tmp_path, monkeypatch):
+    # init_db() catches sqlite3.DatabaseError to turn raw "file is not a
+    # database" errors (file corruption) into a clean SystemExit — but
+    # it must NOT swallow subclasses like IntegrityError/OperationalError,
+    # which mean a real bug (e.g. in a migration), not a corrupt file. If the
+    # `except sqlite3.DatabaseError` in init_db() is ever loosened to catch
+    # subclasses too (e.g. by removing the `type(exc) is not
+    # sqlite3.DatabaseError: raise` guard), this test starts failing instead
+    # of the bug being mislabeled as "database corrupted, restore from
+    # backup".
+    db_path = tmp_path / "warehouse.db"  # does not exist yet -> fresh install, valid/connectable DB
+    monkeypatch.setattr(server, "DB_PATH", db_path)
+    monkeypatch.setattr(server, "BACKUP_DIR", tmp_path / "backups")
+
+    def boom(connection):
+        raise sqlite3.IntegrityError("simulated migration bug")
+
+    monkeypatch.setattr(migrations, "run_migrations", boom)
+
+    with pytest.raises(sqlite3.IntegrityError):
+        server.init_db()
