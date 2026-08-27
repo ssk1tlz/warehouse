@@ -1,5 +1,30 @@
-function authHeaders(settings) {
-  return settings.token ? { Authorization: `Bearer ${settings.token}` } : {};
+function toHex(bytes) {
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function fromHex(hex) {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+  return bytes;
+}
+
+async function signRequest(method, path, bodyText, secretHex) {
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const bodyBytes = new TextEncoder().encode(bodyText || '');
+  const bodyHashBuffer = await crypto.subtle.digest('SHA-256', bodyBytes);
+  const bodyHashHex = toHex(new Uint8Array(bodyHashBuffer));
+  const message = `${method}\n${path}\n${timestamp}\n${bodyHashHex}`;
+  const key = await crypto.subtle.importKey('raw', fromHex(secretHex), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const signatureBuffer = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(message));
+  return `${timestamp}.${toHex(new Uint8Array(signatureBuffer))}`;
+}
+
+async function signedHeaders(settings, method, path, bodyText) {
+  const headers = settings.token ? { Authorization: `Bearer ${settings.token}` } : {};
+  if (settings.deviceSecret) {
+    headers['X-Signature'] = await signRequest(method, path, bodyText, settings.deviceSecret);
+  }
+  return headers;
 }
 
 async function pair(serverUrl, code) {
@@ -22,10 +47,12 @@ async function flushQueue(settings) {
   for (const row of pending) {
     if (row.status === 'failed') continue; // don't auto-retry — surface it, let the user retry explicitly (queue screen, Task 8)
     try {
+      const bodyText = JSON.stringify(row.payload);
+      const headers = { 'Content-Type': 'application/json', ...(await signedHeaders(settings, 'POST', '/api/mobile/action', bodyText)) };
       const response = await fetch(`${settings.serverUrl}/api/mobile/action`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders(settings) },
-        body: JSON.stringify(row.payload),
+        headers,
+        body: bodyText,
       });
       if (response.ok) {
         await Db.markActionSynced(row.client_action_id);
@@ -44,9 +71,8 @@ async function flushQueue(settings) {
 }
 
 async function pullState(settings) {
-  const response = await fetch(`${settings.serverUrl}/api/state`, {
-    headers: authHeaders(settings),
-  });
+  const headers = await signedHeaders(settings, 'GET', '/api/state', '');
+  const response = await fetch(`${settings.serverUrl}/api/state`, { headers });
   if (!response.ok) throw new Error(`GET /api/state failed: HTTP ${response.status}`);
   const state = await response.json();
   await Db.replaceState(state);
@@ -67,7 +93,7 @@ async function run() {
   return { pulled, flushed, failed };
 }
 
-const Sync = { run, flushQueue, pullState, pair };
+const Sync = { run, flushQueue, pullState, pair, signRequest };
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = Sync;
 }
