@@ -200,3 +200,37 @@ def redeem_pairing_code(connection, code: str) -> dict:
     connection.commit()
     return {"token": session["token"], "expiresAt": session["expiresAt"],
              "role": user["role"], "username": user["username"]}
+
+
+SIGNATURE_WINDOW_SECONDS = 300
+LOOPBACK_ADDRESSES = ("127.0.0.1", "::1")
+
+
+def is_loopback(client_ip: str) -> bool:
+    return client_ip in LOOPBACK_ADDRESSES
+
+
+def _signing_string(method: str, path: str, timestamp: str, body: bytes) -> bytes:
+    body_hash = hashlib.sha256(body).hexdigest()
+    return f"{method}\n{path}\n{timestamp}\n{body_hash}".encode("utf-8")
+
+
+def sign_request(method: str, path: str, body: bytes, secret: str, *, timestamp: str | None = None) -> str:
+    ts = timestamp or str(int(time.time()))
+    digest = hmac.new(secret.encode("utf-8"), _signing_string(method, path, ts, body), hashlib.sha256).hexdigest()
+    return f"{ts}.{digest}"
+
+
+def verify_signature(method: str, path: str, body: bytes, secret: str, header_value: str, *, now: int | None = None) -> bool:
+    if not header_value or "." not in header_value:
+        return False
+    ts_str, _, digest = header_value.partition(".")
+    try:
+        ts = int(ts_str)
+    except ValueError:
+        return False
+    current = now if now is not None else int(time.time())
+    if abs(current - ts) > SIGNATURE_WINDOW_SECONDS:
+        return False
+    expected = hmac.new(secret.encode("utf-8"), _signing_string(method, path, ts_str, body), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, digest)

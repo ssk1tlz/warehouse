@@ -217,3 +217,50 @@ def test_redeem_pairing_code_rejects_expired_code(conn, monkeypatch):
     monkeypatch.setattr(auth, "datetime", FrozenDatetime)
     with pytest.raises(auth.PairingError):
         auth.redeem_pairing_code(conn, pairing["code"])
+
+
+def test_is_loopback_true_for_127_0_0_1():
+    assert auth.is_loopback("127.0.0.1") is True
+
+
+def test_is_loopback_true_for_ipv6_loopback():
+    assert auth.is_loopback("::1") is True
+
+
+def test_is_loopback_false_for_lan_address():
+    assert auth.is_loopback("192.168.0.42") is False
+
+
+def test_verify_signature_accepts_a_freshly_signed_request():
+    header = auth.sign_request("GET", "/api/state", b"", "deadbeef")
+    assert auth.verify_signature("GET", "/api/state", b"", "deadbeef", header) is True
+
+
+def test_verify_signature_rejects_wrong_secret():
+    header = auth.sign_request("GET", "/api/state", b"", "deadbeef")
+    assert auth.verify_signature("GET", "/api/state", b"", "wrongsecret", header) is False
+
+
+def test_verify_signature_rejects_tampered_body():
+    header = auth.sign_request("POST", "/api/mobile/action", b'{"a":1}', "deadbeef")
+    assert auth.verify_signature("POST", "/api/mobile/action", b'{"a":2}', "deadbeef", header) is False
+
+
+def test_verify_signature_rejects_tampered_method():
+    header = auth.sign_request("GET", "/api/state", b"", "deadbeef")
+    assert auth.verify_signature("POST", "/api/state", b"", "deadbeef", header) is False
+
+
+def test_verify_signature_rejects_expired_timestamp():
+    header = auth.sign_request("GET", "/api/state", b"", "deadbeef", timestamp="1000")
+    assert auth.verify_signature("GET", "/api/state", b"", "deadbeef", header, now=1000 + auth.SIGNATURE_WINDOW_SECONDS + 1) is False
+
+
+def test_verify_signature_accepts_timestamp_within_window():
+    header = auth.sign_request("GET", "/api/state", b"", "deadbeef", timestamp="1000")
+    assert auth.verify_signature("GET", "/api/state", b"", "deadbeef", header, now=1000 + auth.SIGNATURE_WINDOW_SECONDS - 1) is True
+
+
+def test_verify_signature_rejects_malformed_header():
+    assert auth.verify_signature("GET", "/api/state", b"", "deadbeef", "not-a-valid-header") is False
+    assert auth.verify_signature("GET", "/api/state", b"", "deadbeef", "") is False
