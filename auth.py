@@ -24,6 +24,10 @@ class AuthError(Exception):
     """User-facing auth failure: duplicate username, unknown role, etc."""
 
 
+def role_allows(role: str, allowed: tuple[str, ...]) -> bool:
+    return role in allowed
+
+
 def _generate_id(prefix: str) -> str:
     return f"{prefix}_{secrets.token_hex(8)}"
 

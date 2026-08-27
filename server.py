@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import base64
-import hmac
 import json
 import mimetypes
 import shutil
@@ -24,6 +22,7 @@ else:
 
 import mobile_actions
 import migrations
+import auth
 
 if getattr(sys, 'frozen', False):
     ROOT = Path(sys.executable).resolve().parent
@@ -51,8 +50,6 @@ _config = load_config()
 # host "0.0.0.0" — доступ по локальной сети (см. setup_lan.bat).
 HOST = str(_config.get("host", "127.0.0.1"))
 PORT = int(_config.get("port", 8765))
-# Пароль спрашивается только в сетевом режиме (HOST != 127.0.0.1) — см. setup_lan.bat.
-PASSWORD = str(_config.get("password", ""))
 
 
 def auto_backup() -> str | None:
@@ -374,57 +371,101 @@ def import_state(payload: dict, actor: str) -> dict:
 
 
 class WarehouseHandler(BaseHTTPRequestHandler):
-    def check_auth(self) -> bool:
-        """В локальном режиме (127.0.0.1) доступ не ограничен.
-        В сетевом режиме (HOST != 127.0.0.1) — Basic Auth, если задан пароль в config.json."""
-        if HOST == "127.0.0.1" or not PASSWORD:
-            return True
-        expected = "Basic " + base64.b64encode(f":{PASSWORD}".encode("utf-8")).decode("ascii")
-        provided = self.headers.get("Authorization", "")
-        if hmac.compare_digest(provided, expected):
-            return True
-        body = "Требуется авторизация".encode("utf-8")
-        self.send_response(HTTPStatus.UNAUTHORIZED)
-        self.send_header("WWW-Authenticate", 'Basic realm="Warehouse"')
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-        return False
+    def read_body(self) -> bytes:
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        return self.rfile.read(length) if length else b""
+
+    def authenticate(self):
+        auth_header = self.headers.get("Authorization", "")
+        token = auth_header[len("Bearer "):] if auth_header.startswith("Bearer ") else ""
+        with get_connection() as connection:
+            user = auth.validate_token(connection, token)
+        if user is None:
+            self.send_json_error(HTTPStatus.UNAUTHORIZED, "Требуется авторизация")
+            return None
+        return user
+
+    def require_role(self, user, allowed) -> bool:
+        if not auth.role_allows(user["role"], allowed):
+            self.send_json_error(HTTPStatus.FORBIDDEN, "Недостаточно прав")
+            return False
+        return True
 
     def do_GET(self) -> None:
-        if not self.check_auth():
-            return
         parsed = urlparse(self.path)
+        if not parsed.path.startswith("/api/"):
+            self.serve_static(parsed.path)
+            return
+        if parsed.path == "/api/setup-status":
+            with get_connection() as connection:
+                needs_setup = not auth.has_any_user(connection)
+            self.send_json({"needsSetup": needs_setup})
+            return
+        user = self.authenticate()
+        if user is None:
+            return
         if parsed.path == "/api/state":
             self.send_json(export_state())
             return
         if parsed.path == "/api/lan-info":
-            self.send_json({
-                "lanMode": HOST != "127.0.0.1",
-                "lanIp": get_lan_ip(),
-                "port": PORT,
-                "password": PASSWORD,
-            })
+            self.send_json({"lanMode": HOST != "127.0.0.1", "lanIp": get_lan_ip(), "port": PORT})
             return
-        self.serve_static(parsed.path)
+        if parsed.path == "/api/users":
+            if not self.require_role(user, ("admin",)):
+                return
+            with get_connection() as connection:
+                users = auth.list_users(connection)
+            self.send_json({"users": users})
+            return
+        self.send_error(HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:
-        if not self.check_auth():
-            return
         parsed = urlparse(self.path)
+        body = self.read_body()
+        if parsed.path == "/api/setup":
+            self.handle_setup(body)
+            return
+        if parsed.path == "/api/login":
+            self.handle_login(body)
+            return
+        if parsed.path == "/api/pair":
+            self.handle_pair(body)
+            return
+        user = self.authenticate()
+        if user is None:
+            return
+        if parsed.path == "/api/logout":
+            with get_connection() as connection:
+                auth.revoke_token(connection, user["token"])
+            self.send_json({"ok": True})
+            return
+        if parsed.path == "/api/users":
+            if not self.require_role(user, ("admin",)):
+                return
+            self.handle_create_user(body)
+            return
+        if parsed.path == "/api/pair/generate":
+            if not self.require_role(user, ("admin",)):
+                return
+            self.handle_generate_pairing(body)
+            return
         if parsed.path == "/api/act":
-            self.handle_act_request()
+            if not self.require_role(user, ("admin", "storekeeper")):
+                return
+            self.handle_act_request(body)
             return
         if parsed.path == "/api/mobile/action":
-            self.handle_mobile_action()
+            if not self.require_role(user, ("admin", "storekeeper")):
+                return
+            self.handle_mobile_action(body)
             return
         if parsed.path != "/api/state":
             self.send_error(HTTPStatus.NOT_FOUND)
             return
-        length = int(self.headers.get("Content-Length", "0"))
+        if not self.require_role(user, ("admin", "storekeeper")):
+            return
         try:
-            payload = json.loads(self.rfile.read(length) or b"{}")
+            payload = json.loads(body or b"{}")
         except json.JSONDecodeError as exc:
             self.send_json_error(HTTPStatus.BAD_REQUEST, f"invalid json: {exc}")
             return
@@ -440,7 +481,7 @@ class WarehouseHandler(BaseHTTPRequestHandler):
                 base_version = None
             # Old clients don't send a version — accept their writes as before.
             if base_version is not None and base_version != get_state_version():
-                body = json.dumps(
+                conflict_body = json.dumps(
                     {
                         "error": "Данные были изменены в другом окне. Состояние обновлено — повторите последнее действие.",
                         "state": export_state(),
@@ -449,18 +490,137 @@ class WarehouseHandler(BaseHTTPRequestHandler):
                 ).encode("utf-8")
                 self.send_response(HTTPStatus.CONFLICT)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Content-Length", str(len(conflict_body)))
                 self.end_headers()
-                self.wfile.write(body)
+                self.wfile.write(conflict_body)
                 return
             auto_backup()
-            state = import_state(payload, actor="")
+            state = import_state(payload, actor=user["username"])
         self.send_json(state)
 
-    def handle_mobile_action(self) -> None:
-        length = int(self.headers.get("Content-Length", "0"))
+    def do_PATCH(self) -> None:
+        parsed = urlparse(self.path)
+        body = self.read_body()
+        user = self.authenticate()
+        if user is None:
+            return
+        if not self.require_role(user, ("admin",)):
+            return
+        if parsed.path.startswith("/api/users/"):
+            self.handle_update_user(parsed.path[len("/api/users/"):], body)
+            return
+        self.send_error(HTTPStatus.NOT_FOUND)
+
+    def handle_setup(self, body: bytes) -> None:
+        with get_connection() as connection:
+            if auth.has_any_user(connection):
+                self.send_json_error(HTTPStatus.CONFLICT, "Администратор уже создан.")
+                return
+            try:
+                payload = json.loads(body or b"{}")
+            except json.JSONDecodeError as exc:
+                self.send_json_error(HTTPStatus.BAD_REQUEST, f"invalid json: {exc}")
+                return
+            username = str(payload.get("username") or "").strip()
+            password = str(payload.get("password") or "")
+            if not username or not password:
+                self.send_json_error(HTTPStatus.BAD_REQUEST, "Укажите логин и пароль.")
+                return
+            try:
+                user = auth.create_user(connection, username, password, "admin")
+            except auth.AuthError as exc:
+                self.send_json_error(HTTPStatus.BAD_REQUEST, str(exc))
+                return
+            session = auth.create_session(connection, user["id"])
+        self.send_json({"token": session["token"], "expiresAt": session["expiresAt"], "role": "admin"})
+
+    def handle_login(self, body: bytes) -> None:
         try:
-            payload = json.loads(self.rfile.read(length) or b"{}")
+            payload = json.loads(body or b"{}")
+        except json.JSONDecodeError as exc:
+            self.send_json_error(HTTPStatus.BAD_REQUEST, f"invalid json: {exc}")
+            return
+        username = str(payload.get("username") or "")
+        password = str(payload.get("password") or "")
+        with get_connection() as connection:
+            user = auth.authenticate_user(connection, username, password)
+            if user is None:
+                self.send_json_error(HTTPStatus.UNAUTHORIZED, "Неверный логин или пароль.")
+                return
+            session = auth.create_session(connection, user["id"])
+        self.send_json({"token": session["token"], "expiresAt": session["expiresAt"], "role": user["role"]})
+
+    def handle_create_user(self, body: bytes) -> None:
+        try:
+            payload = json.loads(body or b"{}")
+        except json.JSONDecodeError as exc:
+            self.send_json_error(HTTPStatus.BAD_REQUEST, f"invalid json: {exc}")
+            return
+        username = str(payload.get("username") or "").strip()
+        password = str(payload.get("password") or "")
+        role = str(payload.get("role") or "")
+        if not password:
+            self.send_json_error(HTTPStatus.BAD_REQUEST, "Пароль не может быть пустым.")
+            return
+        with get_connection() as connection:
+            try:
+                user = auth.create_user(connection, username, password, role)
+            except auth.AuthError as exc:
+                self.send_json_error(HTTPStatus.BAD_REQUEST, str(exc))
+                return
+        self.send_json(user)
+
+    def handle_update_user(self, user_id: str, body: bytes) -> None:
+        try:
+            payload = json.loads(body or b"{}")
+        except json.JSONDecodeError as exc:
+            self.send_json_error(HTTPStatus.BAD_REQUEST, f"invalid json: {exc}")
+            return
+        with get_connection() as connection:
+            try:
+                if "role" in payload:
+                    auth.set_user_role(connection, user_id, str(payload["role"]))
+                if "isActive" in payload:
+                    auth.set_user_active(connection, user_id, bool(payload["isActive"]))
+                if payload.get("password"):
+                    auth.set_user_password(connection, user_id, str(payload["password"]))
+            except auth.AuthError as exc:
+                self.send_json_error(HTTPStatus.BAD_REQUEST, str(exc))
+                return
+        self.send_json({"ok": True})
+
+    def handle_generate_pairing(self, body: bytes) -> None:
+        try:
+            payload = json.loads(body or b"{}")
+        except json.JSONDecodeError as exc:
+            self.send_json_error(HTTPStatus.BAD_REQUEST, f"invalid json: {exc}")
+            return
+        user_id = str(payload.get("userId") or "")
+        with get_connection() as connection:
+            if auth.get_user_by_id(connection, user_id) is None:
+                self.send_json_error(HTTPStatus.BAD_REQUEST, "Пользователь не найден.")
+                return
+            pairing = auth.generate_pairing_code(connection, user_id)
+        self.send_json(pairing)
+
+    def handle_pair(self, body: bytes) -> None:
+        try:
+            payload = json.loads(body or b"{}")
+        except json.JSONDecodeError as exc:
+            self.send_json_error(HTTPStatus.BAD_REQUEST, f"invalid json: {exc}")
+            return
+        code = str(payload.get("code") or "")
+        with get_connection() as connection:
+            try:
+                result = auth.redeem_pairing_code(connection, code)
+            except auth.PairingError as exc:
+                self.send_json_error(HTTPStatus.BAD_REQUEST, str(exc))
+                return
+        self.send_json(result)
+
+    def handle_mobile_action(self, body: bytes) -> None:
+        try:
+            payload = json.loads(body or b"{}")
         except json.JSONDecodeError as exc:
             self.send_json_error(HTTPStatus.BAD_REQUEST, f"invalid json: {exc}")
             return
@@ -496,25 +656,24 @@ class WarehouseHandler(BaseHTTPRequestHandler):
         result["version"] = new_version
         self.send_json(result)
 
-    def handle_act_request(self) -> None:
+    def handle_act_request(self, body: bytes) -> None:
         if generate_act is None:
-            body = json.dumps({"error": f"act generator not available: {_ACT_IMPORT_ERROR}"}, ensure_ascii=False).encode("utf-8")
+            body_out = json.dumps({"error": f"act generator not available: {_ACT_IMPORT_ERROR}"}, ensure_ascii=False).encode("utf-8")
             self.send_response(HTTPStatus.INTERNAL_SERVER_ERROR)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Content-Length", str(len(body_out)))
             self.end_headers()
-            self.wfile.write(body)
+            self.wfile.write(body_out)
             return
-        length = int(self.headers.get("Content-Length", "0"))
         try:
-            payload = json.loads(self.rfile.read(length) or b"{}")
+            payload = json.loads(body or b"{}")
         except json.JSONDecodeError as exc:
-            body = json.dumps({"error": f"invalid json: {exc}"}, ensure_ascii=False).encode("utf-8")
+            body_out = json.dumps({"error": f"invalid json: {exc}"}, ensure_ascii=False).encode("utf-8")
             self.send_response(HTTPStatus.BAD_REQUEST)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Content-Length", str(len(body_out)))
             self.end_headers()
-            self.wfile.write(body)
+            self.wfile.write(body_out)
             return
         try:
             docx_bytes = generate_act(
@@ -603,9 +762,9 @@ def main() -> None:
         lan_ip = get_lan_ip()
         if lan_ip:
             print(f"Доступ с других компьютеров: http://{lan_ip}:{PORT}/")
-        if not PASSWORD:
-            print("ВНИМАНИЕ: сетевой режим включён, но пароль не задан — любой в сети имеет доступ к базе.")
-            print("Запустите setup_lan.bat заново, чтобы задать пароль.")
+        with get_connection() as connection:
+            if not auth.has_any_user(connection):
+                print("ВНИМАНИЕ: пользователей ещё нет — при первом открытии приложения появится мастер создания администратора.")
     print(f"Press Ctrl+C to stop the server")
     try:
         server.serve_forever()

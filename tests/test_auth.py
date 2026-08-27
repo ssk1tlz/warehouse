@@ -195,6 +195,14 @@ def test_redeem_pairing_code_rejects_reuse(conn):
         auth.redeem_pairing_code(conn, pairing["code"])
 
 
+def test_role_allows_true_when_role_in_allowed_list():
+    assert auth.role_allows("admin", ("admin", "storekeeper")) is True
+
+
+def test_role_allows_false_when_role_not_in_allowed_list():
+    assert auth.role_allows("viewer", ("admin", "storekeeper")) is False
+
+
 def test_redeem_pairing_code_rejects_expired_code(conn, monkeypatch):
     import datetime as dt
     user = auth.create_user(conn, "bob", "pass1234", "storekeeper")
