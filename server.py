@@ -76,10 +76,31 @@ def _prune_backups() -> None:
         old.unlink(missing_ok=True)
 
 
+def _checkpoint_wal() -> None:
+    """Flush pending WAL frames into DB_PATH before it is plain-file-copied.
+
+    Every connection runs in WAL mode (Task B1), so recently committed data can
+    live only in warehouse.db-wal, not in warehouse.db itself, until SQLite's
+    own size-based auto-checkpoint kicks in. A shutil.copy2() of DB_PATH alone
+    would then silently produce a backup missing that data (or even missing
+    whole tables). Best-effort: if DB_PATH isn't a valid database yet (fresh
+    install, or already corrupt), leave it to the copy/integrity-check below.
+    """
+    try:
+        connection = sqlite3.connect(DB_PATH)
+        try:
+            connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        finally:
+            connection.close()
+    except sqlite3.DatabaseError:
+        pass
+
+
 def auto_backup() -> str | None:
     """Create a timestamped backup of the database file."""
     if not DB_PATH.exists():
         return None
+    _checkpoint_wal()
     BACKUP_DIR.mkdir(exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     dest = BACKUP_DIR / f"warehouse_{stamp}.db"
@@ -92,6 +113,7 @@ def pre_migration_backup() -> str | None:
     """Separate, clearly-labeled backup taken only when migrations are about to run."""
     if not DB_PATH.exists():
         return None
+    _checkpoint_wal()
     BACKUP_DIR.mkdir(exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     dest = BACKUP_DIR / f"pre_migration_{stamp}.db"
@@ -104,6 +126,7 @@ def pre_restore_backup() -> str | None:
     """Snapshot of the current DB taken right before a one-click restore overwrites it."""
     if not DB_PATH.exists():
         return None
+    _checkpoint_wal()
     BACKUP_DIR.mkdir(exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     dest = BACKUP_DIR / f"pre_restore_{stamp}.db"
@@ -590,6 +613,11 @@ class WarehouseHandler(BaseHTTPRequestHandler):
                 return
             self.handle_generate_pairing(body)
             return
+        if parsed.path == "/api/backups/restore":
+            if not self.require_role(user, ("admin",)):
+                return
+            self.handle_restore_backup(body)
+            return
         if parsed.path == "/api/act":
             if not self.require_role(user, ("admin", "storekeeper")):
                 return
@@ -907,6 +935,53 @@ class WarehouseHandler(BaseHTTPRequestHandler):
 
     def handle_list_backups(self) -> None:
         self.send_json({"backups": list_backups()})
+
+    def handle_restore_backup(self, body: bytes) -> None:
+        try:
+            payload = json.loads(body or b"{}")
+        except json.JSONDecodeError as exc:
+            self.send_json_error(HTTPStatus.BAD_REQUEST, f"invalid json: {exc}")
+            return
+        if not isinstance(payload, dict):
+            self.send_json_error(HTTPStatus.BAD_REQUEST, "Payload must be a JSON object.")
+            return
+        filename = str(payload.get("filename") or "")
+        valid_names = {b["filename"] for b in list_backups()}
+        if filename not in valid_names:
+            self.send_json_error(HTTPStatus.BAD_REQUEST, "Файл резервной копии не найден.")
+            return
+        candidate = BACKUP_DIR / filename
+        with STATE_LOCK:
+            check_stamp = datetime.now().strftime("%Y%m%d_%H%M%S%f")
+            tmp_path = BACKUP_DIR / f"_restore_check_{check_stamp}.db"
+            shutil.copy2(candidate, tmp_path)
+            try:
+                try:
+                    check_connection = sqlite3.connect(tmp_path)
+                    try:
+                        result = check_connection.execute("PRAGMA integrity_check").fetchone()[0]
+                    finally:
+                        check_connection.close()
+                except sqlite3.DatabaseError as exc:
+                    # As in init_db(): a raw sqlite3.DatabaseError here (not a more
+                    # specific subclass) means SQLite couldn't even read the file as
+                    # a database (e.g. "file is not a database") — treat that the
+                    # same as a failed integrity_check instead of crashing the
+                    # request. The connection is still closed above (via the inner
+                    # finally) so the temp file can be unlinked afterwards.
+                    if type(exc) is not sqlite3.DatabaseError:
+                        raise
+                    result = str(exc)
+                if result != "ok":
+                    self.send_json_error(HTTPStatus.BAD_REQUEST, "Файл резервной копии повреждён.")
+                    return
+                pre_restore_backup()
+                shutil.copy2(tmp_path, DB_PATH)
+            finally:
+                tmp_path.unlink(missing_ok=True)
+            with get_connection() as connection:
+                migrations.run_migrations(connection)
+        self.send_json({"ok": True})
 
     def serve_static(self, raw_path: str) -> None:
         relative = "index.html" if raw_path in {"/", ""} else raw_path.lstrip("/")

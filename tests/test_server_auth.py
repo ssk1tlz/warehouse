@@ -5,6 +5,7 @@ import threading
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 
 import pytest
 
@@ -389,6 +390,67 @@ def test_get_backups_returns_list_for_admin(live_server):
     status, body = _request(live_server, "GET", "/api/backups", token=admin_token)
     assert status == 200, body
     assert "backups" in body
+
+
+def test_restore_backup_requires_admin_role(live_server):
+    admin_token = _create_admin(live_server)
+    status, body = _request(live_server, "POST", "/api/users", token=admin_token,
+                             json_body={"username": "sk", "password": "pass1234", "role": "storekeeper"})
+    assert status == 200, body
+    _, login = _request(live_server, "POST", "/api/login", json_body={"username": "sk", "password": "pass1234"})
+    status, _ = _request(live_server, "POST", "/api/backups/restore", token=login["token"],
+                          json_body={"filename": "x.db"})
+    assert status == 403
+
+
+def test_restore_backup_rejects_unlisted_filename(live_server):
+    admin_token = _create_admin(live_server)
+    status, _ = _request(live_server, "POST", "/api/backups/restore", token=admin_token,
+                          json_body={"filename": "../../etc/passwd"})
+    assert status == 400
+
+
+def test_restore_backup_rejects_corrupt_candidate_without_touching_warehouse_db(live_server):
+    admin_token = _create_admin(live_server)
+    # write a corrupt .db file directly into the live_server's BACKUP_DIR,
+    # matching the exact filename shape list_backups() would report
+    server.BACKUP_DIR.mkdir(exist_ok=True)
+    corrupt_path = server.BACKUP_DIR / "warehouse_corrupt.db"
+    corrupt_path.write_bytes(b"this is not a valid sqlite database file")
+
+    original_bytes = server.DB_PATH.read_bytes()
+    status, _ = _request(live_server, "POST", "/api/backups/restore", token=admin_token,
+                          json_body={"filename": "warehouse_corrupt.db"})
+    assert status == 400
+    assert server.DB_PATH.read_bytes() == original_bytes
+
+
+def test_restore_backup_round_trips_a_real_snapshot(live_server):
+    admin_token = _create_admin(live_server)
+    _seed_asset(server.DB_PATH)
+
+    # snapshot the DB while the asset still has its original name
+    snapshot_path = server.auto_backup()
+    assert snapshot_path is not None
+    snapshot_filename = Path(snapshot_path).name
+
+    # change the asset after the snapshot was taken
+    conn = sqlite3.connect(server.DB_PATH)
+    conn.execute("UPDATE assets SET name = ? WHERE id = ?", ("Изменено", "ast_1"))
+    conn.commit()
+    conn.close()
+
+    status, body = _request(live_server, "POST", "/api/backups/restore", token=admin_token,
+                             json_body={"filename": snapshot_filename})
+    assert status == 200, body
+
+    conn = sqlite3.connect(server.DB_PATH)
+    row = conn.execute("SELECT name FROM assets WHERE id = ?", ("ast_1",)).fetchone()
+    conn.close()
+    assert row[0] == "Ноутбук"
+
+    pre_restore_files = list(server.BACKUP_DIR.glob("pre_restore_*.db"))
+    assert len(pre_restore_files) == 1, pre_restore_files
 
 
 def test_lan_info_does_not_include_a_password_field(live_server):
