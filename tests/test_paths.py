@@ -152,3 +152,44 @@ def test_migration_runs_only_once(legacy_layout):
 
     assert paths.migrate_legacy_data(server._copy_database) is True
     assert paths.migrate_legacy_data(server._copy_database) is False
+
+
+def test_migration_is_retryable_after_being_interrupted_partway(legacy_layout, monkeypatch):
+    # Копирование — три независимых шага (БД -> config -> backups). Если
+    # процесс упадёт между ними (антивирус, диск, kill -9 при обновлении),
+    # DB_PATH не должен появиться раньше времени: иначе guard
+    # `if DB_PATH.exists()` на следующем запуске молча решит, что миграция
+    # уже завершена, и config.json/backups останутся неперенесёнными
+    # навсегда — пользователь тихо теряет host/port из config.json.
+    old_root, new_data = legacy_layout
+    _make_db(old_root / "warehouse.db", "real-data")
+    (old_root / "config.json").write_text('{"host": "0.0.0.0", "port": 8765}', encoding="utf-8")
+    (old_root / "backups").mkdir()
+    _make_db(old_root / "backups" / "warehouse_20260101_000000.db", "backup")
+
+    real_copy2 = shutil.copy2
+    calls = {"n": 0}
+
+    def flaky_copy2(src, dst, *args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError("симулированный сбой на середине переноса (антивирус/диск)")
+        return real_copy2(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(paths.shutil, "copy2", flaky_copy2)
+
+    with pytest.raises(OSError):
+        paths.migrate_legacy_data(server._copy_database)
+
+    # Прерванная миграция не должна оставлять DB_PATH — иначе следующий
+    # запуск решит, что переносить уже нечего, и config/backups потеряются.
+    assert not (new_data / "warehouse.db").exists()
+    assert (old_root / "warehouse.db").exists()  # источник цел, повтор возможен
+
+    assert paths.migrate_legacy_data(server._copy_database) is True
+
+    connection = sqlite3.connect(new_data / "warehouse.db")
+    assert connection.execute("SELECT name FROM marker").fetchone()[0] == "real-data"
+    connection.close()
+    assert '"port": 8765' in (new_data / "config.json").read_text(encoding="utf-8")
+    assert (new_data / "backups" / "warehouse_20260101_000000.db").exists()

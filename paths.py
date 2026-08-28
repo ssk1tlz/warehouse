@@ -90,9 +90,21 @@ def migrate_legacy_data(copy_database) -> bool:
 
     Возвращает True, если миграция реально выполнялась.
 
-    Копируем, а не перемещаем, и переименовываем источник только после
-    успешного копирования: падение на середине ничего не теряет — при
-    следующем запуске исходный файл всё ещё на месте и попытка повторится.
+    Guard `if DB_PATH.exists()` наверху обязан быть правдой ровно тогда,
+    когда миграция целиком завершена — иначе он способен соврать. Поэтому
+    DB_PATH — это ПОСЛЕДНЕЕ, что появляется на диске: база сначала пишется
+    во временный файл рядом (warehouse.db.migrating, та же файловая
+    система, что и DATA_DIR), затем копируются config.json и backups/, и
+    только после этого temp атомарно переименовывается в DB_PATH через
+    os.replace(). sqlite3.connect() создаёт файл назначения сразу, до
+    первой записи — если бы копия шла прямо в DB_PATH, то падение между
+    копированием базы и копированием config.json (антивирус, забитый
+    диск, kill -9 на середине обновления) оставляло бы DB_PATH
+    существующим, но config.json/backups — нет. При следующем запуске
+    guard увидел бы "миграция уже была" и молча пропустил бы их навсегда
+    (пользователь тихо теряет host/port из config.json). Если что-то из
+    трёх шагов упадёт, temp-файл удаляется и исключение пробрасывается
+    дальше — повтор при следующем запуске начнётся с чистого листа.
 
     `copy_database` — (source, dest) -> None; вызывающий передаёт
     server._copy_database (копия через SQLite online backup API, которая
@@ -107,19 +119,26 @@ def migrate_legacy_data(copy_database) -> bool:
         return False
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    copy_database(old_db, DB_PATH)
+    temp_db = DATA_DIR / "warehouse.db.migrating"
+    try:
+        copy_database(old_db, temp_db)
 
-    old_config = legacy_root() / "config.json"
-    if old_config.exists() and not CONFIG_PATH.exists():
-        shutil.copy2(old_config, CONFIG_PATH)
+        old_config = legacy_root() / "config.json"
+        if old_config.exists() and not CONFIG_PATH.exists():
+            shutil.copy2(old_config, CONFIG_PATH)
 
-    old_backups = legacy_root() / "backups"
-    if old_backups.is_dir():
-        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-        for item in sorted(old_backups.glob("*.db")):
-            target = BACKUP_DIR / item.name
-            if not target.exists():
-                shutil.copy2(item, target)
+        old_backups = legacy_root() / "backups"
+        if old_backups.is_dir():
+            BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+            for item in sorted(old_backups.glob("*.db")):
+                target = BACKUP_DIR / item.name
+                if not target.exists():
+                    shutil.copy2(item, target)
+    except Exception:
+        temp_db.unlink(missing_ok=True)
+        raise
+
+    os.replace(temp_db, DB_PATH)  # атомарно в пределах одной файловой системы
 
     _retire_legacy_file(old_db)
     _retire_legacy_file(old_db.with_name(old_db.name + "-wal"))
