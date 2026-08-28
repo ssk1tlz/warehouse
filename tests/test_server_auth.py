@@ -102,6 +102,21 @@ def test_static_files_are_served_without_authentication(live_server):
             assert response.status == 200, path
 
 
+def test_static_files_are_read_from_the_resource_dir(live_server, tmp_path, monkeypatch):
+    # В собранном onefile-EXE статика лежит в sys._MEIPASS, а не рядом с .exe.
+    # Обслуживание должно идти из RESOURCE_DIR, иначе установленная в
+    # Program Files программа отдаёт 404 на собственный index.html.
+    fake_resources = tmp_path / "resources"
+    fake_resources.mkdir()
+    (fake_resources / "index.html").write_text("<html>из RESOURCE_DIR</html>", encoding="utf-8")
+    monkeypatch.setattr(server, "RESOURCE_DIR", fake_resources)
+
+    request = urllib.request.Request(f"{live_server}/index.html", method="GET")
+    with urllib.request.urlopen(request) as response:
+        body = response.read().decode("utf-8")
+    assert "из RESOURCE_DIR" in body
+
+
 @pytest.mark.parametrize(
     "path",
     [

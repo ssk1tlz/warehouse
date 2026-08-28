@@ -23,20 +23,35 @@ else:
 import mobile_actions
 import migrations
 import auth
+import paths
+from paths import (
+    BACKUP_DIR,
+    CONFIG_PATH,
+    DATA_DIR,
+    DB_PATH,
+    LOG_DIR,
+    RESOURCE_DIR,
+    SCHEMA_PATH,
+    UPDATE_CACHE_PATH,
+    VERSION_PATH,
+)
 
-if getattr(sys, 'frozen', False):
-    ROOT = Path(sys.executable).resolve().parent
-else:
-    ROOT = Path(__file__).resolve().parent
-DB_PATH = ROOT / "warehouse.db"
-SCHEMA_PATH = ROOT / "schema.sql"
-CONFIG_PATH = ROOT / "config.json"
-BACKUP_DIR = ROOT / "backups"
 MAX_BACKUPS = 30
+
+
+def _read_app_version() -> str:
+    """Версия продукта из файла VERSION (общая с мобильным приложением)."""
+    try:
+        return VERSION_PATH.read_text(encoding="utf-8").strip()
+    except OSError:
+        return "0.0.0"
+
+
+APP_VERSION = _read_app_version()
 
 # Static files are served WITHOUT authentication (the desktop client must be able
 # to load its own shell before anyone can log in), so this is an explicit
-# allowlist rather than "anything under ROOT" — otherwise warehouse.db, the
+# allowlist rather than "anything under RESOURCE_DIR" — otherwise warehouse.db, the
 # backups/ directory and every .py source file would be downloadable by any
 # unauthenticated LAN client. Every entry below is referenced by index.html;
 # anything not listed returns 404 (never 403 — we don't leak which files exist).
@@ -1039,7 +1054,7 @@ class WarehouseHandler(BaseHTTPRequestHandler):
             # "exists but you may not have it" from "does not exist".
             self.send_error(HTTPStatus.NOT_FOUND)
             return
-        file_path = ROOT / relative
+        file_path = RESOURCE_DIR / relative
         if not file_path.exists() or not file_path.is_file():
             self.send_error(HTTPStatus.NOT_FOUND)
             return
@@ -1084,6 +1099,7 @@ def get_lan_ip() -> str | None:
 
 
 def main() -> None:
+    paths.migrate_legacy_data(_copy_database)
     try:
         init_db()
     except DatabaseIntegrityError as exc:

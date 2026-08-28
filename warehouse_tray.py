@@ -24,16 +24,17 @@ except ImportError:
     from PyQt5.QtGui import QIcon
     from PyQt5.QtCore import QTimer
 
-# Определяем пути
+import paths
+
+# ROOT нужен только для диагностики в логе запуска — данные живут в
+# paths.DATA_DIR, ресурсы в paths.RESOURCE_DIR.
 if getattr(sys, 'frozen', False):
-    # Если запущен как exe
     ROOT = Path(sys.executable).resolve().parent
 else:
-    # Если запущен как скрипт
     ROOT = Path(__file__).resolve().parent
 
-SERVER_SCRIPT = ROOT / "server.py"
-CONFIG_FILE = ROOT / "config.json"
+CONFIG_FILE = paths.CONFIG_PATH
+LOCK_FILE = paths.DATA_DIR / ".warehouse_app.lock"
 
 
 def _load_port() -> int:
@@ -49,7 +50,6 @@ def _load_port() -> int:
 HOST = "127.0.0.1"
 PORT = _load_port()
 URL = f"http://{HOST}:{PORT}/"
-LOCK_FILE = ROOT / ".warehouse_app.lock"
 
 
 class WarehouseApp:
@@ -74,6 +74,7 @@ class WarehouseApp:
         
         # Создаем файл блокировки
         try:
+            paths.DATA_DIR.mkdir(parents=True, exist_ok=True)
             LOCK_FILE.write_text(str(os.getpid()))
         except Exception as e:
             print(f"Не удалось создать файл блокировки: {e}")
@@ -170,6 +171,7 @@ class WarehouseApp:
             print(f"Запуск сервера...")
             # Создаем HTTP-сервер сами, чтобы корректно останавливать его при выходе
             import server
+            paths.migrate_legacy_data(server._copy_database)
             server.init_db()
             self.clear_startup_error()
             # server.HOST берется из config.json (127.0.0.1 или 0.0.0.0 для сети)
