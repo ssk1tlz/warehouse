@@ -40,6 +40,17 @@ def test_version_code_beats_the_legacy_android_version_code():
     assert bump_version.version_code("1.0.0") > 1
 
 
+def test_version_code_rejects_minor_or_patch_gte_100():
+    # Ограничение схемы: формула major*10000 + minor*100 + patch требует
+    # minor < 100 и patch < 100, иначе возможна коллизия. Например,
+    # 1.0.100 и 1.1.0 обе дают 10100, что приводит к тому, что Android
+    # отказывает установить обновление без видимой причины.
+    with pytest.raises(ValueError):
+        bump_version.version_code("1.100.0")
+    with pytest.raises(ValueError):
+        bump_version.version_code("1.0.100")
+
+
 def test_generated_files_are_committed_in_sync_with_the_version_file():
     # VERSION — единственный редактируемый источник; version.js и
     # version.properties генерируются из него и коммитятся. Этот тест ловит
@@ -51,5 +62,9 @@ def test_render_files_produces_the_expected_contents():
     rendered = {path.name: text for path, text in bump_version.render_files("1.2.3").items()}
     assert rendered["VERSION"] == "1.2.3\n"
     assert rendered["version.js"] == "window.APP_VERSION = '1.2.3';\n"
-    assert "versionName=1.2.3" in rendered["version.properties"]
-    assert "versionCode=10203" in rendered["version.properties"]
+    assert (
+        rendered["version.properties"]
+        == "# Сгенерировано bump_version.py — не редактировать вручную.\n"
+        "versionName=1.2.3\n"
+        "versionCode=10203\n"
+    )
