@@ -48,3 +48,33 @@ Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""Скла
 ; Данные пользователя (%ProgramData%\Warehouse) лежат ВНЕ {app}, поэтому
 ; деинсталлятор их не трогает — это следствие DefaultDirName, а не
 ; отдельная защита, которую можно случайно потерять.
+
+; Галочка "firewall" (см. [Tasks] выше) обещает подключение телефона по
+; сети, но открытый порт сам по себе не включает сетевой режим: сервер
+; по умолчанию слушает только 127.0.0.1 (server.py читает host из
+; config.json, а установщик его не создавал). Здесь, и только когда
+; задача firewall выбрана, дописываем рабочий config.json — но лишь если
+; его ещё нет: у существующего пользователя там могут быть свои
+; значения (а позже задача D2 добавит ключ checkUpdates), и молча
+; затирать их при обновлении программы было бы хуже исходного дефекта.
+[Code]
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ConfigDir: String;
+  ConfigFile: String;
+begin
+  if CurStep = ssPostInstall then
+  begin
+    if WizardIsTaskSelected('firewall') then
+    begin
+      ConfigDir := ExpandConstant('{commonappdata}\Warehouse');
+      ConfigFile := ConfigDir + '\config.json';
+      // Существующий конфиг не трогаем: там могут быть настройки пользователя.
+      if not FileExists(ConfigFile) then
+      begin
+        ForceDirectories(ConfigDir);
+        SaveStringToFile(ConfigFile, '{"host": "0.0.0.0", "port": 8765}', False);
+      end;
+    end;
+  end;
+end;
