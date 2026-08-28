@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import mimetypes
 import shutil
 import sqlite3
@@ -9,6 +10,7 @@ import threading
 from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -76,6 +78,32 @@ def load_config() -> dict:
         except Exception as exc:  # noqa: BLE001
             print(f"Некорректный config.json ({exc}) — использую настройки по умолчанию.")
     return {}
+
+
+LOG_HANDLER_NAME = "warehouse-file"
+
+
+def setup_logging() -> None:
+    """Логи запуска и ошибок — в файл с ротацией, чтобы было что приложить к жалобе.
+
+    Идемпотентна: трей вызывает её при запуске, а main() — при консольном
+    старте; второй обработчик писал бы каждую строку дважды.
+    """
+    root_logger = logging.getLogger()
+    if any(handler.get_name() == LOG_HANDLER_NAME for handler in root_logger.handlers):
+        return
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:  # noqa: BLE001
+        print(f"Не удалось создать папку для логов ({exc}) — работаю без файла логов.")
+        return
+    handler = RotatingFileHandler(
+        LOG_DIR / "warehouse.log", maxBytes=5_000_000, backupCount=3, encoding="utf-8"
+    )
+    handler.set_name(LOG_HANDLER_NAME)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    root_logger.setLevel(logging.INFO)
+    root_logger.addHandler(handler)
 
 
 _config = load_config()
@@ -1099,6 +1127,7 @@ def get_lan_ip() -> str | None:
 
 
 def main() -> None:
+    setup_logging()
     paths.migrate_legacy_data(_copy_database)
     try:
         init_db()
@@ -1109,6 +1138,7 @@ def main() -> None:
         print(str(exc))
         sys.exit(1)
     server = ThreadingHTTPServer((HOST, PORT), WarehouseHandler)
+    logging.info("Сервер запускается на http://%s:%s", HOST, PORT)
     print(f"Warehouse app running at http://{HOST}:{PORT}")
     if HOST == "0.0.0.0":
         lan_ip = get_lan_ip()

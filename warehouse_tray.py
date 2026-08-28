@@ -7,6 +7,7 @@ import subprocess
 import webbrowser
 import socket
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from threading import Thread
@@ -192,6 +193,7 @@ class WarehouseApp:
             self.wait_for_server_start()
 
         except Exception as e:
+            logging.exception("Не удалось запустить сервер")
             print(f"Ошибка запуска сервера: {e}")
             self.httpd = None
             # Всплывающее уведомление в трее легко пропустить (а в некоторых
@@ -348,13 +350,15 @@ class WarehouseApp:
 
 
 def main():
+    import server
+    server.setup_logging()
     print("=" * 60)
     print("Склад IT-техники - System Tray Application")
     print("=" * 60)
     print(f"Рабочая директория: {ROOT}")
     print(f"URL: {URL}")
     print("=" * 60)
-    
+
     app = WarehouseApp()
     sys.exit(app.run())
 

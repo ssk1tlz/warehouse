@@ -193,3 +193,40 @@ def test_migration_is_retryable_after_being_interrupted_partway(legacy_layout, m
     connection.close()
     assert '"port": 8765' in (new_data / "config.json").read_text(encoding="utf-8")
     assert (new_data / "backups" / "warehouse_20260101_000000.db").exists()
+
+
+def test_setup_logging_writes_to_a_rotating_file(tmp_path, monkeypatch):
+    import logging
+    monkeypatch.setattr(server, "LOG_DIR", tmp_path / "logs")
+    root_logger = logging.getLogger()
+    original_handlers = list(root_logger.handlers)
+    try:
+        server.setup_logging()
+        logging.getLogger().info("проверка записи в лог")
+        for handler in logging.getLogger().handlers:
+            handler.flush()
+        log_file = tmp_path / "logs" / "warehouse.log"
+        assert log_file.exists()
+        assert "проверка записи в лог" in log_file.read_text(encoding="utf-8")
+    finally:
+        for handler in list(root_logger.handlers):
+            if handler not in original_handlers:
+                handler.close()
+                root_logger.removeHandler(handler)
+
+
+def test_setup_logging_is_idempotent(tmp_path, monkeypatch):
+    import logging
+    monkeypatch.setattr(server, "LOG_DIR", tmp_path / "logs")
+    root_logger = logging.getLogger()
+    original_handlers = list(root_logger.handlers)
+    try:
+        server.setup_logging()
+        after_first = len(root_logger.handlers)
+        server.setup_logging()
+        assert len(root_logger.handlers) == after_first
+    finally:
+        for handler in list(root_logger.handlers):
+            if handler not in original_handlers:
+                handler.close()
+                root_logger.removeHandler(handler)
