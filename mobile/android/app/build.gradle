@@ -31,16 +31,68 @@ android {
             if (keystorePropsFile.exists()) {
                 def keystoreProps = new Properties()
                 keystorePropsFile.withInputStream { keystoreProps.load(it) }
-                storeFile file(keystoreProps['storeFile'])
-                storePassword keystoreProps['storePassword']
-                keyAlias keystoreProps['keyAlias']
-                keyPassword keystoreProps['keyPassword']
-                // minSdkVersion 24 means AGP would otherwise sign with v2/v3
-                // only (no legacy JAR signature). Keep v1 on too so standard
-                // JAR-signature tooling (keytool -printcert -jarfile, etc.)
-                // can still verify the APK.
-                v1SigningEnabled true
-                v2SigningEnabled true
+
+                // Validate completeness BEFORE calling any AGP setter below.
+                // AGP's own storeFile/storePassword/keyAlias/keyPassword setters
+                // validate eagerly too (confirmed by testing: they throw
+                // IllegalArgumentException at configuration time for null/blank
+                // values and for a storeFile path that doesn't exist) -- but their
+                // exception doesn't name which property is the problem, and its
+                // message may embed the passwords (see the try/catch below). Doing
+                // our own named check first means a copied-but-not-filled-in
+                // keystore.properties.example (e.g. keyPassword left blank) gets a
+                // specific, safe Russian message instead of AGP's generic one.
+                def requiredKeys = ['storeFile', 'storePassword', 'keyAlias', 'keyPassword']
+                def missingKeys = requiredKeys.findAll {
+                    def value = keystoreProps[it]
+                    value == null || value.toString().trim().isEmpty()
+                }
+                if (!missingKeys.isEmpty()) {
+                    throw new GradleException(
+                        "mobile/android/keystore.properties неполный — не заполнены свойства: " +
+                        missingKeys.join(', ') + ". См. docs/RELEASING.md, раздел «Ключ подписи Android»."
+                    )
+                }
+                def storeFileValue = new File(keystoreProps['storeFile'].toString())
+                if (!storeFileValue.exists()) {
+                    throw new GradleException(
+                        "Файл keystore не найден по пути из keystore.properties (storeFile=" +
+                        keystoreProps['storeFile'] + "). Проверьте путь. См. docs/RELEASING.md, раздел «Ключ подписи Android»."
+                    )
+                }
+
+                try {
+                    storeFile storeFileValue
+                    storePassword keystoreProps['storePassword']
+                    keyAlias keystoreProps['keyAlias']
+                    keyPassword keystoreProps['keyPassword']
+                    // minSdkVersion 24 means AGP would otherwise sign with v2/v3
+                    // only (no legacy JAR signature). Keep v1 on too so standard
+                    // JAR-signature tooling (keytool -printcert -jarfile, etc.)
+                    // can still verify the APK.
+                    v1SigningEnabled true
+                    v2SigningEnabled true
+                } catch (Exception e) {
+                    // Backstop for anything the checks above didn't catch (e.g. a
+                    // typo'd property name below, or an AGP validation rule this
+                    // file doesn't know about). Deliberately do NOT include
+                    // e.getMessage()/e.toString() here. Gradle's default (non
+                    // "--stacktrace") console output prints an uncaught exception's
+                    // message verbatim, and Groovy's default toString() on a
+                    // failing SigningConfig property call embeds the delegate's
+                    // fields -- including the plaintext storePassword and
+                    // keyPassword. A real keystore password leaked into a build log
+                    // exactly this way during development of this file (a typo'd
+                    // property name triggered MissingMethodException, whose message
+                    // dumped the whole SigningConfig, passwords included). Do not
+                    // "helpfully" restore the exception text here -- only the class
+                    // name is safe to surface.
+                    throw new GradleException(
+                        "Ошибка при настройке signingConfigs.release (проверьте имена свойств в build.gradle). " +
+                        "Подробности исключения намеренно не выводятся: сообщение Gradle может содержать пароль от keystore. " +
+                        "Класс исключения: " + e.getClass().getName()
+                    )
+                }
             }
         }
     }
@@ -56,9 +108,23 @@ android {
 // Fail fast, before any task executes (doFirst on assembleRelease itself runs
 // too late: dependency tasks like :app:packageRelease already ran and would
 // fail first with an opaque AGP error). taskGraph.whenReady fires once the
-// task graph is resolved but before execution starts.
+// task graph is resolved but before execution starts. Covers assemble/bundle/
+// package Release, not just assembleRelease, so bundleRelease or a direct
+// packageRelease invocation can't slip past this check either.
+//
+// Completeness/storeFile-path validation lives in signingConfigs.release
+// above, not here: that block runs during the configuration phase, which
+// always happens before taskGraph.whenReady, so a check placed here would
+// never be reached for a malformed (as opposed to entirely absent)
+// keystore.properties -- AGP's own property setters already throw first.
+// This block only needs to catch the "file doesn't exist at all" case, since
+// signingConfigs.release silently skips (no validation, no signing config)
+// when the file is absent.
 gradle.taskGraph.whenReady { graph ->
-    if (graph.hasTask(':app:assembleRelease') && !rootProject.file('keystore.properties').exists()) {
+    def releaseTaskRequested = graph.allTasks.any {
+        it.path.startsWith(':app:') && it.name ==~ /(assemble|bundle|package)Release/
+    }
+    if (releaseTaskRequested && !rootProject.file('keystore.properties').exists()) {
         throw new GradleException(
             "mobile/android/keystore.properties не найден — release-сборка требует ключа подписи. " +
             "См. docs/RELEASING.md, раздел «Ключ подписи Android»."
