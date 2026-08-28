@@ -25,11 +25,44 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            def keystorePropsFile = rootProject.file('keystore.properties')
+            if (keystorePropsFile.exists()) {
+                def keystoreProps = new Properties()
+                keystorePropsFile.withInputStream { keystoreProps.load(it) }
+                storeFile file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+                // minSdkVersion 24 means AGP would otherwise sign with v2/v3
+                // only (no legacy JAR signature). Keep v1 on too so standard
+                // JAR-signature tooling (keytool -printcert -jarfile, etc.)
+                // can still verify the APK.
+                v1SigningEnabled true
+                v2SigningEnabled true
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
         }
+    }
+}
+
+// Fail fast, before any task executes (doFirst on assembleRelease itself runs
+// too late: dependency tasks like :app:packageRelease already ran and would
+// fail first with an opaque AGP error). taskGraph.whenReady fires once the
+// task graph is resolved but before execution starts.
+gradle.taskGraph.whenReady { graph ->
+    if (graph.hasTask(':app:assembleRelease') && !rootProject.file('keystore.properties').exists()) {
+        throw new GradleException(
+            "mobile/android/keystore.properties не найден — release-сборка требует ключа подписи. " +
+            "См. docs/RELEASING.md, раздел «Ключ подписи Android»."
+        )
     }
 }
 

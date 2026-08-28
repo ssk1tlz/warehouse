@@ -23,3 +23,8 @@ mobile/android/app/build/
 mobile/android/.gradle/
 mobile/android/build/
 mobile/android/local.properties
+
+# Android release signing secrets — never commit
+mobile/android/keystore.properties
+*.jks
+*.keystore
