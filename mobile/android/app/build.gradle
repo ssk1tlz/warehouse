@@ -1,5 +1,14 @@
 apply plugin: 'com.android.application'
 
+def versionProps = new Properties()
+def versionPropsFile = rootProject.file('version.properties')
+if (!versionPropsFile.exists()) {
+    throw new GradleException(
+        "mobile/android/version.properties не найден. Выполните в корне проекта: python bump_version.py --sync"
+    )
+}
+versionPropsFile.withInputStream { versionProps.load(it) }
+
 android {
     namespace = "com.warehouse.scanner"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +16,8 @@ android {
         applicationId "com.warehouse.scanner"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode versionProps['versionCode'].toInteger()
+        versionName versionProps['versionName']
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
