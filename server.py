@@ -30,7 +30,6 @@ import updates
 from paths import (
     BACKUP_DIR,
     CONFIG_PATH,
-    DATA_DIR,
     DB_PATH,
     LOG_DIR,
     RESOURCE_DIR,
@@ -106,6 +105,26 @@ def current_update() -> dict | None:
     return {"version": latest, "url": cache.get("releaseUrl")}
 
 
+def _decorate_with_versions(state: dict) -> dict:
+    """Add currentVersion/latestVersion/releaseUrl to a state dict in place.
+
+    Factored out of state_with_versions() so callers that already have a
+    freshly-built state dict (e.g. POST /api/state's success response, which
+    gets one back from import_state()) don't have to pay for a second full
+    export_state() just to pick up these three fields.
+    """
+    state["currentVersion"] = APP_VERSION
+    update = current_update()
+    state["latestVersion"] = update["version"] if update else None
+    state["releaseUrl"] = update["url"] if update else None
+    return state
+
+
+def state_with_versions() -> dict:
+    """export_state() decorated with the three version fields GET /api/state already carries."""
+    return _decorate_with_versions(export_state())
+
+
 def refresh_update_cache_if_due() -> None:
     """Спросить GitHub, если прошли сутки с последнего успешного запроса."""
     if not check_updates_enabled():
@@ -144,7 +163,18 @@ def start_background_update_check() -> None:
     if not _update_check_lock.acquire(blocking=False):
         return
     thread = threading.Thread(target=_run_update_check_and_release_lock, daemon=True)
-    thread.start()
+    try:
+        thread.start()
+    except Exception:
+        # thread.start() failing (rare — e.g. OS thread-creation failure)
+        # would otherwise leave the lock held forever, permanently disabling
+        # update checks for the rest of the process's life. Update checks
+        # are meant to be entirely optional and silent (see module docstring
+        # in updates.py) — log and swallow rather than crash the request
+        # thread that happened to trigger this (GET /api/state, polled by
+        # the mobile app every 15s).
+        logging.exception("Не удалось запустить фоновый поток проверки обновлений")
+        _update_check_lock.release()
 
 
 LOG_HANDLER_NAME = "warehouse-file"
@@ -178,6 +208,24 @@ _config = load_config()
 # host "0.0.0.0" — доступ по локальной сети (см. setup_lan.bat).
 HOST = str(_config.get("host", "127.0.0.1"))
 PORT = int(_config.get("port", 8765))
+
+
+def reload_config() -> None:
+    """Перечитать config.json и обновить HOST/PORT.
+
+    HOST/PORT вычисляются один раз при импорте модуля — но
+    paths.migrate_legacy_data() (переносящий старый config.json с реальными
+    host/port пользователя в DATA_DIR) выполняется ПОЗЖЕ, внутри main() и
+    warehouse_tray.start_server(), уже после того как этот импорт отработал.
+    Без этого вызова тот самый запуск, который выполняет миграцию, всё ещё
+    слушает на loopback по умолчанию — пользователю, обновившемуся со
+    старой версии в LAN-режиме, пришлось бы перезапускать приложение
+    вручную, чтобы телефон снова смог достучаться до сервера.
+    """
+    global HOST, PORT
+    config = load_config()
+    HOST = str(config.get("host", HOST))
+    PORT = int(config.get("port", PORT))
 
 
 def _prune_backups() -> None:
@@ -700,11 +748,7 @@ class WarehouseHandler(BaseHTTPRequestHandler):
         if not self.verify_channel_signature(user, b""):
             return
         if parsed.path == "/api/state":
-            state = export_state()
-            state["currentVersion"] = APP_VERSION
-            update = current_update()
-            state["latestVersion"] = update["version"] if update else None
-            state["releaseUrl"] = update["url"] if update else None
+            state = state_with_versions()
             start_background_update_check()
             self.send_json(state)
             return
@@ -809,7 +853,7 @@ class WarehouseHandler(BaseHTTPRequestHandler):
                 conflict_body = json.dumps(
                     {
                         "error": "Данные были изменены в другом окне. Состояние обновлено — повторите последнее действие.",
-                        "state": export_state(),
+                        "state": state_with_versions(),
                     },
                     ensure_ascii=False,
                 ).encode("utf-8")
@@ -820,7 +864,7 @@ class WarehouseHandler(BaseHTTPRequestHandler):
                 self.wfile.write(conflict_body)
                 return
             auto_backup()
-            state = import_state(payload, actor=user["username"])
+            state = _decorate_with_versions(import_state(payload, actor=user["username"]))
         self.send_json(state)
 
     def do_PATCH(self) -> None:
@@ -1230,7 +1274,8 @@ def get_lan_ip() -> str | None:
 
 def main() -> None:
     setup_logging()
-    paths.migrate_legacy_data(_copy_database)
+    if paths.migrate_legacy_data(_copy_database):
+        reload_config()
     try:
         init_db()
     except DatabaseIntegrityError as exc:

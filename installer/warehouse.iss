@@ -39,6 +39,12 @@ Name: "autostart"; Description: "Запускать при входе в Windows
 Name: "firewall"; Description: "Открыть порт 8765 в брандмауэре (нужно для подключения телефона по сети)"; Flags: unchecked
 
 [Run]
+; Удаляем прежнее правило перед добавлением: без этого повторный запуск
+; установщика с отмеченной галочкой "firewall" (переустановка/обновление)
+; накапливает дублирующиеся одинаковые правила. Если правила ещё нет —
+; netsh вернёт ненулевой код, но [Run] в Inno Setup его не проверяет, так
+; что это безопасно (тот же приём, что и в setup_lan.bat).
+Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""Склад IT-техники"""; Tasks: firewall; Flags: runhidden
 Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""Склад IT-техники"" dir=in action=allow protocol=TCP localport=8765"; Tasks: firewall; Flags: runhidden
 Filename: "{app}\{#MyAppExeName}"; Description: "Запустить {#MyAppName}"; Flags: nowait postinstall skipifsilent
 
@@ -57,11 +63,24 @@ Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""Скла
 ; его ещё нет: у существующего пользователя там могут быть свои
 ; значения (а позже задача D2 добавит ключ checkUpdates), и молча
 ; затирать их при обновлении программы было бы хуже исходного дефекта.
+;
+; Второе условие ниже (LegacyConfigFile) — для пользователя, обновляющегося
+; с версии до Этапа 3: его настоящий config.json лежит рядом со старым .exe
+; ({app}\config.json), а paths.migrate_legacy_data() переносит его в
+; %ProgramData%\Warehouse ПРИ ПЕРВОМ ЗАПУСКЕ программы после установки — то
+; есть позже, чем этот скрипт. Guard миграции — "если ProgramData\config.json
+; уже существует, не копировать" — так что если бы мы здесь безусловно
+; писали дефолт (когда только ProgramData\config.json ещё не существует), то
+; миграция увидела бы "конфиг уже есть" и молча пропустила бы перенос
+; реальных host/port пользователя. Полноценный перенос (мердж) значений
+; здесь, в Pascal, не делаем — это отдельная, более рискованная задача;
+; просто уступаем дорогу миграции, если её ещё не было.
 [Code]
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ConfigDir: String;
   ConfigFile: String;
+  LegacyConfigFile: String;
 begin
   if CurStep = ssPostInstall then
   begin
@@ -69,8 +88,13 @@ begin
     begin
       ConfigDir := ExpandConstant('{commonappdata}\Warehouse');
       ConfigFile := ConfigDir + '\config.json';
-      // Существующий конфиг не трогаем: там могут быть настройки пользователя.
-      if not FileExists(ConfigFile) then
+      LegacyConfigFile := ExpandConstant('{app}\config.json');
+      // Ничего не пишем, если конфиг уже есть в новом месте, ИЛИ если есть
+      // старый config.json, который migrate_legacy_data() перенесёт сам при
+      // первом запуске — иначе наш дефолт "появится первым" и заставит
+      // миграцию решить, что переносить уже нечего, тихо потеряв реальные
+      // host/port пользователя.
+      if not FileExists(ConfigFile) and not FileExists(LegacyConfigFile) then
       begin
         ForceDirectories(ConfigDir);
         SaveStringToFile(ConfigFile, '{"host": "0.0.0.0", "port": 8765}', False);

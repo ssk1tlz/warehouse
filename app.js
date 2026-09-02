@@ -385,6 +385,7 @@ async function saveState() {
     if (data.state) {
       state = hydrateState(data.state);
       rebuildLookupMaps();
+      renderUpdateBanner();
       render();
     }
     const error = new Error(data.error || "Данные были изменены в другом окне.");
@@ -399,6 +400,7 @@ async function saveState() {
   }
   state = hydrateState(await response.json());
   rebuildLookupMaps();
+  renderUpdateBanner();
   render();
 }
 
@@ -406,6 +408,7 @@ async function reloadFromServer() {
   try {
     state = await loadState();
     rebuildLookupMaps();
+    renderUpdateBanner();
     render();
   } catch (error) {
     console.error(error);
@@ -3938,8 +3941,14 @@ function renderUpdateBanner() {
   }
   document.getElementById("updateBannerText").textContent =
     `Доступна версия ${latest} (у вас ${state.currentVersion}).`;
-  document.getElementById("updateBannerLink").href =
-    state.releaseUrl || "https://github.com/ssk1tlz/warehouse/releases";
+  // releaseUrl comes from a local cache file populated by updates.py parsing
+  // a GitHub API response — not directly attacker-controlled — but a scheme
+  // check here is cheap defense-in-depth against a stray javascript: value
+  // ever reaching a clickable link.
+  const releaseUrl = typeof state.releaseUrl === "string" && state.releaseUrl.startsWith("https://")
+    ? state.releaseUrl
+    : "https://github.com/ssk1tlz/warehouse/releases";
+  document.getElementById("updateBannerLink").href = releaseUrl;
   banner.classList.remove("hidden");
 }
 

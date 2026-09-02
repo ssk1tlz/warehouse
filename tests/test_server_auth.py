@@ -11,6 +11,7 @@ import pytest
 
 import auth
 import server
+import updates
 
 
 @pytest.fixture
@@ -19,6 +20,18 @@ def live_server(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "BACKUP_DIR", tmp_path / "backups")
     monkeypatch.setattr(server, "CONFIG_PATH", tmp_path / "config.json")
     monkeypatch.setattr(server, "UPDATE_CACHE_PATH", tmp_path / "update_check.json")
+    # GET /api/state spawns a real background update check whenever no cache
+    # exists yet (should_check() with an empty cache is True) — which almost
+    # every test here triggers just by calling /api/state at all. Today that
+    # background thread hits the real api.github.com and gets a harmless 404
+    # (no release published yet), but the moment a release exists it would
+    # start writing into the REAL %ProgramData%\Warehouse\update_check.json —
+    # the thread can outlive the test and resolve server.UPDATE_CACHE_PATH
+    # after monkeypatch teardown has restored the real path. Neutralize the
+    # actual network-issuing function itself (not just the cache) so no
+    # future test can accidentally re-enable a real network call by
+    # manipulating the cache directly.
+    monkeypatch.setattr(updates, "check_now", lambda *args, **kwargs: None)
     server.init_db()
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.WarehouseHandler)
     port = httpd.server_address[1]
@@ -524,6 +537,12 @@ def _lan_ip():
 def live_server_on_all_interfaces(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "DB_PATH", tmp_path / "test.db")
     monkeypatch.setattr(server, "BACKUP_DIR", tmp_path / "backups")
+    monkeypatch.setattr(server, "CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(server, "UPDATE_CACHE_PATH", tmp_path / "update_check.json")
+    # Same reasoning as the live_server fixture above: some tests using this
+    # fixture also hit GET /api/state, which would otherwise spawn a real
+    # background thread issuing a real network call.
+    monkeypatch.setattr(updates, "check_now", lambda *args, **kwargs: None)
     server.init_db()
     httpd = ThreadingHTTPServer(("0.0.0.0", 0), server.WarehouseHandler)
     port = httpd.server_address[1]
@@ -675,6 +694,35 @@ def test_state_reports_the_current_product_version(live_server):
     status, body = _request(live_server, "GET", "/api/state", token=token)
     assert status == 200
     assert body["currentVersion"] == server.APP_VERSION
+
+
+def test_post_state_success_response_includes_version_fields(live_server):
+    # Regression test: POST /api/state's success response used to call
+    # export_state()/import_state() directly and skip the three version
+    # fields GET /api/state already carried — so hydrateState() on the
+    # client resolved them to ""/null/null after every save, blanking the
+    # settings modal's version label and the update banner.
+    token = _create_admin(live_server)
+    status, body = _request(live_server, "POST", "/api/state", token=token,
+                             json_body=_state_payload(_asset_payload()))
+    assert status == 200, body
+    assert body["currentVersion"] == server.APP_VERSION
+    assert "latestVersion" in body
+    assert "releaseUrl" in body
+
+
+def test_post_state_conflict_response_includes_version_fields(live_server, monkeypatch):
+    # Same regression, for the 409 edit-conflict body.
+    token = _create_admin(live_server)
+    monkeypatch.setattr(server, "APP_VERSION", "1.0.0")
+    updates.write_cache(server.UPDATE_CACHE_PATH, "1.5.0", "https://example/release")
+    payload = _state_payload(_asset_payload())
+    payload["meta"]["version"] = 999  # deliberately stale -> version mismatch -> 409
+    status, body = _request(live_server, "POST", "/api/state", token=token, json_body=payload)
+    assert status == 409, body
+    assert body["state"]["currentVersion"] == "1.0.0"
+    assert body["state"]["latestVersion"] == "1.5.0"
+    assert body["state"]["releaseUrl"] == "https://example/release"
 
 
 def test_state_reports_a_newer_cached_version(live_server, monkeypatch):

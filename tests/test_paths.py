@@ -195,6 +195,51 @@ def test_migration_is_retryable_after_being_interrupted_partway(legacy_layout, m
     assert (new_data / "backups" / "warehouse_20260101_000000.db").exists()
 
 
+def test_reload_config_picks_up_a_just_migrated_host_and_port(legacy_layout, monkeypatch):
+    # server.HOST/PORT are computed once, at module import time, from
+    # load_config() — but migrate_legacy_data() (which copies the legacy
+    # config.json carrying the user's real host/port into DATA_DIR) runs
+    # LATER, inside server.main()/warehouse_tray.start_server(), after that
+    # import already happened. Without reload_config(), the very run that
+    # performs the migration keeps binding to the pre-migration HOST/PORT —
+    # an upgrading LAN user's phone can't reach the server until a restart.
+    old_root, new_data = legacy_layout
+    _make_db(old_root / "warehouse.db", "real-data")
+    (old_root / "config.json").write_text('{"host": "0.0.0.0", "port": 9999}', encoding="utf-8")
+
+    # reload_config() reads through server.load_config(), which uses
+    # server.CONFIG_PATH — point that at the same DATA_DIR the legacy_layout
+    # fixture already migrates paths.CONFIG_PATH to, so the migrated file
+    # server.reload_config() picks up is the one migrate_legacy_data() wrote.
+    monkeypatch.setattr(server, "CONFIG_PATH", new_data / "config.json")
+    monkeypatch.setattr(server, "HOST", "127.0.0.1")
+    monkeypatch.setattr(server, "PORT", 8765)
+
+    assert paths.migrate_legacy_data(server._copy_database) is True
+    server.reload_config()
+
+    assert server.HOST == "0.0.0.0"
+    assert server.PORT == 9999
+
+
+def test_reload_config_is_not_called_when_migration_is_a_noop(legacy_layout, monkeypatch):
+    # Precision check on the "only when migration actually happened" guard
+    # that main()/start_server() apply around the reload_config() call:
+    # nothing to migrate here, so a caller must not reload/clobber HOST/PORT.
+    old_root, new_data = legacy_layout
+    monkeypatch.setattr(server, "CONFIG_PATH", new_data / "config.json")
+    monkeypatch.setattr(server, "HOST", "127.0.0.1")
+    monkeypatch.setattr(server, "PORT", 8765)
+
+    migrated = paths.migrate_legacy_data(server._copy_database)
+    assert migrated is False
+    if migrated:
+        server.reload_config()
+
+    assert server.HOST == "127.0.0.1"
+    assert server.PORT == 8765
+
+
 def test_setup_logging_writes_to_a_rotating_file(tmp_path, monkeypatch):
     import logging
     monkeypatch.setattr(server, "LOG_DIR", tmp_path / "logs")

@@ -172,7 +172,13 @@ class WarehouseApp:
             print(f"Запуск сервера...")
             # Создаем HTTP-сервер сами, чтобы корректно останавливать его при выходе
             import server
-            paths.migrate_legacy_data(server._copy_database)
+            if paths.migrate_legacy_data(server._copy_database):
+                # Пользователь мог обновиться со старой версии с реальными
+                # host/port в config.json рядом с .exe — server.HOST/PORT уже
+                # вычислены при импорте (до миграции), без этого вызова
+                # сервер этого запуска слушал бы loopback по умолчанию до
+                # следующего перезапуска приложения.
+                server.reload_config()
             server.init_db()
             server.start_background_update_check()
             self.clear_startup_error()

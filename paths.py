@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import sys
@@ -79,9 +80,16 @@ def _retire_legacy_file(path: Path) -> None:
     try:
         path.replace(path.with_name(path.name + ".migrated"))
     except OSError as exc:
-        print(
-            f"ПРЕДУПРЕЖДЕНИЕ: не удалось переименовать {path} после переноса "
-            f"данных ({exc}) — файл ещё занят другим процессом, оставляю как есть."
+        # print() здесь не увидит никто: WarehouseApp_New.spec собирает EXE с
+        # console=False, так что stdout уходит в никуда — а это ровно то
+        # сообщение, которое нужно для разбора обращения в поддержку.
+        # setup_logging() (Задача A4) уже настроена к этому моменту в обоих
+        # входных точках (main() и warehouse_tray.py), она вызывается перед
+        # миграцией.
+        logging.warning(
+            "Не удалось переименовать %s после переноса данных (%s) — "
+            "файл ещё занят другим процессом, оставляю как есть.",
+            path, exc,
         )
 
 
