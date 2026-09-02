@@ -742,9 +742,16 @@ def test_background_update_check_does_not_spawn_a_thread_when_checks_are_disable
 
 def test_background_update_check_is_a_no_op_while_one_is_already_in_flight(live_server, monkeypatch):
     # No cache written -> should_check() is True and checkUpdates defaults to
-    # on, so this reaches the lock. Simulate an in-flight check by holding the
-    # module-level lock ourselves before calling in.
-    assert server._update_check_lock.acquire(blocking=False)
+    # on, so this reaches the lock. Simulate an in-flight check by holding a
+    # lock ourselves before calling in. Swap in a fresh Lock rather than using
+    # the real module-level singleton: other tests' /api/state calls spawn
+    # real background threads against the real lock, and one of those could
+    # still be mid-network-call (up to REQUEST_TIMEOUT_SECONDS) when this test
+    # runs, making a bare acquire() on the shared lock flaky/environment-
+    # dependent. A fresh Lock makes this test's precondition self-contained.
+    fresh_lock = threading.Lock()
+    monkeypatch.setattr(server, "_update_check_lock", fresh_lock)
+    assert fresh_lock.acquire(blocking=False)
     try:
         def _fail_if_constructed(*args, **kwargs):
             raise AssertionError("should not reach thread construction — should stop at the lock")
@@ -752,4 +759,4 @@ def test_background_update_check_is_a_no_op_while_one_is_already_in_flight(live_
         monkeypatch.setattr(server.threading, "Thread", _fail_if_constructed)
         server.start_background_update_check()
     finally:
-        server._update_check_lock.release()
+        fresh_lock.release()
