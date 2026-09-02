@@ -2,6 +2,27 @@ function describeScanError(err, fallback) {
   return (err && err.message) ? err.message : fallback;
 }
 
+function parseVersion(text) {
+  if (typeof text !== 'string') return null;
+  const match = /^[vV]?(\d+)\.(\d+)\.(\d+)$/.exec(text.trim());
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+}
+
+function describeUpdate(state, currentVersion) {
+  const latest = parseVersion(state && state.latestVersion);
+  const current = parseVersion(currentVersion);
+  if (!latest || !current) return null;
+  for (let i = 0; i < 3; i += 1) {
+    if (latest[i] > current[i]) break;
+    if (latest[i] < current[i]) return null;
+    if (i === 2) return null; // полностью равны
+  }
+  return {
+    text: `Доступна версия ${state.latestVersion} (у вас ${currentVersion}).`,
+    url: (state && state.releaseUrl) || 'https://github.com/ssk1tlz/warehouse/releases',
+  };
+}
+
 const NAV_SCREEN_MAP = {
   navSearchBtn: 'screen-search',
   navQueueBtn: 'screen-queue',
@@ -389,6 +410,16 @@ async function init() {
   document.getElementById('navSettingsBtn').addEventListener('click', async () => {
     const currentSettings = await Settings.get();
     document.getElementById('settingsUrl').value = currentSettings.serverUrl;
+    document.getElementById('appVersionLabel').textContent = `Версия приложения: ${window.APP_VERSION || 'неизвестна'}`;
+    const update = describeUpdate(await Db.getStateMeta(), window.APP_VERSION);
+    const banner = document.getElementById('updateBanner');
+    if (update) {
+      document.getElementById('updateBannerText').textContent = update.text;
+      document.getElementById('updateBannerUrl').textContent = update.url;
+      banner.classList.remove('hidden');
+    } else {
+      banner.classList.add('hidden');
+    }
     showScreen('screen-settings');
   });
   document.getElementById('assetBackBtn').addEventListener('click', () => showScreen('screen-scan'));
@@ -493,7 +524,7 @@ function initSwipeBack() {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { describeScanError };
+  module.exports = { describeScanError, describeUpdate };
 }
 if (typeof window !== 'undefined') {
   window.App = { init };

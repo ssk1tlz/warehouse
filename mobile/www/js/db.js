@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS movements_history (
   id TEXT PRIMARY KEY, type TEXT NOT NULL, asset_id TEXT NOT NULL, asset_name TEXT,
   employee_id TEXT, department TEXT, site TEXT, act_number INTEGER, quantity INTEGER, date TEXT, notes TEXT
 );
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 `;
 
 async function open() {
@@ -126,6 +127,14 @@ async function replaceState(state) {
       values: [m.id, m.type, m.assetId, assetNameById.get(m.assetId) || '', m.employeeId, m.department, m.site, m.actNumber, m.quantity, m.date, m.notes],
     });
   }
+  txn.push({
+    statement: `INSERT OR REPLACE INTO meta (key, value) VALUES ('latestVersion', ?)`,
+    values: [state.latestVersion || null],
+  });
+  txn.push({
+    statement: `INSERT OR REPLACE INTO meta (key, value) VALUES ('releaseUrl', ?)`,
+    values: [state.releaseUrl || null],
+  });
   // executeTransaction() begins the transaction, runs each task with transaction:false,
   // commits on success, and rolls back + rejects on any failure — equivalent to (and safer
   // than) the manual begin/try/commit/catch/rollback pattern this replaces.
@@ -162,6 +171,13 @@ async function getAssetById(id) {
       quantity: alloc.quantity,
     })),
   };
+}
+
+async function getStateMeta() {
+  const result = await db.query('SELECT key, value FROM meta');
+  const meta = {};
+  for (const row of result.values || []) meta[row.key] = row.value;
+  return meta;
 }
 
 async function listEmployeesById() {
@@ -309,4 +325,4 @@ async function cancelAction(clientActionId) {
   await db.run('DELETE FROM pending_actions WHERE client_action_id = ?', [clientActionId]);
 }
 
-window.Db = { open, replaceState, getAssetById, listEmployeesById, listMovementsForAsset, listMovementHistory, searchAssets, enqueueAction, listPendingActions, markActionSynced, markActionFailed, retryAction, markActionConflict, retryActionOnTop, cancelAction, generateClientActionId };
+window.Db = { open, replaceState, getAssetById, getStateMeta, listEmployeesById, listMovementsForAsset, listMovementHistory, searchAssets, enqueueAction, listPendingActions, markActionSynced, markActionFailed, retryAction, markActionConflict, retryActionOnTop, cancelAction, generateClientActionId };
