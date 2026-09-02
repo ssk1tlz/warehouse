@@ -105,7 +105,7 @@ keyPassword=<пароль>
 никогда не коммитится (`.gitignore`: `mobile/android/keystore.properties`,
 `*.jks`, `*.keystore`) — только `keystore.properties.example` с плейсхолдерами.
 Если `keystore.properties` отсутствует или заполнен не полностью, релизная
-сборка (`gradlew.bat assembleRelease`) падает с понятной ошибкой на русском,
+сборка (`./gradlew.bat assembleRelease`) падает с понятной ошибкой на русском,
 а не тихо создаёт debug-подписанный APK.
 
 ## 3. Разовая подготовка: Inno Setup
@@ -151,12 +151,12 @@ git add VERSION mobile/www/js/version.js mobile/android/version.properties
 git commit -m "release: v1.0.1"     # подставить реальный номер версии
 ```
 
-**Шаг 4. Собрать установщик Windows.** `installer\build_installer.bat`
+**Шаг 4. Собрать установщик Windows.** `installer/build_installer.bat`
 сам проверяет синхронность версии (`bump_version.py --check`), пересобирает
-`dist\WarehouseApp_New.exe` через PyInstaller и упаковывает его в установщик:
+`dist/WarehouseApp_New.exe` через PyInstaller и упаковывает его в установщик:
 
 ```bash
-installer\build_installer.bat
+installer/build_installer.bat
 ```
 
 Результат: `installer/output/WarehouseSetup-1.0.1.exe` (имя файла собирается
@@ -166,7 +166,7 @@ installer\build_installer.bat
 **Шаг 5. Собрать подписанный APK.**
 
 ```bash
-cd mobile && npx cap sync android && cd android && gradlew.bat assembleRelease
+cd mobile && npx cap sync android && cd android && ./gradlew.bat assembleRelease
 ```
 
 `npx cap sync android` здесь **обязателен**, а не опционален. Capacitor не
