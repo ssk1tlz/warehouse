@@ -1708,6 +1708,19 @@ tr:hover td { background: var(--surface-2); }
 .lan-qr-code { background: #fff; padding: 16px; border-radius: var(--r-sm); }
 .lan-qr-body code { font-family: var(--mono); background: var(--surface-2); padding: 1px 6px; border-radius: 4px; }
 
+/* ─── плашка обновления ──────────────────────────────────────── */
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--brand-dim);
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.update-banner a { text-decoration: underline; }
+.update-banner button { margin-left: auto; }
+
 .modal-header {
   display: flex;
   align-items: center;

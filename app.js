@@ -7,6 +7,9 @@ const EMPTY_STATE = {
   movements: [],
   auditLog: [],
   kitTemplates: [],
+  currentVersion: "",
+  latestVersion: null,
+  releaseUrl: null,
 };
 
 const statusLabels = {
@@ -344,6 +347,9 @@ function hydrateState(parsed) {
     movements: Array.isArray(parsed.movements) ? parsed.movements : [],
     auditLog: parsed.auditLog || [],
     kitTemplates: parsed.kitTemplates || [],
+    currentVersion: parsed.currentVersion || "",
+    latestVersion: parsed.latestVersion || null,
+    releaseUrl: parsed.releaseUrl || null,
   };
 }
 
@@ -3541,6 +3547,28 @@ function bindEvents() {
   document.getElementById("backupsOverlay")?.addEventListener("click", (e) => {
     if (e.target === document.getElementById("backupsOverlay")) closeBackupsModal();
   });
+  document.getElementById("showSettingsBtn")?.addEventListener("click", openSettingsModal);
+  document.getElementById("closeSettingsBtn")?.addEventListener("click", closeSettingsModal);
+  document.getElementById("settingsOverlay")?.addEventListener("click", (e) => {
+    if (e.target === document.getElementById("settingsOverlay")) closeSettingsModal();
+  });
+  document.getElementById("checkUpdatesInput")?.addEventListener("change", async (e) => {
+    const response = await apiFetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ checkUpdates: e.target.checked }),
+    });
+    if (!response.ok) {
+      showToast("Не удалось сохранить настройку", "warning");
+      e.target.checked = !e.target.checked;
+      return;
+    }
+    showToast(e.target.checked ? "Проверка обновлений включена" : "Проверка обновлений выключена", "success");
+  });
+  document.getElementById("dismissUpdateBtn")?.addEventListener("click", () => {
+    updateBannerDismissed = true;
+    renderUpdateBanner();
+  });
   document.getElementById("backupsTableBody")?.addEventListener("click", async (e) => {
     const btn = e.target.closest("button[data-action='restore-backup']");
     if (!btn) return;
@@ -3883,6 +3911,36 @@ async function openBackupsModal() {
 
 function closeBackupsModal() {
   document.getElementById("backupsOverlay").classList.add("hidden");
+}
+
+async function openSettingsModal() {
+  const response = await apiFetch("/api/settings");
+  const data = await response.json();
+  document.getElementById("checkUpdatesInput").checked = Boolean(data.checkUpdates);
+  document.getElementById("currentVersionLabel").textContent =
+    `Версия программы: ${state.currentVersion || "неизвестна"}`;
+  document.getElementById("settingsOverlay").classList.remove("hidden");
+}
+
+function closeSettingsModal() {
+  document.getElementById("settingsOverlay").classList.add("hidden");
+}
+
+let updateBannerDismissed = false;
+
+function renderUpdateBanner() {
+  const banner = document.getElementById("updateBanner");
+  if (!banner) return;
+  const latest = state.latestVersion;
+  if (!latest || updateBannerDismissed) {
+    banner.classList.add("hidden");
+    return;
+  }
+  document.getElementById("updateBannerText").textContent =
+    `Доступна версия ${latest} (у вас ${state.currentVersion}).`;
+  document.getElementById("updateBannerLink").href =
+    state.releaseUrl || "https://github.com/ssk1tlz/warehouse/releases";
+  banner.classList.remove("hidden");
 }
 
 function formatBytes(n) {
@@ -4604,6 +4662,7 @@ async function boot() {
   resetEmployeeForm();
   resetOperationForms();
   applyRoleVisibility();
+  renderUpdateBanner();
   render();
 }
 
