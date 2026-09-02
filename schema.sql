@@ -128,3 +128,20 @@ CREATE TABLE IF NOT EXISTS pairing_codes (
   expires_at TEXT NOT NULL,
   used_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS inventory_sessions (
+  id TEXT PRIMARY KEY,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  started_by TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open'
+);
+
+CREATE TABLE IF NOT EXISTS inventory_scans (
+  session_id TEXT NOT NULL,
+  asset_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  found_location TEXT NOT NULL DEFAULT '',
+  FOREIGN KEY (session_id) REFERENCES inventory_sessions(id),
+  FOREIGN KEY (asset_id) REFERENCES assets(id)
+);

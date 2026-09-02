@@ -165,7 +165,10 @@ def test_asset_allocations_migration_allows_department_only_row_after(legacy_all
     legacy_alloc_conn.commit()
 
 
-@pytest.mark.parametrize("table", ["sites", "audit_log", "kit_templates", "mobile_action_log"])
+@pytest.mark.parametrize("table", [
+    "sites", "audit_log", "kit_templates", "mobile_action_log",
+    "inventory_sessions", "inventory_scans",
+])
 def test_table_creation_migrations_create_expected_tables(legacy_alloc_conn, table):
     migrations.run_migrations(legacy_alloc_conn)
     row = legacy_alloc_conn.execute(
@@ -184,3 +187,36 @@ def test_migration_025_defaults_existing_rows_to_zero(legacy_conn):
     migrations.run_migrations(legacy_conn)
     row = legacy_conn.execute("SELECT rev FROM assets WHERE id='ast_1'").fetchone()
     assert row["rev"] == 0
+
+
+def test_migration_026_inventory_sessions_has_expected_columns(legacy_alloc_conn):
+    migrations.run_migrations(legacy_alloc_conn)
+    legacy_alloc_conn.execute(
+        "INSERT INTO inventory_sessions (id, started_at, started_by, status) VALUES (?, ?, ?, ?)",
+        ("s1", "2026-09-02T10:00:00+00:00", "alan", "open"),
+    )
+    row = legacy_alloc_conn.execute(
+        "SELECT id, started_at, finished_at, started_by, status FROM inventory_sessions WHERE id = ?",
+        ("s1",),
+    ).fetchone()
+    assert row["started_by"] == "alan"
+    assert row["status"] == "open"
+    assert row["finished_at"] is None
+
+
+def test_migration_026_inventory_scans_references_existing_asset(legacy_alloc_conn):
+    migrations.run_migrations(legacy_alloc_conn)
+    legacy_alloc_conn.execute(
+        "INSERT INTO inventory_sessions (id, started_at, started_by, status) VALUES (?, ?, ?, ?)",
+        ("s1", "2026-09-02T10:00:00+00:00", "alan", "open"),
+    )
+    # legacy_alloc_conn fixture already seeds asset 'ast_1'.
+    legacy_alloc_conn.execute(
+        "INSERT INTO inventory_scans (session_id, asset_id, status, found_location) VALUES (?, ?, ?, ?)",
+        ("s1", "ast_1", "found", ""),
+    )
+    row = legacy_alloc_conn.execute(
+        "SELECT session_id, asset_id, status FROM inventory_scans WHERE session_id = ?", ("s1",)
+    ).fetchone()
+    assert row["asset_id"] == "ast_1"
+    assert row["status"] == "found"

@@ -180,6 +180,32 @@ def _migrate_025_assets_rev(c):
     _add_column_if_missing(c, "assets", "rev", "rev INTEGER NOT NULL DEFAULT 0")
 
 
+def _migrate_026_inventory_tables(c):
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS inventory_sessions (
+          id TEXT PRIMARY KEY,
+          started_at TEXT NOT NULL,
+          finished_at TEXT,
+          started_by TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'open'
+        )
+        """
+    )
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS inventory_scans (
+          session_id TEXT NOT NULL,
+          asset_id TEXT NOT NULL,
+          status TEXT NOT NULL,
+          found_location TEXT NOT NULL DEFAULT '',
+          FOREIGN KEY (session_id) REFERENCES inventory_sessions(id),
+          FOREIGN KEY (asset_id) REFERENCES assets(id)
+        )
+        """
+    )
+
+
 MIGRATIONS: list[Migration] = [
     (1, "assets.repair_quantity", _migrate_001),
     (2, "assets.retired_quantity", _migrate_002),
@@ -206,6 +232,7 @@ MIGRATIONS: list[Migration] = [
     (23, "pairing_codes table", _migrate_023_pairing_codes_table),
     (24, "audit_log.actor", _migrate_024_audit_log_actor),
     (25, "assets.rev", _migrate_025_assets_rev),
+    (26, "inventory_sessions + inventory_scans tables", _migrate_026_inventory_tables),
 ]
 
 
