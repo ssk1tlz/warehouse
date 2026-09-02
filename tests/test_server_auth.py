@@ -668,3 +668,88 @@ def test_settings_rejects_a_non_boolean_value(live_server):
     status, _ = _request(live_server, "POST", "/api/settings", token=token,
                          json_body={"checkUpdates": "да"})
     assert status == 400
+
+
+def test_state_reports_the_current_product_version(live_server):
+    token = _create_admin(live_server)
+    status, body = _request(live_server, "GET", "/api/state", token=token)
+    assert status == 200
+    assert body["currentVersion"] == server.APP_VERSION
+
+
+def test_state_reports_a_newer_cached_version(live_server, monkeypatch):
+    token = _create_admin(live_server)
+    monkeypatch.setattr(server, "APP_VERSION", "1.0.0")
+    import updates
+    updates.write_cache(server.UPDATE_CACHE_PATH, "1.5.0", "https://example/release")
+    status, body = _request(live_server, "GET", "/api/state", token=token)
+    assert body["latestVersion"] == "1.5.0"
+    assert body["releaseUrl"] == "https://example/release"
+
+
+def test_state_hides_a_cached_version_that_is_not_newer(live_server, monkeypatch):
+    token = _create_admin(live_server)
+    monkeypatch.setattr(server, "APP_VERSION", "2.0.0")
+    import updates
+    updates.write_cache(server.UPDATE_CACHE_PATH, "1.5.0", "https://example/release")
+    status, body = _request(live_server, "GET", "/api/state", token=token)
+    assert body["latestVersion"] is None
+
+
+def test_state_hides_updates_when_the_check_is_switched_off(live_server, monkeypatch):
+    token = _create_admin(live_server)
+    monkeypatch.setattr(server, "APP_VERSION", "1.0.0")
+    import updates
+    updates.write_cache(server.UPDATE_CACHE_PATH, "1.5.0", "https://example/release")
+    _request(live_server, "POST", "/api/settings", token=token, json_body={"checkUpdates": False})
+    status, body = _request(live_server, "GET", "/api/state", token=token)
+    assert body["latestVersion"] is None
+
+
+def test_state_still_works_with_no_cache_at_all(live_server):
+    # Офлайн-склад: GitHub недоступен, кэша нет — /api/state обязан отвечать как обычно.
+    token = _create_admin(live_server)
+    status, body = _request(live_server, "GET", "/api/state", token=token)
+    assert status == 200
+    assert body["latestVersion"] is None
+    assert "assets" in body
+
+
+def test_background_update_check_does_not_spawn_a_thread_when_none_is_due(live_server, monkeypatch):
+    # A cache written "just now" means should_check() is False — /api/state is
+    # polled every 15s by the mobile app, so this is the overwhelmingly common
+    # case and must not touch threading at all.
+    import updates
+    updates.write_cache(server.UPDATE_CACHE_PATH, "1.0.0", "https://example/release")
+
+    def _fail_if_constructed(*args, **kwargs):
+        raise AssertionError("threading.Thread must not be constructed when no check is due")
+
+    monkeypatch.setattr(server.threading, "Thread", _fail_if_constructed)
+    server.start_background_update_check()
+
+
+def test_background_update_check_does_not_spawn_a_thread_when_checks_are_disabled(live_server, monkeypatch):
+    token = _create_admin(live_server)
+    _request(live_server, "POST", "/api/settings", token=token, json_body={"checkUpdates": False})
+
+    def _fail_if_constructed(*args, **kwargs):
+        raise AssertionError("threading.Thread must not be constructed when checkUpdates is off")
+
+    monkeypatch.setattr(server.threading, "Thread", _fail_if_constructed)
+    server.start_background_update_check()
+
+
+def test_background_update_check_is_a_no_op_while_one_is_already_in_flight(live_server, monkeypatch):
+    # No cache written -> should_check() is True and checkUpdates defaults to
+    # on, so this reaches the lock. Simulate an in-flight check by holding the
+    # module-level lock ourselves before calling in.
+    assert server._update_check_lock.acquire(blocking=False)
+    try:
+        def _fail_if_constructed(*args, **kwargs):
+            raise AssertionError("should not reach thread construction — should stop at the lock")
+
+        monkeypatch.setattr(server.threading, "Thread", _fail_if_constructed)
+        server.start_background_update_check()
+    finally:
+        server._update_check_lock.release()

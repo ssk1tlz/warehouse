@@ -174,6 +174,7 @@ class WarehouseApp:
             import server
             paths.migrate_legacy_data(server._copy_database)
             server.init_db()
+            server.start_background_update_check()
             self.clear_startup_error()
             # server.HOST берется из config.json (127.0.0.1 или 0.0.0.0 для сети)
             self.httpd = server.ThreadingHTTPServer((server.HOST, server.PORT), server.WarehouseHandler)

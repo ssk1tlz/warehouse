@@ -7,7 +7,7 @@ import shutil
 import sqlite3
 import sys
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from logging.handlers import RotatingFileHandler
@@ -26,6 +26,7 @@ import mobile_actions
 import migrations
 import auth
 import paths
+import updates
 from paths import (
     BACKUP_DIR,
     CONFIG_PATH,
@@ -92,6 +93,58 @@ def check_updates_enabled() -> bool:
     """Читаем config.json заново при каждом вызове, чтобы выключение
     проверки в настройках действовало сразу, без перезапуска сервера."""
     return bool(load_config().get("checkUpdates", True))
+
+
+def current_update() -> dict | None:
+    """Кэшированная новая версия, если она есть, новее текущей и проверка включена."""
+    if not check_updates_enabled():
+        return None
+    cache = updates.read_cache(UPDATE_CACHE_PATH)
+    latest = cache.get("latestVersion")
+    if not updates.is_newer(latest, APP_VERSION):
+        return None
+    return {"version": latest, "url": cache.get("releaseUrl")}
+
+
+def refresh_update_cache_if_due() -> None:
+    """Спросить GitHub, если прошли сутки с последнего успешного запроса."""
+    if not check_updates_enabled():
+        return
+    cache = updates.read_cache(UPDATE_CACHE_PATH)
+    if not updates.should_check(cache, datetime.now(timezone.utc)):
+        return
+    updates.check_now(UPDATE_CACHE_PATH)
+
+
+# GET /api/state is polled by the mobile app every 15s for sync, so this guard
+# must keep it a cheap no-op almost every time: only spawn a background thread
+# when a check is actually due (per updates.should_check), and never spawn a
+# second thread while one is already in flight — the lock below (acquired
+# non-blocking) makes a concurrent call a no-op instead of piling up threads.
+_update_check_lock = threading.Lock()
+
+
+def _run_update_check_and_release_lock() -> None:
+    try:
+        refresh_update_cache_if_due()
+    finally:
+        _update_check_lock.release()
+
+
+def start_background_update_check() -> None:
+    """Проверка в фоне: старт сервера не должен ждать сети.
+
+    Ничего не делает (и не создаёт поток), если проверка выключена, если
+    она не назрела, или если другая проверка уже выполняется."""
+    if not check_updates_enabled():
+        return
+    cache = updates.read_cache(UPDATE_CACHE_PATH)
+    if not updates.should_check(cache, datetime.now(timezone.utc)):
+        return
+    if not _update_check_lock.acquire(blocking=False):
+        return
+    thread = threading.Thread(target=_run_update_check_and_release_lock, daemon=True)
+    thread.start()
 
 
 LOG_HANDLER_NAME = "warehouse-file"
@@ -647,7 +700,13 @@ class WarehouseHandler(BaseHTTPRequestHandler):
         if not self.verify_channel_signature(user, b""):
             return
         if parsed.path == "/api/state":
-            self.send_json(export_state())
+            state = export_state()
+            state["currentVersion"] = APP_VERSION
+            update = current_update()
+            state["latestVersion"] = update["version"] if update else None
+            state["releaseUrl"] = update["url"] if update else None
+            start_background_update_check()
+            self.send_json(state)
             return
         if parsed.path == "/api/lan-info":
             self.send_json({"lanMode": HOST != "127.0.0.1", "lanIp": get_lan_ip(), "port": PORT})
@@ -1180,6 +1239,7 @@ def main() -> None:
         # warehouse_tray.py (no console) handles this exception itself.
         print(str(exc))
         sys.exit(1)
+    start_background_update_check()
     server = ThreadingHTTPServer((HOST, PORT), WarehouseHandler)
     logging.info("Сервер запускается на http://%s:%s", HOST, PORT)
     print(f"Warehouse app running at http://{HOST}:{PORT}")
