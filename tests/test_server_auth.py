@@ -17,6 +17,8 @@ import server
 def live_server(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "DB_PATH", tmp_path / "test.db")
     monkeypatch.setattr(server, "BACKUP_DIR", tmp_path / "backups")
+    monkeypatch.setattr(server, "CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(server, "UPDATE_CACHE_PATH", tmp_path / "update_check.json")
     server.init_db()
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.WarehouseHandler)
     port = httpd.server_address[1]
@@ -613,3 +615,56 @@ def test_non_loopback_request_with_valid_signature_succeeds(live_server_on_all_i
     req.add_header("X-Signature", header)
     with urllib.request.urlopen(req) as response:
         assert response.status == 200
+
+
+def test_settings_endpoint_is_admin_only(live_server):
+    admin_token = _create_admin(live_server)
+    status, body = _request(live_server, "POST", "/api/users", token=admin_token,
+                            json_body={"username": "kladovshchik", "password": "parol123", "role": "storekeeper"})
+    assert status == 200, body
+    status, body = _request(live_server, "POST", "/api/login",
+                            json_body={"username": "kladovshchik", "password": "parol123"})
+    storekeeper_token = body["token"]
+
+    status, _ = _request(live_server, "GET", "/api/settings", token=storekeeper_token)
+    assert status == 403
+    status, _ = _request(live_server, "POST", "/api/settings", token=storekeeper_token,
+                         json_body={"checkUpdates": False})
+    assert status == 403
+
+
+def test_settings_default_to_update_checks_enabled(live_server):
+    token = _create_admin(live_server)
+    status, body = _request(live_server, "GET", "/api/settings", token=token)
+    assert status == 200
+    assert body["checkUpdates"] is True
+
+
+def test_settings_round_trip_and_survive_in_config(live_server, monkeypatch):
+    token = _create_admin(live_server)
+    status, _ = _request(live_server, "POST", "/api/settings", token=token,
+                         json_body={"checkUpdates": False})
+    assert status == 200
+    status, body = _request(live_server, "GET", "/api/settings", token=token)
+    assert body["checkUpdates"] is False
+    assert server.check_updates_enabled() is False
+
+
+def test_saving_settings_preserves_other_config_keys(live_server):
+    # config.json несёт host/port — переключение галочки не должно их потерять,
+    # иначе сервер после перезапуска перестанет слушать сеть.
+    server.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    server.CONFIG_PATH.write_text(json.dumps({"host": "0.0.0.0", "port": 8765}), encoding="utf-8")
+    token = _create_admin(live_server)
+    _request(live_server, "POST", "/api/settings", token=token, json_body={"checkUpdates": False})
+    saved = json.loads(server.CONFIG_PATH.read_text(encoding="utf-8"))
+    assert saved["host"] == "0.0.0.0"
+    assert saved["port"] == 8765
+    assert saved["checkUpdates"] is False
+
+
+def test_settings_rejects_a_non_boolean_value(live_server):
+    token = _create_admin(live_server)
+    status, _ = _request(live_server, "POST", "/api/settings", token=token,
+                         json_body={"checkUpdates": "да"})
+    assert status == 400

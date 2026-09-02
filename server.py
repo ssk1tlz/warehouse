@@ -80,6 +80,20 @@ def load_config() -> dict:
     return {}
 
 
+def save_config(updates_to_apply: dict) -> None:
+    """Слить изменения в config.json, сохранив остальные ключи (host/port/...)."""
+    config = load_config()
+    config.update(updates_to_apply)
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def check_updates_enabled() -> bool:
+    """Читаем config.json заново при каждом вызове, чтобы выключение
+    проверки в настройках действовало сразу, без перезапуска сервера."""
+    return bool(load_config().get("checkUpdates", True))
+
+
 LOG_HANDLER_NAME = "warehouse-file"
 
 
@@ -650,6 +664,11 @@ class WarehouseHandler(BaseHTTPRequestHandler):
                 return
             self.handle_list_backups()
             return
+        if parsed.path == "/api/settings":
+            if not self.require_role(user, ("admin",)):
+                return
+            self.handle_get_settings()
+            return
         self.send_error(HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:
@@ -690,6 +709,11 @@ class WarehouseHandler(BaseHTTPRequestHandler):
             if not self.require_role(user, ("admin",)):
                 return
             self.handle_restore_backup(body)
+            return
+        if parsed.path == "/api/settings":
+            if not self.require_role(user, ("admin",)):
+                return
+            self.handle_save_settings(body)
             return
         if parsed.path == "/api/act":
             if not self.require_role(user, ("admin", "storekeeper")):
@@ -1073,6 +1097,25 @@ class WarehouseHandler(BaseHTTPRequestHandler):
                 tmp_path.unlink(missing_ok=True)
             with get_connection() as connection:
                 migrations.run_migrations(connection)
+        self.send_json({"ok": True})
+
+    def handle_get_settings(self) -> None:
+        self.send_json({"checkUpdates": check_updates_enabled()})
+
+    def handle_save_settings(self, body: bytes) -> None:
+        try:
+            payload = json.loads(body or b"{}")
+        except json.JSONDecodeError as exc:
+            self.send_json_error(HTTPStatus.BAD_REQUEST, f"invalid json: {exc}")
+            return
+        if not isinstance(payload, dict):
+            self.send_json_error(HTTPStatus.BAD_REQUEST, "Payload must be a JSON object.")
+            return
+        value = payload.get("checkUpdates")
+        if not isinstance(value, bool):
+            self.send_json_error(HTTPStatus.BAD_REQUEST, "Поле checkUpdates должно быть true или false.")
+            return
+        save_config({"checkUpdates": value})
         self.send_json({"ok": True})
 
     def serve_static(self, raw_path: str) -> None:
