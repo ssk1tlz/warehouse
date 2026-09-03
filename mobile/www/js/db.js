@@ -35,6 +35,11 @@ CREATE TABLE IF NOT EXISTS movements_history (
   employee_id TEXT, department TEXT, site TEXT, act_number INTEGER, quantity INTEGER, date TEXT, notes TEXT
 );
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS inventory_scan_state (
+  session_id TEXT NOT NULL, asset_id TEXT NOT NULL, status TEXT NOT NULL,
+  found_location TEXT NOT NULL DEFAULT '', scanned_at TEXT NOT NULL,
+  PRIMARY KEY (session_id, asset_id)
+);
 `;
 
 async function open() {
@@ -134,6 +139,10 @@ async function replaceState(state) {
   txn.push({
     statement: `INSERT OR REPLACE INTO meta (key, value) VALUES ('releaseUrl', ?)`,
     values: [state.releaseUrl || null],
+  });
+  txn.push({
+    statement: `INSERT OR REPLACE INTO meta (key, value) VALUES ('activeInventorySession', ?)`,
+    values: [state.activeInventorySession ? JSON.stringify(state.activeInventorySession) : null],
   });
   // executeTransaction() begins the transaction, runs each task with transaction:false,
   // commits on success, and rolls back + rejects on any failure — equivalent to (and safer
@@ -325,4 +334,39 @@ async function cancelAction(clientActionId) {
   await db.run('DELETE FROM pending_actions WHERE client_action_id = ?', [clientActionId]);
 }
 
-window.Db = { open, replaceState, getAssetById, getStateMeta, listEmployeesById, listMovementsForAsset, listMovementHistory, searchAssets, enqueueAction, listPendingActions, markActionSynced, markActionFailed, retryAction, markActionConflict, retryActionOnTop, cancelAction, generateClientActionId };
+async function saveInventoryScan(sessionId, assetId, status, foundLocation) {
+  await db.run(
+    'INSERT OR REPLACE INTO inventory_scan_state (session_id, asset_id, status, found_location, scanned_at) '
+    + 'VALUES (?, ?, ?, ?, ?)',
+    [sessionId, assetId, status, foundLocation || '', new Date().toISOString()],
+  );
+}
+
+async function getInventoryScans(sessionId) {
+  const result = await db.query(
+    'SELECT asset_id, status, found_location FROM inventory_scan_state WHERE session_id = ?',
+    [sessionId],
+  );
+  return (result.values || []).map((row) => ({
+    assetId: row.asset_id,
+    status: row.status,
+    foundLocation: row.found_location,
+  }));
+}
+
+async function clearInventoryScans(sessionId) {
+  await db.run('DELETE FROM inventory_scan_state WHERE session_id = ?', [sessionId]);
+}
+
+async function getAllAssets() {
+  const result = await db.query('SELECT * FROM assets ORDER BY name');
+  return (result.values || []).map((row) => ({
+    id: row.id,
+    name: row.name,
+    category: row.category,
+    inventoryNumber: row.inventory_number,
+    location: row.location,
+  }));
+}
+
+window.Db = { open, replaceState, getAssetById, getStateMeta, listEmployeesById, listMovementsForAsset, listMovementHistory, searchAssets, enqueueAction, listPendingActions, markActionSynced, markActionFailed, retryAction, markActionConflict, retryActionOnTop, cancelAction, generateClientActionId, saveInventoryScan, getInventoryScans, clearInventoryScans, getAllAssets };
