@@ -839,6 +839,38 @@ def test_starting_inventory_twice_returns_409_with_the_existing_session(live_ser
     assert body["session"]["id"] == first["sessionId"]
 
 
+def test_starting_inventory_concurrently_only_creates_one_open_session(live_server):
+    # Regression test for the check-then-insert race in handle_start_inventory:
+    # without STATE_LOCK serializing the SELECT (any open session?) and the
+    # INSERT, two near-simultaneous POSTs could both pass the "no open
+    # session" check before either commits, leaving two open
+    # inventory_sessions rows — violating this plan's Global Constraint of
+    # one open inventory session server-wide. A threading.Barrier makes both
+    # requests fire together deterministically rather than relying on timing
+    # luck; with the lock in place this reliably produces exactly one 201 and
+    # one 409 referencing the same session, every run.
+    token = _create_admin(live_server)
+    results = []
+    barrier = threading.Barrier(2)
+
+    def _call():
+        barrier.wait()
+        results.append(_request(live_server, "POST", "/api/inventory/start", token=token))
+
+    threads = [threading.Thread(target=_call) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    statuses = sorted(status for status, _ in results)
+    assert statuses == [201, 409], results
+
+    created = next(body for status, body in results if status == 201)
+    conflicted = next(body for status, body in results if status == 409)
+    assert conflicted["session"]["id"] == created["sessionId"]
+
+
 def test_state_reports_the_active_inventory_session(live_server):
     token = _create_admin(live_server)
     status, body = _request(live_server, "GET", "/api/state", token=token)

@@ -1224,34 +1224,41 @@ class WarehouseHandler(BaseHTTPRequestHandler):
         self.send_json({"checkUpdates": check_updates_enabled()})
 
     def handle_start_inventory(self, username: str) -> None:
-        with get_connection() as connection:
-            existing = connection.execute(
-                "SELECT id, started_at, started_by FROM inventory_sessions WHERE status = 'open'"
-            ).fetchone()
-            if existing is not None:
-                body = json.dumps(
-                    {
-                        "error": "Инвентаризация уже начата.",
-                        "session": {
-                            "id": existing["id"],
-                            "startedAt": existing["started_at"],
-                            "startedBy": existing["started_by"],
+        # STATE_LOCK serializes this check-then-insert against other threads
+        # calling the same handler (ThreadingHTTPServer) — without it, two
+        # near-simultaneous POSTs can both see "no open session" before either
+        # commits its INSERT, producing two open inventory_sessions rows and
+        # violating "one open inventory session server-wide". Same pattern as
+        # the /api/state import path and handle_restore_backup below.
+        with STATE_LOCK:
+            with get_connection() as connection:
+                existing = connection.execute(
+                    "SELECT id, started_at, started_by FROM inventory_sessions WHERE status = 'open'"
+                ).fetchone()
+                if existing is not None:
+                    body = json.dumps(
+                        {
+                            "error": "Инвентаризация уже начата.",
+                            "session": {
+                                "id": existing["id"],
+                                "startedAt": existing["started_at"],
+                                "startedBy": existing["started_by"],
+                            },
                         },
-                    },
-                    ensure_ascii=False,
-                ).encode("utf-8")
-                self.send_response(HTTPStatus.CONFLICT)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-                return
-            session_id = str(uuid.uuid4())
-            started_at = datetime.now(timezone.utc).isoformat()
-            connection.execute(
-                "INSERT INTO inventory_sessions (id, started_at, started_by, status) VALUES (?, ?, ?, 'open')",
-                (session_id, started_at, username),
-            )
+                        ensure_ascii=False,
+                    ).encode("utf-8")
+                    self.send_response(HTTPStatus.CONFLICT)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                session_id = str(uuid.uuid4())
+                started_at = datetime.now(timezone.utc).isoformat()
+                connection.execute(
+                    "INSERT INTO inventory_sessions (id, started_at, started_by, status) VALUES (?, ?, ?, 'open')",
+                    (session_id, started_at, username),
+                )
         body = json.dumps({"sessionId": session_id, "startedAt": started_at}, ensure_ascii=False).encode("utf-8")
         self.send_response(HTTPStatus.CREATED)
         self.send_header("Content-Type", "application/json; charset=utf-8")
