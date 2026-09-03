@@ -383,12 +383,20 @@ def apply_inventory_complete(connection: sqlite3.Connection, action: dict) -> di
         raise MobileActionError("Эта сессия инвентаризации уже завершена.")
 
     scans = action.get("scans") or []
+    known_asset_ids = {row["id"] for row in connection.execute("SELECT id FROM assets")}
     found_count = 0
     wrong_location_count = 0
     scanned_ids: set[str] = set()
+    unmatched_scan_ids: list[str] = []
     for scan in scans:
         asset_id = str(scan.get("assetId") or "").strip()
         if not asset_id:
+            continue
+        if asset_id not in known_asset_ids:
+            # Актив мог быть удалён на десктопе, пока телефон был в офлайн-
+            # сессии сканирования — не валить всё действие FK-ошибкой на
+            # INSERT, унести скан в "лишнее" вместе с нераспознанными кодами.
+            unmatched_scan_ids.append(asset_id)
             continue
         status = scan.get("status") or "found"
         if status not in ("found", "wrong_location"):
@@ -416,7 +424,7 @@ def apply_inventory_complete(connection: sqlite3.Connection, action: dict) -> di
         "foundCount": found_count,
         "wrongLocationCount": wrong_location_count,
         "missingAssetIds": missing_asset_ids,
-        "extraCodes": [str(code) for code in (action.get("extraCodes") or [])],
+        "extraCodes": [str(code) for code in (action.get("extraCodes") or [])] + unmatched_scan_ids,
     }
 
 

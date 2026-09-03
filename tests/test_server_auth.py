@@ -4,7 +4,9 @@ import sqlite3
 import threading
 import urllib.error
 import urllib.request
+import zipfile
 from http.server import ThreadingHTTPServer
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -64,6 +66,17 @@ def _raw_status(base_url, path):
             return response.status
     except urllib.error.HTTPError as exc:
         return exc.code
+
+
+def _fetch_bytes(base_url, path, token):
+    """Raw (status, body-bytes) — for endpoints that return a binary body (the .docx act), not JSON."""
+    req = urllib.request.Request(f"{base_url}{path}", method="GET")
+    req.add_header("Authorization", f"Bearer {token}")
+    try:
+        with urllib.request.urlopen(req) as response:
+            return response.status, response.read()
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read()
 
 
 def _create_admin(base_url):
@@ -282,6 +295,82 @@ def test_import_state_does_not_bump_rev_when_only_quantity_changes(live_server):
     assert status == 200, body
     assert body["assets"][0]["rev"] == 0
     assert body["assets"][0]["quantity"] == 10
+
+
+def test_import_state_succeeds_after_an_inventory_scan_exists_and_preserves_label_printed_at(live_server):
+    # Regression test for two Critical whole-branch-review findings that no
+    # single task's review could see, because import_state — untouched by
+    # this stage's own tasks — implicitly depends on data those tasks added:
+    # inventory_scans (migration 026) carries a FK to assets(id) that
+    # import_state's blind DELETE FROM assets used to violate the instant any
+    # real inventory session recorded a scan, and label_printed_at (server-
+    # owned, never sent by the desktop client) used to get silently wiped to
+    # NULL on every desktop save. Neither the pre-existing 278-test suite nor
+    # any single task's review ever exercised "an inventory session recorded
+    # a real scan, then the desktop saved normally" — ordinary daily use.
+    token = _create_admin(live_server)
+    with sqlite3.connect(server.DB_PATH) as conn:
+        conn.execute(
+            "INSERT INTO assets (id, name, quantity, label_printed_at) VALUES (?, ?, ?, ?)",
+            ("ast_1", "Ноутбук", 5, "2026-09-02T10:00:00+00:00"),
+        )
+        conn.commit()
+
+    status, body = _request(live_server, "POST", "/api/inventory/start", token=token)
+    assert status == 201, body
+    session_id = body["sessionId"]
+
+    status, body = _request(live_server, "POST", "/api/mobile/action", token=token, json_body={
+        "clientActionId": "inv-regress-1",
+        "type": "inventory_complete",
+        "sessionId": session_id,
+        "scans": [{"assetId": "ast_1", "status": "found", "foundLocation": ""}],
+        "extraCodes": [],
+    })
+    assert status == 200, body  # sanity: inventory_scans now has a real row for 'ast_1'
+
+    # A normal desktop save — full state round-trip, same shape as any other
+    # /api/state test in this file — must succeed even though 'ast_1' now has
+    # inventory_scans history (Fix 2), and must preserve label_printed_at
+    # across the save even though the desktop payload never carries it (Fix 1).
+    status, body = _request(live_server, "POST", "/api/state", token=token, json_body=_state_payload(_asset_payload()))
+    assert status == 200, body
+    saved = next(a for a in body["assets"] if a["id"] == "ast_1")
+    assert saved["labelPrintedAt"] == "2026-09-02T10:00:00+00:00"
+
+
+def test_import_state_returns_conflict_when_deleting_an_asset_with_scan_history(live_server):
+    # The narrower edge case Fix 2's deferred-FK approach cannot resolve on
+    # its own: the desktop payload genuinely OMITS an asset (a true delete,
+    # not an edit) that inventory_scans still references. The transaction
+    # must fail cleanly at COMMIT with a clear Russian error, not propagate
+    # as an unhandled sqlite3.IntegrityError / generic 500.
+    token = _create_admin(live_server)
+    with sqlite3.connect(server.DB_PATH) as conn:
+        conn.execute("INSERT INTO assets (id, name, quantity) VALUES (?, ?, ?)", ("ast_1", "Ноутбук", 5))
+        conn.commit()
+
+    status, body = _request(live_server, "POST", "/api/inventory/start", token=token)
+    assert status == 201, body
+    session_id = body["sessionId"]
+    status, body = _request(live_server, "POST", "/api/mobile/action", token=token, json_body={
+        "clientActionId": "inv-regress-2",
+        "type": "inventory_complete",
+        "sessionId": session_id,
+        "scans": [{"assetId": "ast_1", "status": "found", "foundLocation": ""}],
+        "extraCodes": [],
+    })
+    assert status == 200, body
+
+    empty_payload = _state_payload(_asset_payload())
+    empty_payload["assets"] = []  # omit 'ast_1' entirely — a true delete
+    status, body = _request(live_server, "POST", "/api/state", token=token, json_body=empty_payload)
+    assert status == 409, body
+    assert "истори" in body["error"].lower()
+
+    # The delete must not have gone through — 'ast_1' still exists.
+    status, body = _request(live_server, "GET", "/api/state", token=token)
+    assert any(a["id"] == "ast_1" for a in body["assets"]), body
 
 
 def test_viewer_can_read_state(live_server):
@@ -929,6 +1018,59 @@ def test_listing_inventory_sessions_includes_a_finished_session_with_counts(live
     assert session["status"] == "finished"
     assert session["startedBy"] == "admin"
     assert session["extraCount"] == 1
+
+
+def test_inventory_act_rejects_a_still_open_session(live_server):
+    # Downloading an act for a still-open session would list literally every
+    # unscanned asset as "missing" (the walk isn't done yet) — misleading.
+    # The endpoint must gate on status == 'finished' before generating anything.
+    token = _create_admin(live_server)
+    status, body = _request(live_server, "POST", "/api/inventory/start", token=token)
+    assert status == 201, body
+    session_id = body["sessionId"]
+
+    status, body = _request(live_server, "GET", f"/api/inventory/sessions/{session_id}/act", token=token)
+    assert status == 409, body
+    assert "заверш" in body["error"].lower()
+
+
+def test_inventory_act_missing_list_reflects_state_at_submit_time(live_server):
+    # apply_inventory_complete caches the correct "missing" snapshot
+    # (missingAssetIds, reflecting the asset registry as it stood at submit
+    # time) — handle_list_inventory_sessions already reads that cache. The
+    # act must read the SAME cache rather than recomputing live against the
+    # current assets table, or it would disagree with the desktop session
+    # list whenever an asset is added after the session finished (a real
+    # admin running a live warehouse WILL add assets between finishing a
+    # session and downloading its act weeks later).
+    token = _create_admin(live_server)
+    with sqlite3.connect(server.DB_PATH) as conn:
+        conn.execute("INSERT INTO assets (id, name, quantity) VALUES (?, ?, ?)", ("ast_1", "Монитор Dell", 1))
+        conn.commit()
+
+    status, body = _request(live_server, "POST", "/api/inventory/start", token=token)
+    assert status == 201, body
+    session_id = body["sessionId"]
+
+    status, _ = _request(live_server, "POST", "/api/mobile/action", token=token, json_body={
+        "clientActionId": "inv-act-1",
+        "type": "inventory_complete",
+        "sessionId": session_id,
+        "scans": [],  # 'ast_1' never scanned -> missing at submit time
+        "extraCodes": [],
+    })
+    assert status == 200, body
+
+    # Add a new asset to the registry AFTER the session already finished.
+    with sqlite3.connect(server.DB_PATH) as conn:
+        conn.execute("INSERT INTO assets (id, name, quantity) VALUES (?, ?, ?)", ("ast_2", "Новый принтер", 1))
+        conn.commit()
+
+    status, data = _fetch_bytes(live_server, f"/api/inventory/sessions/{session_id}/act", token)
+    assert status == 200
+    document_xml = zipfile.ZipFile(BytesIO(data)).read("word/document.xml").decode("utf-8")
+    assert "Монитор Dell" in document_xml
+    assert "Новый принтер" not in document_xml
 
 
 def test_marking_labels_printed_updates_the_timestamp(live_server):

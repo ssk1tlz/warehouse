@@ -694,6 +694,52 @@ def test_apply_inventory_complete_excludes_fully_retired_assets_from_missing(con
     assert "ast_1" in result["missingAssetIds"]
 
 
+def test_apply_inventory_complete_routes_a_deleted_asset_id_to_extra_codes(conn):
+    # An admin can delete an asset on the desktop WHILE a storekeeper is
+    # mid-walk offline; the phone's local filter doesn't know that yet, so a
+    # scan referencing an asset id with no row at all can reach the server.
+    # Blindly INSERTing it would violate inventory_scans.asset_id's FK
+    # (PRAGMA foreign_keys = ON in the `conn` fixture above) and crash the
+    # whole action, losing every other scan in the same submission — it must
+    # instead land in extraCodes, same as a malformed/unrecognized QR code.
+    conn.execute(
+        "INSERT INTO inventory_sessions (id, started_at, started_by, status) VALUES (?, ?, ?, 'open')",
+        ("s1", "2026-09-02T10:00:00+00:00", "alan"),
+    )
+    action = {
+        "clientActionId": "c8",
+        "type": "inventory_complete",
+        "sessionId": "s1",
+        "scans": [
+            {"assetId": "ast_1", "status": "found", "foundLocation": ""},
+            {"assetId": "deleted-asset-id", "status": "found", "foundLocation": ""},
+        ],
+        "extraCodes": ["WH1:garbage-code"],
+    }
+    result = mobile_actions.apply_action(conn, action)
+
+    assert result["replayed"] is False
+    assert result["foundCount"] == 1
+    assert "deleted-asset-id" in result["extraCodes"]
+    assert "WH1:garbage-code" in result["extraCodes"]
+
+    # The known asset's scan must still have been recorded normally.
+    scan = conn.execute(
+        "SELECT asset_id FROM inventory_scans WHERE session_id = ?", ("s1",)
+    ).fetchone()
+    assert scan["asset_id"] == "ast_1"
+    # No row at all for the deleted asset id — it must never reach the INSERT.
+    count = conn.execute(
+        "SELECT COUNT(*) FROM inventory_scans WHERE asset_id = ?", ("deleted-asset-id",)
+    ).fetchone()[0]
+    assert count == 0
+
+    session = conn.execute(
+        "SELECT status FROM inventory_sessions WHERE id = ?", ("s1",)
+    ).fetchone()
+    assert session["status"] == "finished"
+
+
 def test_existing_action_types_still_require_asset_id(conn):
     # Guards the shared apply_action() change: only inventory_complete is exempt.
     action = {"clientActionId": "c6", "type": "issue", "quantity": 1}

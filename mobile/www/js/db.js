@@ -358,8 +358,23 @@ async function clearInventoryScans(sessionId) {
   await db.run('DELETE FROM inventory_scan_state WHERE session_id = ?', [sessionId]);
 }
 
+async function clearActiveInventorySessionMeta() {
+  // Clears just the "resume?" flag replaceState() writes into meta on a
+  // successful /api/state pull (see the 'activeInventorySession' row above).
+  // Called from screens.js's submitInventoryResult right after a session is
+  // submitted, so a device that stays offline (never gets a fresh state
+  // pull) doesn't keep pointing openInventoryStartScreen at an
+  // already-finished session.
+  await db.run("DELETE FROM meta WHERE key = 'activeInventorySession'", []);
+}
+
 async function getAllAssets() {
-  const result = await db.query('SELECT * FROM assets ORDER BY name');
+  // quantity > 0 excludes fully-retired assets (retire decrements quantity
+  // to 0 but never deletes the row) — same fix as mobile_actions.py's
+  // apply_inventory_complete and server.py's handle_inventory_act, so local
+  // reconciliation agrees with the server and the printed act instead of
+  // showing retired items as permanently "not found".
+  const result = await db.query('SELECT * FROM assets WHERE quantity > 0 ORDER BY name');
   return (result.values || []).map((row) => ({
     id: row.id,
     name: row.name,
@@ -369,4 +384,4 @@ async function getAllAssets() {
   }));
 }
 
-window.Db = { open, replaceState, getAssetById, getStateMeta, listEmployeesById, listMovementsForAsset, listMovementHistory, searchAssets, enqueueAction, listPendingActions, markActionSynced, markActionFailed, retryAction, markActionConflict, retryActionOnTop, cancelAction, generateClientActionId, saveInventoryScan, getInventoryScans, clearInventoryScans, getAllAssets };
+window.Db = { open, replaceState, getAssetById, getStateMeta, listEmployeesById, listMovementsForAsset, listMovementHistory, searchAssets, enqueueAction, listPendingActions, markActionSynced, markActionFailed, retryAction, markActionConflict, retryActionOnTop, cancelAction, generateClientActionId, saveInventoryScan, getInventoryScans, clearInventoryScans, getAllAssets, clearActiveInventorySessionMeta };

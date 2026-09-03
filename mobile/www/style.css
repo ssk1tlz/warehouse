@@ -322,8 +322,17 @@ li {
 }
 /* Плагин сканера рисует камеру ЗА WebView в непрерывном режиме — этот класс
    прячет всё, кроме .inventory-scan-overlay, пока идёт скан (официальный
-   паттерн @capacitor-mlkit/barcode-scanning). */
-body.barcode-scanner-active > *:not(#screen-inventory-scan) { visibility: hidden; }
+   паттерн @capacitor-mlkit/barcode-scanning). body's OWN background (set
+   above, near the top of this file) must also be neutralized: per CSS
+   background-propagation rules, the <html> root paints the body's
+   background/background-image across the whole viewport canvas regardless
+   of any visibility rule on body's children, so leaving it in place would
+   still show an opaque screen with no camera visible. #toastContainer (a
+   direct child of body, created by js/toast.js) is excluded from the hide
+   rule so an error toast (e.g. a failed scan save) stays visible during a
+   scan. */
+body.barcode-scanner-active { background: transparent; background-image: none; }
+body.barcode-scanner-active > *:not(#screen-inventory-scan):not(#toastContainer) { visibility: hidden; }
 body.barcode-scanner-active #screen-inventory-scan { background: transparent; }
 
 /* Общее правило скрытия — раньше существовало только в связке с конкретными

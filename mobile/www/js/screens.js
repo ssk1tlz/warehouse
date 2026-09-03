@@ -565,6 +565,20 @@ async function submitInventoryResult() {
   }
 
   try {
+    // Clear the local "resume?" flag now, not only on the next successful
+    // /api/state pull: enqueueAction above already guarantees this
+    // submission WILL eventually reach the server via the sync queue, so
+    // there's no scenario where clearing this local flag early causes
+    // incorrect behavior — a fresh "Начать" tap that hits the server while
+    // this submission is still queued would correctly get a 409 with the
+    // same still-open-on-server session, which postInventoryStart already
+    // knows how to rejoin. Left stale, this flag would keep pointing at the
+    // now-finished session, showing "resume?" if the app reopens this
+    // screen offline — reopening THAT resumed session and submitting again
+    // produces a second inventory_complete for the same sessionId (rejected
+    // by the server once synced), but by then clearInventoryScans below has
+    // already wiped the second walk's local data.
+    await Db.clearActiveInventorySessionMeta();
     await Db.clearInventoryScans(currentInventorySessionId);
   } catch (error) {
     // Lower-severity than the block above: the action is already safely

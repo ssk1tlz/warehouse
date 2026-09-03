@@ -550,15 +550,27 @@ def import_state(payload: dict, actor: str) -> dict:
 
     with get_connection() as connection:
         connection.execute("BEGIN")
+        # Deferred FK enforcement: assets get DELETEd and re-INSERTed within
+        # this same transaction below, but inventory_scans.asset_id (added by
+        # migration 026) references assets(id) and is never touched by this
+        # function (it's historical audit data, not part of the state
+        # payload). Without deferral, the DELETE FROM assets a few lines down
+        # would fail immediately the moment any inventory session has ever
+        # recorded a scan. Deferring resolves the common case (any
+        # edit-and-save re-inserts the same asset ids) with zero behavior
+        # change; a genuine delete of an asset with scan history still fails,
+        # but only at COMMIT — handled by the sqlite3.IntegrityError catch
+        # around this function's call site in do_POST.
+        connection.execute("PRAGMA defer_foreign_keys = ON")
         old_assets = {
             row["id"]: (
                 row["name"], row["category"] or "", row["inventory_number"] or "",
                 row["serial_number"] or "", row["location"] or "", row["purchase_date"] or "",
-                row["warranty_end"] or "", row["rev"],
+                row["warranty_end"] or "", row["rev"], row["label_printed_at"],
             )
             for row in connection.execute(
                 "SELECT id, name, category, inventory_number, serial_number, location, "
-                "purchase_date, warranty_end, rev FROM assets"
+                "purchase_date, warranty_end, rev, label_printed_at FROM assets"
             )
         }
         connection.execute("DELETE FROM asset_allocations")
@@ -612,10 +624,16 @@ def import_state(payload: dict, actor: str) -> dict:
                 new_rev = old[7]
             else:
                 new_rev = old[7] + 1
+            # label_printed_at is server-owned (set by the label-printed
+            # endpoint, read by the label-print filter) — the desktop app.js
+            # state object never carries it, so it must be preserved from the
+            # OLD row rather than read from the client payload, exactly like
+            # rev above. Otherwise every desktop save would silently wipe it.
+            old_label_printed_at = old[8] if old is not None else None
             connection.execute(
                 """
-                INSERT INTO assets (id, name, category, inventory_number, serial_number, purchase_date, status, notes, quantity, repair_quantity, retired_quantity, min_quantity, warranty_end, price, repair_date, location, photo_url, rev)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO assets (id, name, category, inventory_number, serial_number, purchase_date, status, notes, quantity, repair_quantity, retired_quantity, min_quantity, warranty_end, price, repair_date, location, photo_url, rev, label_printed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     asset.get("id"),
@@ -636,6 +654,7 @@ def import_state(payload: dict, actor: str) -> dict:
                     asset.get("location") or "",
                     asset.get("photoUrl") or "",
                     new_rev,
+                    old_label_printed_at,
                 ),
             )
             for allocation in asset.get("allocations", []):
@@ -900,7 +919,20 @@ class WarehouseHandler(BaseHTTPRequestHandler):
                 self.wfile.write(conflict_body)
                 return
             auto_backup()
-            state = _decorate_with_versions(import_state(payload, actor=user["username"]))
+            try:
+                state = _decorate_with_versions(import_state(payload, actor=user["username"]))
+            except sqlite3.IntegrityError:
+                # The desktop payload omitted an asset that still has
+                # inventory_scans history referencing it (a true delete, not
+                # just an edit) — import_state's deferred FK check catches
+                # this at COMMIT time. Surface a clear Russian error instead
+                # of letting an unhandled IntegrityError bubble up as a
+                # generic server error.
+                self.send_json_error(
+                    HTTPStatus.CONFLICT,
+                    "Нельзя удалить актив с историей инвентаризации.",
+                )
+                return
         self.send_json(state)
 
     def do_PATCH(self) -> None:
@@ -1298,6 +1330,9 @@ class WarehouseHandler(BaseHTTPRequestHandler):
             if session_row is None:
                 self.send_json_error(HTTPStatus.NOT_FOUND, "Сессия инвентаризации не найдена.")
                 return
+            if session_row["status"] != "finished":
+                self.send_json_error(HTTPStatus.CONFLICT, "Инвентаризация ещё не завершена.")
+                return
             # quantity > 0: exclude fully-retired assets (retire decrements
             # quantity to 0 but never deletes the row) — same fix as Task A2's
             # apply_inventory_complete, otherwise retired items show up here
@@ -1320,24 +1355,32 @@ class WarehouseHandler(BaseHTTPRequestHandler):
                     (session_id,),
                 )
             ]
-            scanned_ids = {
-                row["asset_id"]
-                for row in connection.execute(
-                    "SELECT asset_id FROM inventory_scans WHERE session_id = ?", (session_id,)
-                )
-            }
-            missing_assets = [
-                {"name": info["name"], "inventoryNumber": info["inventoryNumber"]}
-                for asset_id, info in asset_names.items()
-                if asset_id not in scanned_ids
-            ]
+            # apply_inventory_complete already computed and cached the
+            # correct "missing" snapshot (missingAssetIds, reflecting the
+            # asset registry as it stood at submit time) into
+            # mobile_action_log.response_json — handle_list_inventory_sessions
+            # already reads that same cache. Recomputing live against the
+            # CURRENT assets table (as this used to do) would disagree with
+            # the desktop session list whenever assets are added/removed
+            # after the session finished, which real warehouse use makes
+            # likely by the time an act is actually downloaded.
             cached = connection.execute(
                 "SELECT response_json FROM mobile_action_log WHERE response_json LIKE ? ORDER BY created_at DESC LIMIT 1",
                 (f'%"sessionId": "{session_id}"%',),
             ).fetchone()
             extra_codes = []
+            cached_missing_ids = []
             if cached is not None:
-                extra_codes = json.loads(cached["response_json"]).get("extraCodes") or []
+                cached_payload = json.loads(cached["response_json"])
+                extra_codes = cached_payload.get("extraCodes") or []
+                cached_missing_ids = cached_payload.get("missingAssetIds") or []
+            missing_assets = [
+                {
+                    "name": asset_names.get(asset_id, {}).get("name", asset_id),
+                    "inventoryNumber": asset_names.get(asset_id, {}).get("inventoryNumber", ""),
+                }
+                for asset_id in cached_missing_ids
+            ]
         docx_bytes = generate_inventory_act(
             session={
                 "id": session_row["id"],
