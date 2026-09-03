@@ -426,43 +426,89 @@ async function startInventoryScanning() {
     }
   }
 
-  inventoryAllAssets = await Db.getAllAssets();
-  const alreadyScanned = await Db.getInventoryScans(currentInventorySessionId);
-  let foundCount = alreadyScanned.length;
-  const seen = new Set(alreadyScanned.map((s) => s.assetId));
-  extraCodesThisSession = [];
+  try {
+    inventoryAllAssets = await Db.getAllAssets();
+    const alreadyScanned = await Db.getInventoryScans(currentInventorySessionId);
+    let foundCount = alreadyScanned.length;
+    const seen = new Set(alreadyScanned.map((s) => s.assetId));
+    extraCodesThisSession = [];
 
-  showScreen('screen-inventory-scan');
-  document.body.classList.add('barcode-scanner-active');
-  document.getElementById('inventoryCounter').textContent = `Найдено ${foundCount} из ${inventoryAllAssets.length}`;
-
-  // parseWarehouseQr (qr.js) returns the bare asset id string (or null) — NOT
-  // an object. It only validates the "WH1:" prefix, not that the id actually
-  // exists — a code from a deleted/foreign asset must land in "extra", not be
-  // silently recorded as "found" (inventory_scans has an FK on asset_id, so a
-  // bogus id would otherwise fail server-side when the session is submitted).
-  const knownAssetIds = new Set(inventoryAllAssets.map((a) => a.id));
-  await Scanner.startInventoryScan(async (rawValue) => {
-    const assetId = parseWarehouseQr(rawValue);
-    if (!assetId || !knownAssetIds.has(assetId)) {
-      extraCodesThisSession.push(rawValue);
-      return;
-    }
-    if (seen.has(assetId)) return; // повторный скан — не дублируется
-    seen.add(assetId);
-    await Db.saveInventoryScan(currentInventorySessionId, assetId, 'found', '');
-    foundCount += 1;
+    showScreen('screen-inventory-scan');
+    document.body.classList.add('barcode-scanner-active');
     document.getElementById('inventoryCounter').textContent = `Найдено ${foundCount} из ${inventoryAllAssets.length}`;
-  });
+
+    // parseWarehouseQr (qr.js) returns the bare asset id string (or null) — NOT
+    // an object. It only validates the "WH1:" prefix, not that the id actually
+    // exists — a code from a deleted/foreign asset must land in "extra", not be
+    // silently recorded as "found" (inventory_scans has an FK on asset_id, so a
+    // bogus id would otherwise fail server-side when the session is submitted).
+    const knownAssetIds = new Set(inventoryAllAssets.map((a) => a.id));
+    await Scanner.startInventoryScan(async (rawValue) => {
+      const assetId = parseWarehouseQr(rawValue);
+      if (!assetId || !knownAssetIds.has(assetId)) {
+        extraCodesThisSession.push(rawValue);
+        return;
+      }
+      if (seen.has(assetId)) return; // повторный скан — не дублируется
+      try {
+        await Db.saveInventoryScan(currentInventorySessionId, assetId, 'found', '');
+      } catch (error) {
+        // Не добавляем assetId в seen — сбой записи в локальную Db не должен
+        // навсегда "проглотить" находку; повторный скан того же кода
+        // попробует сохранить ещё раз вместо того, чтобы молча теряться.
+        Toast.show(describeScanError(error, 'Не удалось сохранить скан — повторите.'), 'error');
+        return;
+      }
+      seen.add(assetId);
+      foundCount += 1;
+      document.getElementById('inventoryCounter').textContent = `Найдено ${foundCount} из ${inventoryAllAssets.length}`;
+    });
+  } catch (error) {
+    // Camera/permission failure (same class as scanOnce()'s) or a local Db
+    // read failure anywhere in this setup — either way the user must not be
+    // left stranded on screen-inventory-scan, which deliberately has no
+    // data-back for swipe-to-exit during an active scan.
+    document.body.classList.remove('barcode-scanner-active');
+    try {
+      // Best-effort cleanup: Scanner.startInventoryScan() may have registered
+      // its listener before a later step (e.g. BarcodeScanner.startScan())
+      // threw, leaving the native scanner half-started. We can't observe how
+      // far it got from here, so call stop unconditionally and swallow any
+      // secondary error — it's a safe no-op when nothing was ever started,
+      // and a secondary failure here shouldn't bury the original error toast.
+      await Scanner.stopInventoryScan();
+    } catch (stopError) {
+      // intentionally ignored — see comment above
+    }
+    Toast.show(describeScanError(error, 'Не удалось начать сканирование.'), 'error');
+    showScreen('screen-inventory-start');
+  }
 }
 
 async function finishInventoryScanning() {
-  await Scanner.stopInventoryScan();
+  try {
+    await Scanner.stopInventoryScan();
+  } catch (error) {
+    // Each scan was already persisted individually via Db.saveInventoryScan
+    // as it happened — whether the native "stop" call itself came back clean
+    // is unrelated to whether that data is safe. Warn, but still proceed to
+    // reconcile/show discrepancies rather than stranding the user here.
+    Toast.show(describeScanError(error, 'Не удалось корректно остановить сканер.'), 'error');
+  }
   document.body.classList.remove('barcode-scanner-active');
-  const scans = await Db.getInventoryScans(currentInventorySessionId);
-  const result = reconcileInventory(scans, inventoryAllAssets, extraCodesThisSession);
-  renderInventoryDiscrepancies(result);
-  showScreen('screen-inventory-discrepancies');
+  try {
+    const scans = await Db.getInventoryScans(currentInventorySessionId);
+    const result = reconcileInventory(scans, inventoryAllAssets, extraCodesThisSession);
+    renderInventoryDiscrepancies(result);
+    showScreen('screen-inventory-discrepancies');
+  } catch (error) {
+    // Unlike a stop-scanner hiccup, failing to read back the scan data means
+    // we cannot show discrepancies at all — bail out to a screen the user can
+    // actually act from (retry "Начать инвентаризацию") instead of leaving
+    // them on the now-dead screen-inventory-scan.
+    Toast.show(describeScanError(error, 'Не удалось загрузить результаты сканирования.'), 'error');
+    showScreen('screen-inventory-start');
+  }
 }
 
 // DOM-построение списков, как везде в этом файле (см. openAssetScreen's
@@ -498,16 +544,49 @@ function renderInventoryDiscrepancies(result) {
 }
 
 async function submitInventoryResult() {
-  const scans = await Db.getInventoryScans(currentInventorySessionId);
-  // Db.enqueueAction сам генерирует clientActionId и кладёт запись в pending_actions —
-  // тот же путь, которым уже идут выдача/возврат (см. вызовы этой функции выше по файлу).
-  await Db.enqueueAction({
-    type: 'inventory_complete',
-    sessionId: currentInventorySessionId,
-    scans: scans.map((s) => ({ assetId: s.assetId, status: s.status, foundLocation: s.foundLocation })),
-    extraCodes: extraCodesThisSession,
-  });
-  await Db.clearInventoryScans(currentInventorySessionId);
+  let scans;
+  try {
+    scans = await Db.getInventoryScans(currentInventorySessionId);
+    // Db.enqueueAction сам генерирует clientActionId и кладёт запись в pending_actions —
+    // тот же путь, которым уже идут выдача/возврат (см. вызовы этой функции выше по файлу).
+    await Db.enqueueAction({
+      type: 'inventory_complete',
+      sessionId: currentInventorySessionId,
+      scans: scans.map((s) => ({ assetId: s.assetId, status: s.status, foundLocation: s.foundLocation })),
+      extraCodes: extraCodesThisSession,
+    });
+  } catch (error) {
+    // Nothing was queued (clearInventoryScans hasn't run yet either way, so
+    // the local inventory_scan_state rows for this session are still intact)
+    // — stay on screen-inventory-discrepancies so "Отправить" can be retried,
+    // and do NOT report success or navigate away as if the submit went through.
+    Toast.show(describeScanError(error, 'Не удалось поставить инвентаризацию в очередь — попробуйте ещё раз.'), 'error');
+    return;
+  }
+
+  try {
+    await Db.clearInventoryScans(currentInventorySessionId);
+  } catch (error) {
+    // Lower-severity than the block above: the action is already safely
+    // queued in pending_actions at this point (it will sync normally), so
+    // this is local scan-state cache cleanup only, not data loss. Warn, but
+    // still treat the submission itself as successful and move on.
+    //
+    // Deliberately NOT `describeScanError(error, fallback)` here (unlike
+    // every other catch block in this flow) — describeScanError prefers the
+    // real error.message when present, which for a raw SQLite/plugin error
+    // would replace the "it was sent, don't worry" framing with an opaque
+    // technical string and could wrongly read as total failure. The "sent"
+    // fact must survive in the message even when the technical detail is
+    // available, so it's appended rather than substituted; 'info' rather
+    // than 'error' since the user's action did succeed.
+    Toast.show(`Инвентаризация отправлена. Не удалось очистить локальный кэш сканов: ${describeScanError(error, 'неизвестная ошибка')}`, 'info');
+    currentInventorySessionId = null;
+    extraCodesThisSession = [];
+    showScreen('screen-scan');
+    return;
+  }
+
   currentInventorySessionId = null;
   extraCodesThisSession = [];
   Toast.show('Инвентаризация отправлена в очередь синхронизации.', 'success');
