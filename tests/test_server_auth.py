@@ -808,3 +808,42 @@ def test_background_update_check_is_a_no_op_while_one_is_already_in_flight(live_
         server.start_background_update_check()
     finally:
         fresh_lock.release()
+
+
+def test_starting_inventory_requires_admin(live_server):
+    admin_token = _create_admin(live_server)
+    status, body = _request(live_server, "POST", "/api/users", token=admin_token,
+                            json_body={"username": "sklad1", "password": "parol123", "role": "storekeeper"})
+    assert status == 200, body
+    status, body = _request(live_server, "POST", "/api/login",
+                            json_body={"username": "sklad1", "password": "parol123"})
+    storekeeper_token = body["token"]
+    status, _ = _request(live_server, "POST", "/api/inventory/start", token=storekeeper_token)
+    assert status == 403
+
+
+def test_starting_inventory_creates_an_open_session(live_server):
+    token = _create_admin(live_server)
+    status, body = _request(live_server, "POST", "/api/inventory/start", token=token)
+    assert status == 201, body
+    assert body["sessionId"]
+    assert body["startedAt"]
+
+
+def test_starting_inventory_twice_returns_409_with_the_existing_session(live_server):
+    token = _create_admin(live_server)
+    status, first = _request(live_server, "POST", "/api/inventory/start", token=token)
+    assert status == 201
+    status, body = _request(live_server, "POST", "/api/inventory/start", token=token)
+    assert status == 409
+    assert body["session"]["id"] == first["sessionId"]
+
+
+def test_state_reports_the_active_inventory_session(live_server):
+    token = _create_admin(live_server)
+    status, body = _request(live_server, "GET", "/api/state", token=token)
+    assert body["activeInventorySession"] is None
+
+    _request(live_server, "POST", "/api/inventory/start", token=token)
+    status, body = _request(live_server, "GET", "/api/state", token=token)
+    assert body["activeInventorySession"]["startedBy"] == "admin"

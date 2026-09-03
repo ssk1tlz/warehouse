@@ -7,6 +7,7 @@ import shutil
 import sqlite3
 import sys
 import threading
+import uuid
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -513,6 +514,8 @@ def export_state() -> dict:
         for row in connection.execute("SELECT id, name, items FROM kit_templates ORDER BY name"):
             kits.append({"id": row["id"], "name": row["name"], "items": json.loads(row["items"] or "[]")})
 
+        active_inventory_session = _load_active_inventory_session(connection)
+
     return {
         "meta": {"updatedAt": meta_row["value"] if meta_row else None, "version": version},
         "employees": employees,
@@ -522,7 +525,17 @@ def export_state() -> dict:
         "movements": movements,
         "auditLog": audit,
         "kitTemplates": kits,
+        "activeInventorySession": active_inventory_session,
     }
+
+
+def _load_active_inventory_session(connection: sqlite3.Connection) -> dict | None:
+    row = connection.execute(
+        "SELECT id, started_at, started_by FROM inventory_sessions WHERE status = 'open'"
+    ).fetchone()
+    if row is None:
+        return None
+    return {"id": row["id"], "startedAt": row["started_at"], "startedBy": row["started_by"]}
 
 
 def import_state(payload: dict, actor: str) -> dict:
@@ -817,6 +830,11 @@ class WarehouseHandler(BaseHTTPRequestHandler):
             if not self.require_role(user, ("admin",)):
                 return
             self.handle_save_settings(body)
+            return
+        if parsed.path == "/api/inventory/start":
+            if not self.require_role(user, ("admin",)):
+                return
+            self.handle_start_inventory(user["username"])
             return
         if parsed.path == "/api/act":
             if not self.require_role(user, ("admin", "storekeeper")):
@@ -1204,6 +1222,42 @@ class WarehouseHandler(BaseHTTPRequestHandler):
 
     def handle_get_settings(self) -> None:
         self.send_json({"checkUpdates": check_updates_enabled()})
+
+    def handle_start_inventory(self, username: str) -> None:
+        with get_connection() as connection:
+            existing = connection.execute(
+                "SELECT id, started_at, started_by FROM inventory_sessions WHERE status = 'open'"
+            ).fetchone()
+            if existing is not None:
+                body = json.dumps(
+                    {
+                        "error": "Инвентаризация уже начата.",
+                        "session": {
+                            "id": existing["id"],
+                            "startedAt": existing["started_at"],
+                            "startedBy": existing["started_by"],
+                        },
+                    },
+                    ensure_ascii=False,
+                ).encode("utf-8")
+                self.send_response(HTTPStatus.CONFLICT)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            session_id = str(uuid.uuid4())
+            started_at = datetime.now(timezone.utc).isoformat()
+            connection.execute(
+                "INSERT INTO inventory_sessions (id, started_at, started_by, status) VALUES (?, ?, ?, 'open')",
+                (session_id, started_at, username),
+            )
+        body = json.dumps({"sessionId": session_id, "startedAt": started_at}, ensure_ascii=False).encode("utf-8")
+        self.send_response(HTTPStatus.CREATED)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def handle_save_settings(self, body: bytes) -> None:
         try:

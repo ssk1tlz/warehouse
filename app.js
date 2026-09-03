@@ -350,6 +350,7 @@ function hydrateState(parsed) {
     currentVersion: parsed.currentVersion || "",
     latestVersion: parsed.latestVersion || null,
     releaseUrl: parsed.releaseUrl || null,
+    activeInventorySession: parsed.activeInventorySession || null,
   };
 }
 
