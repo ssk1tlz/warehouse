@@ -46,3 +46,46 @@ test('describeUpdate survives a malformed version without throwing', () => {
   assert.equal(describeUpdate({ latestVersion: 'мусор' }, '1.0.0'), null);
   assert.equal(describeUpdate({ latestVersion: '1.0.1' }, undefined), null);
 });
+
+test('reconcileInventory lists assets that were never scanned as missing', () => {
+  const { reconcileInventory } = require('../www/js/screens.js');
+  const result = reconcileInventory(
+    [{ assetId: 'a1', status: 'found', foundLocation: '' }],
+    [{ id: 'a1', name: 'Монитор', inventoryNumber: 'INV-1', location: 'Каб. 101' },
+     { id: 'a2', name: 'Клавиатура', inventoryNumber: 'INV-2', location: 'Каб. 101' }],
+    [],
+  );
+  assert.equal(result.missing.length, 1);
+  assert.equal(result.missing[0].id, 'a2');
+  assert.equal(result.foundCount, 1);
+});
+
+test('reconcileInventory separates wrong-location scans from plain found ones', () => {
+  const { reconcileInventory } = require('../www/js/screens.js');
+  const result = reconcileInventory(
+    [{ assetId: 'a1', status: 'wrong_location', foundLocation: 'Каб. 202' }],
+    [{ id: 'a1', name: 'Монитор', inventoryNumber: 'INV-1', location: 'Каб. 101' }],
+    [],
+  );
+  assert.equal(result.missing.length, 0);
+  assert.equal(result.wrongLocation.length, 1);
+  assert.equal(result.wrongLocation[0].foundLocation, 'Каб. 202');
+  assert.equal(result.wrongLocation[0].expectedLocation, 'Каб. 101');
+});
+
+test('reconcileInventory treats a repeat scan of the same asset as one entry, not a duplicate', () => {
+  const { reconcileInventory } = require('../www/js/screens.js');
+  const result = reconcileInventory(
+    [{ assetId: 'a1', status: 'found', foundLocation: '' },
+     { assetId: 'a1', status: 'found', foundLocation: '' }],
+    [{ id: 'a1', name: 'Монитор', inventoryNumber: 'INV-1', location: 'Каб. 101' }],
+    [],
+  );
+  assert.equal(result.foundCount, 1);
+});
+
+test('reconcileInventory passes extraCodes through unchanged', () => {
+  const { reconcileInventory } = require('../www/js/screens.js');
+  const result = reconcileInventory([], [], ['WH1:unknown-1', 'WH1:unknown-1']);
+  assert.deepEqual(result.extra, ['WH1:unknown-1', 'WH1:unknown-1']);
+});

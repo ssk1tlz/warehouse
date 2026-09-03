@@ -23,6 +23,31 @@ function describeUpdate(state, currentVersion) {
   };
 }
 
+function reconcileInventory(scans, allAssets, extraCodes) {
+  const byAssetId = new Map(scans.map((scan) => [scan.assetId, scan]));
+  const missing = [];
+  const wrongLocation = [];
+  let foundCount = 0;
+
+  for (const asset of allAssets) {
+    const scan = byAssetId.get(asset.id);
+    if (!scan) {
+      missing.push({ id: asset.id, name: asset.name, inventoryNumber: asset.inventoryNumber });
+      continue;
+    }
+    if (scan.status === 'wrong_location') {
+      wrongLocation.push({
+        id: asset.id, name: asset.name, inventoryNumber: asset.inventoryNumber,
+        expectedLocation: asset.location, foundLocation: scan.foundLocation,
+      });
+    } else {
+      foundCount += 1;
+    }
+  }
+
+  return { missing, wrongLocation, foundCount, extra: extraCodes || [] };
+}
+
 const NAV_SCREEN_MAP = {
   navSearchBtn: 'screen-search',
   navQueueBtn: 'screen-queue',
@@ -524,7 +549,7 @@ function initSwipeBack() {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { describeScanError, describeUpdate };
+  module.exports = { describeScanError, describeUpdate, reconcileInventory };
 }
 if (typeof window !== 'undefined') {
   window.App = { init };
