@@ -1939,6 +1939,7 @@ tr:hover td { background: var(--surface-2); }
 .label-controls select { width: auto; padding: 6px 28px 6px 10px; font-size: 12px; }
 
 .label-select-actions { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+.label-select-actions select { width: auto; padding: 6px 28px 6px 10px; font-size: 12px; }
 .label-select-actions .label-count { font-size: 11.5px; color: var(--text-3); font-family: var(--mono); margin-left: auto; }
 
 .label-grid {
