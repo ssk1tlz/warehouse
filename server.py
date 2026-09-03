@@ -925,13 +925,26 @@ class WarehouseHandler(BaseHTTPRequestHandler):
                 # The desktop payload omitted an asset that still has
                 # inventory_scans history referencing it (a true delete, not
                 # just an edit) — import_state's deferred FK check catches
-                # this at COMMIT time. Surface a clear Russian error instead
-                # of letting an unhandled IntegrityError bubble up as a
-                # generic server error.
-                self.send_json_error(
-                    HTTPStatus.CONFLICT,
-                    "Нельзя удалить актив с историей инвентаризации.",
-                )
+                # this at COMMIT time. The transaction rolled back, so the
+                # server's state is unchanged — but the client's in-memory
+                # state_version is now stale relative to nothing having
+                # actually been persisted, so this must carry "state" the
+                # same way the version-conflict branch above does: without
+                # it, the desktop's existing `if (data.state)` reconciliation
+                # never triggers, and every subsequent save keeps retrying
+                # against the same stale version and getting 409'd again.
+                conflict_body = json.dumps(
+                    {
+                        "error": "Нельзя удалить актив с историей инвентаризации.",
+                        "state": state_with_versions(),
+                    },
+                    ensure_ascii=False,
+                ).encode("utf-8")
+                self.send_response(HTTPStatus.CONFLICT)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(conflict_body)))
+                self.end_headers()
+                self.wfile.write(conflict_body)
                 return
         self.send_json(state)
 

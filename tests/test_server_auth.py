@@ -367,6 +367,12 @@ def test_import_state_returns_conflict_when_deleting_an_asset_with_scan_history(
     status, body = _request(live_server, "POST", "/api/state", token=token, json_body=empty_payload)
     assert status == 409, body
     assert "истори" in body["error"].lower()
+    # The 409 must carry "state" the same way the version-conflict branch
+    # does, so the desktop's existing `if (data.state)` reconciliation can
+    # resync it automatically — without this, the client keeps retrying
+    # against a state_version that was never actually rejected for that
+    # reason, 409-ing again on every subsequent save until a page reload.
+    assert any(a["id"] == "ast_1" for a in body["state"]["assets"]), body
 
     # The delete must not have gone through — 'ast_1' still exists.
     status, body = _request(live_server, "GET", "/api/state", token=token)
