@@ -879,3 +879,40 @@ def test_state_reports_the_active_inventory_session(live_server):
     _request(live_server, "POST", "/api/inventory/start", token=token)
     status, body = _request(live_server, "GET", "/api/state", token=token)
     assert body["activeInventorySession"]["startedBy"] == "admin"
+
+
+def test_listing_inventory_sessions_requires_admin(live_server):
+    admin_token = _create_admin(live_server)
+    _request(live_server, "POST", "/api/users", token=admin_token,
+             json_body={"username": "viewer1", "password": "parol123", "role": "viewer"})
+    status, body = _request(live_server, "POST", "/api/login",
+                            json_body={"username": "viewer1", "password": "parol123"})
+    viewer_token = body["token"]
+    status, _ = _request(live_server, "GET", "/api/inventory/sessions", token=viewer_token)
+    assert status == 403
+
+
+def test_listing_inventory_sessions_includes_a_finished_session_with_counts(live_server):
+    token = _create_admin(live_server)
+    _request(live_server, "POST", "/api/users", token=token,
+             json_body={"username": "sklad1", "password": "parol123", "role": "storekeeper"})
+    status, body = _request(live_server, "POST", "/api/inventory/start", token=token)
+    session_id = body["sessionId"]
+
+    status, _ = _request(live_server, "POST", "/api/mobile/action", token=token, json_body={
+        "clientActionId": "inv-1",
+        "type": "inventory_complete",
+        "sessionId": session_id,
+        "scans": [],
+        "extraCodes": ["WH1:unknown"],
+    })
+    assert status == 200
+
+    status, body = _request(live_server, "GET", "/api/inventory/sessions", token=token)
+    assert status == 200
+    assert len(body["sessions"]) == 1
+    session = body["sessions"][0]
+    assert session["id"] == session_id
+    assert session["status"] == "finished"
+    assert session["startedBy"] == "admin"
+    assert session["extraCount"] == 1

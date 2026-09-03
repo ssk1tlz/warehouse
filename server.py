@@ -780,6 +780,11 @@ class WarehouseHandler(BaseHTTPRequestHandler):
                 return
             self.handle_list_backups()
             return
+        if parsed.path == "/api/inventory/sessions":
+            if not self.require_role(user, ("admin",)):
+                return
+            self.handle_list_inventory_sessions()
+            return
         if parsed.path == "/api/settings":
             if not self.require_role(user, ("admin",)):
                 return
@@ -1222,6 +1227,44 @@ class WarehouseHandler(BaseHTTPRequestHandler):
 
     def handle_get_settings(self) -> None:
         self.send_json({"checkUpdates": check_updates_enabled()})
+
+    def handle_list_inventory_sessions(self) -> None:
+        with get_connection() as connection:
+            sessions = []
+            for row in connection.execute(
+                "SELECT id, started_at, finished_at, started_by, status "
+                "FROM inventory_sessions ORDER BY started_at DESC"
+            ):
+                found_count = 0
+                wrong_location_count = 0
+                missing_count = 0
+                extra_count = 0
+                if row["status"] == "finished":
+                    cached = connection.execute(
+                        "SELECT response_json FROM mobile_action_log "
+                        "WHERE response_json LIKE ? ORDER BY created_at DESC LIMIT 1",
+                        (f'%"sessionId": "{row["id"]}"%',),
+                    ).fetchone()
+                    if cached is not None:
+                        payload = json.loads(cached["response_json"])
+                        found_count = payload.get("foundCount", 0)
+                        wrong_location_count = payload.get("wrongLocationCount", 0)
+                        missing_count = len(payload.get("missingAssetIds") or [])
+                        extra_count = len(payload.get("extraCodes") or [])
+                sessions.append(
+                    {
+                        "id": row["id"],
+                        "startedAt": row["started_at"],
+                        "finishedAt": row["finished_at"],
+                        "startedBy": row["started_by"],
+                        "status": row["status"],
+                        "foundCount": found_count,
+                        "wrongLocationCount": wrong_location_count,
+                        "missingCount": missing_count,
+                        "extraCount": extra_count,
+                    }
+                )
+        self.send_json({"sessions": sessions})
 
     def handle_start_inventory(self, username: str) -> None:
         # STATE_LOCK serializes this check-then-insert against other threads
