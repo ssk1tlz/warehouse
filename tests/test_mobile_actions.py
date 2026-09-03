@@ -556,3 +556,127 @@ def test_apply_action_replay_does_not_double_apply(conn):
         "SELECT quantity FROM asset_allocations WHERE asset_id='ast_1' AND employee_id='emp_1'"
     ).fetchone()
     assert alloc["quantity"] == 1  # still 1, not 2 — the replay did not re-apply
+
+
+def test_apply_inventory_complete_closes_the_session_and_records_scans(conn):
+    # NOTE: the `conn` fixture (top of this file) already seeds one asset,
+    # 'ast_1' ("Ноутбук Dell") — it will legitimately show up in
+    # missingAssetIds too, since it's never scanned here. Assert membership,
+    # not exact-list equality, so this test doesn't silently break if the
+    # fixture's seed data changes.
+    conn.execute(
+        "INSERT INTO assets (id, name, location) VALUES (?, ?, ?)", ("a1", "Монитор", "Каб. 101"),
+    )
+    conn.execute(
+        "INSERT INTO assets (id, name, location) VALUES (?, ?, ?)", ("a2", "Клавиатура", "Каб. 101"),
+    )
+    conn.execute(
+        "INSERT INTO inventory_sessions (id, started_at, started_by, status) VALUES (?, ?, ?, 'open')",
+        ("s1", "2026-09-02T10:00:00+00:00", "alan"),
+    )
+    action = {
+        "clientActionId": "c1",
+        "type": "inventory_complete",
+        "sessionId": "s1",
+        "scans": [{"assetId": "a1", "status": "found", "foundLocation": ""}],
+        "extraCodes": ["WH1:unknown-123"],
+    }
+    result = mobile_actions.apply_action(conn, action)
+
+    assert result["replayed"] is False
+    assert result["sessionId"] == "s1"
+    assert result["foundCount"] == 1
+    assert result["wrongLocationCount"] == 0
+    assert "a2" in result["missingAssetIds"]
+    assert "a1" not in result["missingAssetIds"]
+    assert result["extraCodes"] == ["WH1:unknown-123"]
+
+    session = conn.execute(
+        "SELECT status, finished_at FROM inventory_sessions WHERE id = ?", ("s1",)
+    ).fetchone()
+    assert session["status"] == "finished"
+    assert session["finished_at"] is not None
+
+    scan = conn.execute(
+        "SELECT asset_id, status FROM inventory_scans WHERE session_id = ?", ("s1",)
+    ).fetchone()
+    assert scan["asset_id"] == "a1"
+    assert scan["status"] == "found"
+
+
+def test_apply_inventory_complete_records_wrong_location(conn):
+    conn.execute("INSERT INTO assets (id, name, location) VALUES (?, ?, ?)", ("a1", "Монитор", "Каб. 101"))
+    conn.execute(
+        "INSERT INTO inventory_sessions (id, started_at, started_by, status) VALUES (?, ?, ?, 'open')",
+        ("s1", "2026-09-02T10:00:00+00:00", "alan"),
+    )
+    action = {
+        "clientActionId": "c2",
+        "type": "inventory_complete",
+        "sessionId": "s1",
+        "scans": [{"assetId": "a1", "status": "wrong_location", "foundLocation": "Каб. 202"}],
+        "extraCodes": [],
+    }
+    result = mobile_actions.apply_action(conn, action)
+    assert result["wrongLocationCount"] == 1
+    scan = conn.execute(
+        "SELECT status, found_location FROM inventory_scans WHERE session_id = ?", ("s1",)
+    ).fetchone()
+    assert scan["status"] == "wrong_location"
+    assert scan["found_location"] == "Каб. 202"
+
+
+def test_apply_inventory_complete_rejects_an_unknown_session(conn):
+    action = {
+        "clientActionId": "c3", "type": "inventory_complete", "sessionId": "does-not-exist",
+        "scans": [], "extraCodes": [],
+    }
+    try:
+        mobile_actions.apply_action(conn, action)
+        assert False, "expected MobileActionError"
+    except mobile_actions.MobileActionError as exc:
+        assert "не найдена" in str(exc)
+
+
+def test_apply_inventory_complete_rejects_an_already_finished_session(conn):
+    conn.execute(
+        "INSERT INTO inventory_sessions (id, started_at, started_by, status, finished_at) "
+        "VALUES (?, ?, ?, 'finished', ?)",
+        ("s1", "2026-09-02T10:00:00+00:00", "alan", "2026-09-02T11:00:00+00:00"),
+    )
+    action = {"clientActionId": "c4", "type": "inventory_complete", "sessionId": "s1", "scans": [], "extraCodes": []}
+    try:
+        mobile_actions.apply_action(conn, action)
+        assert False, "expected MobileActionError"
+    except mobile_actions.MobileActionError as exc:
+        assert "уже завершена" in str(exc)
+
+
+def test_apply_inventory_complete_replay_returns_cached_result(conn):
+    conn.execute("INSERT INTO assets (id, name) VALUES (?, ?)", ("a1", "Монитор"))
+    conn.execute(
+        "INSERT INTO inventory_sessions (id, started_at, started_by, status) VALUES (?, ?, ?, 'open')",
+        ("s1", "2026-09-02T10:00:00+00:00", "alan"),
+    )
+    action = {
+        "clientActionId": "c5", "type": "inventory_complete", "sessionId": "s1",
+        "scans": [{"assetId": "a1", "status": "found", "foundLocation": ""}], "extraCodes": [],
+    }
+    first = mobile_actions.apply_action(conn, action)
+    assert first["replayed"] is False
+    second = mobile_actions.apply_action(conn, action)
+    assert second["replayed"] is True
+    assert second["sessionId"] == "s1"
+    # Replay must not double-insert the scan row or re-close an already-closed session.
+    count = conn.execute("SELECT COUNT(*) FROM inventory_scans WHERE session_id = ?", ("s1",)).fetchone()[0]
+    assert count == 1
+
+
+def test_existing_action_types_still_require_asset_id(conn):
+    # Guards the shared apply_action() change: only inventory_complete is exempt.
+    action = {"clientActionId": "c6", "type": "issue", "quantity": 1}
+    try:
+        mobile_actions.apply_action(conn, action)
+        assert False, "expected MobileActionError"
+    except mobile_actions.MobileActionError as exc:
+        assert "assetId" in str(exc)

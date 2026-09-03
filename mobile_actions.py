@@ -361,6 +361,65 @@ def apply_edit(connection: sqlite3.Connection, action: dict) -> int:
     return new_rev
 
 
+def apply_inventory_complete(connection: sqlite3.Connection, action: dict) -> dict:
+    """Закрыть открытую сессию инвентаризации и записать её результат.
+
+    В отличие от остальных действий, не привязано к одному активу — работает
+    сразу со всеми сканами сессии. "Лишнее" (нераспознанные коды) в БД не
+    хранится — это не актив; список остаётся только в результате действия
+    (который сохраняется в mobile_action_log.response_json для дедупликации
+    и переиспользуется актом инвентаризации).
+    """
+    session_id = str(action.get("sessionId") or "").strip()
+    if not session_id:
+        raise MobileActionError("sessionId обязателен.")
+
+    session = connection.execute(
+        "SELECT id, status FROM inventory_sessions WHERE id = ?", (session_id,)
+    ).fetchone()
+    if session is None:
+        raise MobileActionError(f'Сессия инвентаризации "{session_id}" не найдена.')
+    if session["status"] != "open":
+        raise MobileActionError("Эта сессия инвентаризации уже завершена.")
+
+    scans = action.get("scans") or []
+    found_count = 0
+    wrong_location_count = 0
+    scanned_ids: set[str] = set()
+    for scan in scans:
+        asset_id = str(scan.get("assetId") or "").strip()
+        if not asset_id:
+            continue
+        status = scan.get("status") or "found"
+        if status not in ("found", "wrong_location"):
+            raise MobileActionError(f'Неизвестный статус скана: "{status}".')
+        connection.execute(
+            "INSERT INTO inventory_scans (session_id, asset_id, status, found_location) VALUES (?, ?, ?, ?)",
+            (session_id, asset_id, status, str(scan.get("foundLocation") or "")),
+        )
+        scanned_ids.add(asset_id)
+        if status == "found":
+            found_count += 1
+        else:
+            wrong_location_count += 1
+
+    all_asset_ids = [row["id"] for row in connection.execute("SELECT id FROM assets ORDER BY name")]
+    missing_asset_ids = [asset_id for asset_id in all_asset_ids if asset_id not in scanned_ids]
+
+    connection.execute(
+        "UPDATE inventory_sessions SET status = 'finished', finished_at = ? WHERE id = ?",
+        (datetime.now(timezone.utc).isoformat(), session_id),
+    )
+
+    return {
+        "sessionId": session_id,
+        "foundCount": found_count,
+        "wrongLocationCount": wrong_location_count,
+        "missingAssetIds": missing_asset_ids,
+        "extraCodes": [str(code) for code in (action.get("extraCodes") or [])],
+    }
+
+
 _DISPATCH = {
     "issue": apply_issue,
     "return": apply_return,
@@ -368,6 +427,7 @@ _DISPATCH = {
     "repair_return": apply_repair_return,
     "retire": apply_retire,
     "edit": apply_edit,
+    "inventory_complete": apply_inventory_complete,
 }
 
 
@@ -378,7 +438,7 @@ def apply_action(connection: sqlite3.Connection, action: dict) -> dict:
     action_type = action.get("type")
     if action_type not in _DISPATCH:
         raise MobileActionError(f'Неизвестный тип действия: "{action_type}".')
-    if not action.get("assetId"):
+    if action_type != "inventory_complete" and not action.get("assetId"):
         raise MobileActionError("assetId обязателен.")
 
     cached = connection.execute(
@@ -392,8 +452,12 @@ def apply_action(connection: sqlite3.Connection, action: dict) -> dict:
 
     new_rev = _DISPATCH[action_type](connection, action)
 
-    result = {"assetId": action["assetId"], "replayed": False}
-    if new_rev is not None:
+    result: dict = {"replayed": False}
+    if action.get("assetId"):
+        result["assetId"] = action["assetId"]
+    if isinstance(new_rev, dict):
+        result.update(new_rev)
+    elif new_rev is not None:
         result["rev"] = new_rev
     connection.execute(
         "INSERT INTO mobile_action_log (client_action_id, response_json, created_at) VALUES (?, ?, ?)",
