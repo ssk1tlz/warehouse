@@ -115,7 +115,7 @@ async function run() {
   return { pulled, flushed, failed, needsReauth: sessionExpired };
 }
 
-const Sync = { run, flushQueue, pullState, pair, signRequest };
+const Sync = { run, flushQueue, pullState, pair, signRequest, signedHeaders };
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = Sync;
 }

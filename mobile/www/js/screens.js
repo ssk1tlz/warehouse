@@ -52,6 +52,7 @@ const NAV_SCREEN_MAP = {
   navSearchBtn: 'screen-search',
   navQueueBtn: 'screen-queue',
   navHistoryBtn: 'screen-history',
+  navInventoryBtn: 'screen-inventory-start',
   navSettingsBtn: 'screen-settings',
 };
 
@@ -373,6 +374,151 @@ async function openHistoryScreen() {
   showScreen('screen-history');
 }
 
+let currentInventorySessionId = null;
+let inventoryAllAssets = [];
+// Нераспознанные/чужие коды этой сессии — не персистентны между перезапусками
+// приложения (осознанное упрощение MVP: переживать убийство приложения для
+// "лишнего" не так важно, как для счётчика найденного, который восстанавливается
+// из Db.getInventoryScans).
+let extraCodesThisSession = [];
+
+async function openInventoryStartScreen() {
+  const meta = await Db.getStateMeta();
+  const active = meta.activeInventorySession ? JSON.parse(meta.activeInventorySession) : null;
+  const infoEl = document.getElementById('inventoryActiveInfo');
+  if (active) {
+    infoEl.textContent = `Инвентаризация уже начата (${active.startedBy}). Продолжить.`;
+    infoEl.classList.remove('hidden');
+    currentInventorySessionId = active.id;
+  } else {
+    infoEl.classList.add('hidden');
+    currentInventorySessionId = null;
+  }
+  showScreen('screen-inventory-start');
+}
+
+async function postInventoryStart() {
+  // Нет apiFetch() на мобильном — реальный паттерн (см. Sync.flushQueue/pullState
+  // в sync.js): собрать подписанные заголовки через Sync.signedHeaders и сделать
+  // fetch() напрямую на settings.serverUrl + путь.
+  const settings = await Settings.get();
+  const headers = { 'Content-Type': 'application/json', ...(await Sync.signedHeaders(settings, 'POST', '/api/inventory/start', '')) };
+  const response = await fetch(`${settings.serverUrl}/api/inventory/start`, { method: 'POST', headers });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    if (response.status === 409 && body.session) {
+      // Сессия уже была открыта кем-то другим между открытием этого экрана и
+      // нажатием "Начать" — подключиться к ней, а не считать это ошибкой.
+      return body.session.id;
+    }
+    throw new Error(body.error || `HTTP ${response.status}`);
+  }
+  return body.sessionId;
+}
+
+async function startInventoryScanning() {
+  if (!currentInventorySessionId) {
+    try {
+      currentInventorySessionId = await postInventoryStart();
+    } catch (err) {
+      Toast.show(err.message || 'Не удалось начать инвентаризацию.', 'error');
+      return;
+    }
+  }
+
+  inventoryAllAssets = await Db.getAllAssets();
+  const alreadyScanned = await Db.getInventoryScans(currentInventorySessionId);
+  let foundCount = alreadyScanned.length;
+  const seen = new Set(alreadyScanned.map((s) => s.assetId));
+  extraCodesThisSession = [];
+
+  showScreen('screen-inventory-scan');
+  document.body.classList.add('barcode-scanner-active');
+  document.getElementById('inventoryCounter').textContent = `Найдено ${foundCount} из ${inventoryAllAssets.length}`;
+
+  // parseWarehouseQr (qr.js) returns the bare asset id string (or null) — NOT
+  // an object. It only validates the "WH1:" prefix, not that the id actually
+  // exists — a code from a deleted/foreign asset must land in "extra", not be
+  // silently recorded as "found" (inventory_scans has an FK on asset_id, so a
+  // bogus id would otherwise fail server-side when the session is submitted).
+  const knownAssetIds = new Set(inventoryAllAssets.map((a) => a.id));
+  await Scanner.startInventoryScan(async (rawValue) => {
+    const assetId = parseWarehouseQr(rawValue);
+    if (!assetId || !knownAssetIds.has(assetId)) {
+      extraCodesThisSession.push(rawValue);
+      return;
+    }
+    if (seen.has(assetId)) return; // повторный скан — не дублируется
+    seen.add(assetId);
+    await Db.saveInventoryScan(currentInventorySessionId, assetId, 'found', '');
+    foundCount += 1;
+    document.getElementById('inventoryCounter').textContent = `Найдено ${foundCount} из ${inventoryAllAssets.length}`;
+  });
+}
+
+async function finishInventoryScanning() {
+  await Scanner.stopInventoryScan();
+  document.body.classList.remove('barcode-scanner-active');
+  const scans = await Db.getInventoryScans(currentInventorySessionId);
+  const result = reconcileInventory(scans, inventoryAllAssets, extraCodesThisSession);
+  renderInventoryDiscrepancies(result);
+  showScreen('screen-inventory-discrepancies');
+}
+
+// DOM-построение списков, как везде в этом файле (см. openAssetScreen's
+// assetHolders/assetMovements) — createElement + textContent, НЕ innerHTML со
+// строковой интерполяцией (в проекте нет и не должно быть отдельной функции
+// экранирования HTML — .textContent безопасен по умолчанию).
+function renderInventoryList(containerId, heading, items, emptyText, formatItem) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = '';
+  const h3 = document.createElement('h3');
+  h3.textContent = heading;
+  container.appendChild(h3);
+  if (!items.length) {
+    const p = document.createElement('p');
+    p.textContent = emptyText;
+    container.appendChild(p);
+    return;
+  }
+  for (const item of items) {
+    const p = document.createElement('p');
+    p.textContent = formatItem(item);
+    container.appendChild(p);
+  }
+}
+
+function renderInventoryDiscrepancies(result) {
+  renderInventoryList('inventoryMissingList', 'Не найдено', result.missing, 'Все позиции найдены.',
+    (a) => a.name);
+  renderInventoryList('inventoryWrongLocationList', 'Не на своём месте', result.wrongLocation, 'Расхождений по местоположению нет.',
+    (a) => `${a.name}: ${a.expectedLocation} → ${a.foundLocation}`);
+  renderInventoryList('inventoryExtraList', 'Лишнее', result.extra, 'Лишних кодов не обнаружено.',
+    (code) => code);
+}
+
+async function submitInventoryResult() {
+  const scans = await Db.getInventoryScans(currentInventorySessionId);
+  // Db.enqueueAction сам генерирует clientActionId и кладёт запись в pending_actions —
+  // тот же путь, которым уже идут выдача/возврат (см. вызовы этой функции выше по файлу).
+  await Db.enqueueAction({
+    type: 'inventory_complete',
+    sessionId: currentInventorySessionId,
+    scans: scans.map((s) => ({ assetId: s.assetId, status: s.status, foundLocation: s.foundLocation })),
+    extraCodes: extraCodesThisSession,
+  });
+  await Db.clearInventoryScans(currentInventorySessionId);
+  currentInventorySessionId = null;
+  extraCodesThisSession = [];
+  Toast.show('Инвентаризация отправлена в очередь синхронизации.', 'success');
+  showScreen('screen-scan');
+}
+
+async function applyRoleVisibility() {
+  const { role } = await Settings.get();
+  document.getElementById('navInventoryBtn')?.classList.toggle('hidden', role !== 'admin');
+}
+
 async function init() {
   // Deviation from the brief's verbatim code: db.js's `open()` (Task 4) is the
   // documented entry point that creates/opens the SQLite connection and creates
@@ -390,6 +536,7 @@ async function init() {
   ConnStatus.start();
 
   const settings = await Settings.get();
+  await applyRoleVisibility();
   if (!settings.serverUrl) {
     showScreen('screen-settings');
   } else {
@@ -400,7 +547,7 @@ async function init() {
 
   document.getElementById('settingsSaveBtn').addEventListener('click', async () => {
     const current = await Settings.get();
-    await Settings.set({ serverUrl: document.getElementById('settingsUrl').value, token: current.token, deviceSecret: current.deviceSecret });
+    await Settings.set({ serverUrl: document.getElementById('settingsUrl').value, token: current.token, deviceSecret: current.deviceSecret, role: current.role });
     showScreen('screen-scan');
     Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled, r.needsReauth); });
   });
@@ -419,8 +566,9 @@ async function init() {
     try {
       const result = await Scanner.scanConnectQr();
       if (!result) return; // cancelled
-      const { token } = await Sync.pair(result.serverUrl, result.code);
-      await Settings.set({ serverUrl: result.serverUrl, token, deviceSecret: result.secret });
+      const { token, role } = await Sync.pair(result.serverUrl, result.code);
+      await Settings.set({ serverUrl: result.serverUrl, token, deviceSecret: result.secret, role });
+      await applyRoleVisibility();
       document.getElementById('settingsUrl').value = result.serverUrl;
       showScreen('screen-scan');
       Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled, r.needsReauth); });
@@ -432,6 +580,10 @@ async function init() {
   document.getElementById('navSearchBtn').addEventListener('click', openSearchScreen);
   document.getElementById('navQueueBtn').addEventListener('click', openQueueScreen);
   document.getElementById('navHistoryBtn').addEventListener('click', openHistoryScreen);
+  document.getElementById('navInventoryBtn')?.addEventListener('click', openInventoryStartScreen);
+  document.getElementById('inventoryStartBtn')?.addEventListener('click', startInventoryScanning);
+  document.getElementById('inventoryFinishBtn')?.addEventListener('click', finishInventoryScanning);
+  document.getElementById('inventorySubmitBtn')?.addEventListener('click', submitInventoryResult);
   document.getElementById('navSettingsBtn').addEventListener('click', async () => {
     const currentSettings = await Settings.get();
     document.getElementById('settingsUrl').value = currentSettings.serverUrl;

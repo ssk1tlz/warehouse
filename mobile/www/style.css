@@ -299,3 +299,37 @@ li {
   margin-top: 12px;
 }
 .update-banner.hidden { display: none; }
+
+/* ─── inventory scan overlay ──────────────────────────────────── */
+.inventory-scan-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: 32px;
+  pointer-events: none;
+}
+.inventory-scan-overlay > * { pointer-events: auto; }
+.inventory-counter {
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+/* Плагин сканера рисует камеру ЗА WebView в непрерывном режиме — этот класс
+   прячет всё, кроме .inventory-scan-overlay, пока идёт скан (официальный
+   паттерн @capacitor-mlkit/barcode-scanning). */
+body.barcode-scanner-active > *:not(#screen-inventory-scan) { visibility: hidden; }
+body.barcode-scanner-active #screen-inventory-scan { background: transparent; }
+
+/* Общее правило скрытия — раньше существовало только в связке с конкретными
+   базовыми классами (.screen.hidden, .nav-badge.hidden, .update-banner.hidden).
+   Проверено: ни один существующий элемент с классом hidden в index.html не
+   меняет поведение от добавления этого общего правила — только расширяет
+   работу класса на новые элементы (кнопку навигации, параграф статуса),
+   которым нужно просто скрываться без привязки к screen/nav-badge/update-banner. */
+.hidden { display: none; }
