@@ -94,4 +94,26 @@ async function scanLabelPhoto() {
   return parseLabelText(result && result.text);
 }
 
-window.Scanner = { scanOnce, scanConnectQr, scanLabelBarcode, scanLabelPhoto };
+// Непрерывный скан для инвентаризации: камера рисуется за WebView (не
+// модальным окном), каждый распознанный код прилетает в onBarcode сразу,
+// без остановки потока. Вызывающий сам решает, что считать дублем.
+async function startInventoryScan(onBarcode) {
+  await ensureScannerReady();
+  await BarcodeScanner.addListener('barcodeScanned', (result) => {
+    if (result && result.barcode && typeof result.barcode.rawValue === 'string') {
+      onBarcode(result.barcode.rawValue);
+    }
+  });
+  await BarcodeScanner.startScan();
+}
+
+async function stopInventoryScan() {
+  await BarcodeScanner.removeAllListeners();
+  await BarcodeScanner.stopScan();
+}
+
+window.Scanner = { scanOnce, scanConnectQr, scanLabelBarcode, scanLabelPhoto, startInventoryScan, stopInventoryScan };
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { startInventoryScan, stopInventoryScan };
+}
