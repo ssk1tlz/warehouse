@@ -4589,6 +4589,22 @@ function printLabels() {
   <script>window.onload = () => { setTimeout(() => { window.print(); }, 800); }<\/script>
   </body></html>`);
   pw.document.close();
+
+  markLabelsPrinted([...new Set(items.map(({ asset }) => asset.id))]);
+}
+
+async function markLabelsPrinted(assetIds) {
+  try {
+    await apiFetch("/api/assets/label-printed", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assetIds }),
+    });
+  } catch (err) {
+    // Тихая неудача: печать уже отправлена пользователю, отметка "напечатано"
+    // — вспомогательная функция для фильтра, не стоит мешать печати тостом об ошибке.
+    console.error("Не удалось отметить этикетки как напечатанные:", err);
+  }
 }
 
 function exportLabelsExcel() {
