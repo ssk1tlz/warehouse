@@ -859,6 +859,11 @@ class WarehouseHandler(BaseHTTPRequestHandler):
                 return
             self.handle_mobile_action(body)
             return
+        if parsed.path == "/api/assets/label-printed":
+            if not self.require_role(user, ("admin", "storekeeper")):
+                return
+            self.handle_mark_labels_printed(body)
+            return
         if parsed.path != "/api/state":
             self.send_error(HTTPStatus.NOT_FOUND)
             return
@@ -1410,6 +1415,26 @@ class WarehouseHandler(BaseHTTPRequestHandler):
             return
         save_config({"checkUpdates": value})
         self.send_json({"ok": True})
+
+    def handle_mark_labels_printed(self, body: bytes) -> None:
+        try:
+            payload = json.loads(body or b"{}")
+        except json.JSONDecodeError as exc:
+            self.send_json_error(HTTPStatus.BAD_REQUEST, f"invalid json: {exc}")
+            return
+        asset_ids = payload.get("assetIds")
+        if not isinstance(asset_ids, list):
+            self.send_json_error(HTTPStatus.BAD_REQUEST, "Поле assetIds должно быть списком.")
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        with get_connection() as connection:
+            updated = 0
+            for asset_id in asset_ids:
+                cursor = connection.execute(
+                    "UPDATE assets SET label_printed_at = ? WHERE id = ?", (now, str(asset_id))
+                )
+                updated += cursor.rowcount
+        self.send_json({"updated": updated})
 
     def serve_static(self, raw_path: str) -> None:
         relative = "index.html" if raw_path in {"/", ""} else raw_path.lstrip("/")

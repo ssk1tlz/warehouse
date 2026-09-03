@@ -929,3 +929,25 @@ def test_listing_inventory_sessions_includes_a_finished_session_with_counts(live
     assert session["status"] == "finished"
     assert session["startedBy"] == "admin"
     assert session["extraCount"] == 1
+
+
+def test_marking_labels_printed_updates_the_timestamp(live_server):
+    token = _create_admin(live_server)
+    with sqlite3.connect(server.DB_PATH) as conn:
+        conn.execute("INSERT INTO assets (id, name) VALUES (?, ?)", ("a1", "Монитор"))
+        conn.commit()
+    status, body = _request(live_server, "POST", "/api/assets/label-printed", token=token,
+                            json_body={"assetIds": ["a1"]})
+    assert status == 200, body
+    assert body["updated"] == 1
+    with sqlite3.connect(server.DB_PATH) as conn:
+        row = conn.execute("SELECT label_printed_at FROM assets WHERE id = 'a1'").fetchone()
+    assert row[0]
+
+
+def test_marking_labels_printed_ignores_unknown_ids(live_server):
+    token = _create_admin(live_server)
+    status, body = _request(live_server, "POST", "/api/assets/label-printed", token=token,
+                            json_body={"assetIds": ["does-not-exist"]})
+    assert status == 200
+    assert body["updated"] == 0
