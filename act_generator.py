@@ -214,6 +214,114 @@ def generate_act(
     return out_buffer.getvalue()
 
 
+_CONTENT_TYPES_XML = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+    '<Default Extension="xml" ContentType="application/xml"/>'
+    '<Override PartName="/word/document.xml" '
+    'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+    '</Types>'
+)
+
+_ROOT_RELS_XML = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+    '<Relationship Id="rId1" '
+    'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+    'Target="word/document.xml"/>'
+    '</Relationships>'
+)
+
+
+def _inventory_heading(text: str) -> ET.Element:
+    p = ET.Element(f"{W}p")
+    pPr = ET.SubElement(p, f"{W}pPr")
+    ET.SubElement(pPr, f"{W}b")
+    p.append(_make_run(text, bold=True))
+    return p
+
+
+def _inventory_paragraph(text: str) -> ET.Element:
+    p = ET.Element(f"{W}p")
+    p.append(_make_run(text))
+    return p
+
+
+def _inventory_list_paragraphs(items: list[str], empty_text: str) -> list[ET.Element]:
+    if not items:
+        return [_inventory_paragraph(empty_text)]
+    return [_inventory_paragraph(f"— {text}") for text in items]
+
+
+def generate_inventory_act(
+    *,
+    session: dict,
+    missing_assets: list[dict],
+    wrong_location: list[dict],
+    extra_codes: list[str],
+) -> bytes:
+    """Собрать .docx акт инвентаризации полностью программно (без внешнего шаблона).
+
+    В отличие от generate_act() (акт выдачи/возврата), у инвентаризации нет
+    подходящего готового шаблона — три разных списка расхождений вместо одной
+    таблицы позиций. Строим минимальный, но валидный OOXML-пакет напрямую:
+    [Content_Types].xml + _rels/.rels + word/document.xml — этого достаточно,
+    чтобы Word/LibreOffice открыли файл.
+    """
+    body = ET.Element(f"{W}body")
+    body.append(_inventory_heading(f"Акт инвентаризации № {session['id'][:8]}"))
+    body.append(_inventory_paragraph(f"Начата: {session.get('startedAt') or ''}"))
+    body.append(_inventory_paragraph(f"Завершена: {session.get('finishedAt') or ''}"))
+    body.append(_inventory_paragraph(f"Исполнитель: {session.get('startedBy') or ''}"))
+
+    body.append(_inventory_heading("Не найдено"))
+    missing_texts = [
+        f"{item.get('name', '')} ({item.get('inventoryNumber', '') or 'без инв. номера'})"
+        for item in missing_assets
+    ]
+    for p in _inventory_list_paragraphs(missing_texts, "Все позиции найдены."):
+        body.append(p)
+
+    body.append(_inventory_heading("Не на своём месте"))
+    wrong_location_texts = [
+        f"{item.get('name', '')} ({item.get('inventoryNumber', '') or 'без инв. номера'}): "
+        f"учтено «{item.get('expectedLocation', '')}», найдено «{item.get('foundLocation', '')}»"
+        for item in wrong_location
+    ]
+    for p in _inventory_list_paragraphs(wrong_location_texts, "Расхождений по местоположению нет."):
+        body.append(p)
+
+    body.append(_inventory_heading("Лишнее (нераспознанные коды)"))
+    for p in _inventory_list_paragraphs(list(extra_codes), "Лишних кодов не обнаружено."):
+        body.append(p)
+
+    ET.SubElement(body, f"{W}sectPr")
+
+    document = ET.Element(f"{W}document")
+    # No explicit xmlns:w attribute here: `ET.register_namespace("w", W_NS)`
+    # (module import time, above) already makes ET.tostring() emit
+    # xmlns:w="..." on this root element automatically. Setting it again as a
+    # literal attribute produced a DUPLICATE xmlns:w attribute in the
+    # serialized XML — well-formed enough to zip and pass zipfile.testzip(),
+    # but real Word/LibreOffice refuse to open the resulting document.xml
+    # (duplicate attribute is a fatal XML well-formedness error). Found by
+    # actually opening a generated .docx in Word via COM automation.
+    document.append(body)
+
+    document_xml = (
+        b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        + ET.tostring(document, encoding="UTF-8")
+    )
+
+    out_buffer = io.BytesIO()
+    with zipfile.ZipFile(out_buffer, "w", zipfile.ZIP_DEFLATED) as out_zip:
+        out_zip.writestr("[Content_Types].xml", _CONTENT_TYPES_XML)
+        out_zip.writestr("_rels/.rels", _ROOT_RELS_XML)
+        out_zip.writestr("word/document.xml", document_xml)
+    return out_buffer.getvalue()
+
+
 if __name__ == "__main__":
     # quick self-test
     data = generate_act(

@@ -16,9 +16,10 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 try:
-    from act_generator import generate_act
+    from act_generator import generate_act, generate_inventory_act
 except Exception as _act_err:  # noqa: BLE001
     generate_act = None
+    generate_inventory_act = None
     _ACT_IMPORT_ERROR = str(_act_err)
 else:
     _ACT_IMPORT_ERROR = ""
@@ -780,6 +781,12 @@ class WarehouseHandler(BaseHTTPRequestHandler):
                 return
             self.handle_list_backups()
             return
+        if parsed.path.startswith("/api/inventory/sessions/") and parsed.path.endswith("/act"):
+            if not self.require_role(user, ("admin",)):
+                return
+            session_id = parsed.path[len("/api/inventory/sessions/"):-len("/act")]
+            self.handle_inventory_act(session_id)
+            return
         if parsed.path == "/api/inventory/sessions":
             if not self.require_role(user, ("admin",)):
                 return
@@ -1265,6 +1272,84 @@ class WarehouseHandler(BaseHTTPRequestHandler):
                     }
                 )
         self.send_json({"sessions": sessions})
+
+    def handle_inventory_act(self, session_id: str) -> None:
+        if generate_inventory_act is None:
+            body_out = json.dumps(
+                {"error": f"act generator not available: {_ACT_IMPORT_ERROR}"}, ensure_ascii=False
+            ).encode("utf-8")
+            self.send_response(HTTPStatus.INTERNAL_SERVER_ERROR)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body_out)))
+            self.end_headers()
+            self.wfile.write(body_out)
+            return
+        with get_connection() as connection:
+            session_row = connection.execute(
+                "SELECT id, started_at, finished_at, started_by, status FROM inventory_sessions WHERE id = ?",
+                (session_id,),
+            ).fetchone()
+            if session_row is None:
+                self.send_json_error(HTTPStatus.NOT_FOUND, "Сессия инвентаризации не найдена.")
+                return
+            # quantity > 0: exclude fully-retired assets (retire decrements
+            # quantity to 0 but never deletes the row) — same fix as Task A2's
+            # apply_inventory_complete, otherwise retired items show up here
+            # as permanently "not found".
+            asset_names = {
+                row["id"]: {"name": row["name"], "inventoryNumber": row["inventory_number"] or "", "location": row["location"] or ""}
+                for row in connection.execute(
+                    "SELECT id, name, inventory_number, location FROM assets WHERE quantity > 0"
+                )
+            }
+            scanned_wrong_location = [
+                {
+                    "name": asset_names.get(row["asset_id"], {}).get("name", row["asset_id"]),
+                    "inventoryNumber": asset_names.get(row["asset_id"], {}).get("inventoryNumber", ""),
+                    "expectedLocation": asset_names.get(row["asset_id"], {}).get("location", ""),
+                    "foundLocation": row["found_location"],
+                }
+                for row in connection.execute(
+                    "SELECT asset_id, found_location FROM inventory_scans WHERE session_id = ? AND status = 'wrong_location'",
+                    (session_id,),
+                )
+            ]
+            scanned_ids = {
+                row["asset_id"]
+                for row in connection.execute(
+                    "SELECT asset_id FROM inventory_scans WHERE session_id = ?", (session_id,)
+                )
+            }
+            missing_assets = [
+                {"name": info["name"], "inventoryNumber": info["inventoryNumber"]}
+                for asset_id, info in asset_names.items()
+                if asset_id not in scanned_ids
+            ]
+            cached = connection.execute(
+                "SELECT response_json FROM mobile_action_log WHERE response_json LIKE ? ORDER BY created_at DESC LIMIT 1",
+                (f'%"sessionId": "{session_id}"%',),
+            ).fetchone()
+            extra_codes = []
+            if cached is not None:
+                extra_codes = json.loads(cached["response_json"]).get("extraCodes") or []
+        docx_bytes = generate_inventory_act(
+            session={
+                "id": session_row["id"],
+                "startedAt": session_row["started_at"],
+                "finishedAt": session_row["finished_at"],
+                "startedBy": session_row["started_by"],
+            },
+            missing_assets=missing_assets,
+            wrong_location=scanned_wrong_location,
+            extra_codes=extra_codes,
+        )
+        filename = f"inventory_act_{session_id[:8]}.docx"
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.send_header("Content-Length", str(len(docx_bytes)))
+        self.end_headers()
+        self.wfile.write(docx_bytes)
 
     def handle_start_inventory(self, username: str) -> None:
         # STATE_LOCK serializes this check-then-insert against other threads
