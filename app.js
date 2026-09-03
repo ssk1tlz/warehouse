@@ -3604,6 +3604,9 @@ function bindEvents() {
   document.getElementById("labelSelectAllBtn")?.addEventListener("click", () => labelSelectAll(true));
   document.getElementById("labelDeselectAllBtn")?.addEventListener("click", () => labelSelectAll(false));
   document.getElementById("labelSearchInput")?.addEventListener("input", debounce(renderLabelGrid));
+  document.getElementById("labelFilterCategory")?.addEventListener("change", renderLabelGrid);
+  document.getElementById("labelFilterLocation")?.addEventListener("change", renderLabelGrid);
+  document.getElementById("labelUnprintedCheck")?.addEventListener("change", renderLabelGrid);
   document.getElementById("printLabelsPrintBtn")?.addEventListener("click", printLabels);
   document.getElementById("exportLabelsExcelBtn")?.addEventListener("click", exportLabelsExcel);
   document.getElementById("exportLabelsWordBtn")?.addEventListener("click", exportLabelsWord);
@@ -3844,6 +3847,7 @@ function quickPrintLabel(assetId) {
 
 function openLabelsModal() {
   document.getElementById("labelsOverlay").classList.remove("hidden");
+  populateLabelFilterDropdowns();
   renderLabelGrid();
 }
 
@@ -4042,12 +4046,33 @@ async function renderBackupsTable() {
 }
 
 function getLabelAssets() {
+  // Показываем всю технику, не только ту что на складе
   const q = (document.getElementById("labelSearchInput")?.value || "").trim().toLowerCase();
+  const category = document.getElementById("labelFilterCategory")?.value || "";
+  const location = document.getElementById("labelFilterLocation")?.value || "";
+  const onlyUnprinted = document.getElementById("labelUnprintedCheck")?.checked || false;
   return state.assets.filter(a => {
-    // Показываем всю технику, не только ту что на складе
+    if (category && a.category !== category) return false;
+    if (location && a.location !== location) return false;
+    if (onlyUnprinted && a.labelPrintedAt) return false;
     if (!q) return true;
     return [a.name, a.category, a.inventoryNumber, a.serialNumber].join(" ").toLowerCase().includes(q);
   });
+}
+
+function populateLabelFilterDropdowns() {
+  const categories = [...new Set(state.assets.map((a) => a.category).filter(Boolean))].sort();
+  const locations = [...new Set(state.assets.map((a) => a.location).filter(Boolean))].sort();
+  const categorySelect = document.getElementById("labelFilterCategory");
+  const locationSelect = document.getElementById("labelFilterLocation");
+  if (categorySelect) {
+    categorySelect.innerHTML = '<option value="">Все категории</option>'
+      + categories.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+  }
+  if (locationSelect) {
+    locationSelect.innerHTML = '<option value="">Все места</option>'
+      + locations.map((l) => `<option value="${escapeHtml(l)}">${escapeHtml(l)}</option>`).join("");
+  }
 }
 
 function renderLabelGrid() {

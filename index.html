@@ -923,6 +923,13 @@
         <button type="button" class="secondary" id="labelSelectAllBtn">Выбрать все</button>
         <button type="button" class="ghost" id="labelDeselectAllBtn">Снять все</button>
         <input class="search" id="labelSearchInput" placeholder="Поиск…" style="max-width:200px">
+        <select id="labelFilterCategory">
+          <option value="">Все категории</option>
+        </select>
+        <select id="labelFilterLocation">
+          <option value="">Все места</option>
+        </select>
+        <label style="gap:6px"><input type="checkbox" id="labelUnprintedCheck" style="width:15px;height:15px;accent-color:var(--brand)"> Не печатались ранее</label>
         <span class="label-count" id="labelCountSpan">0 выбрано</span>
       </div>
       <div class="label-grid" id="labelGrid"></div>
