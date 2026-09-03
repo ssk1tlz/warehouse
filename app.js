@@ -3551,6 +3551,15 @@ function bindEvents() {
   document.getElementById("backupsOverlay")?.addEventListener("click", (e) => {
     if (e.target === document.getElementById("backupsOverlay")) closeBackupsModal();
   });
+  document.getElementById("showInventoryBtn")?.addEventListener("click", openInventoryModal);
+  document.getElementById("closeInventoryBtn")?.addEventListener("click", closeInventoryModal);
+  document.getElementById("inventoryOverlay")?.addEventListener("click", (e) => {
+    if (e.target === document.getElementById("inventoryOverlay")) closeInventoryModal();
+  });
+  document.getElementById("inventorySessionsBody")?.addEventListener("click", (e) => {
+    const btn = e.target.closest(".download-inventory-act-btn");
+    if (btn) downloadInventoryAct(btn.dataset.sessionId);
+  });
   document.getElementById("showSettingsBtn")?.addEventListener("click", openSettingsModal);
   document.getElementById("closeSettingsBtn")?.addEventListener("click", closeSettingsModal);
   document.getElementById("settingsOverlay")?.addEventListener("click", (e) => {
@@ -3915,6 +3924,65 @@ async function openBackupsModal() {
 
 function closeBackupsModal() {
   document.getElementById("backupsOverlay").classList.add("hidden");
+}
+
+async function openInventoryModal() {
+  document.getElementById("inventoryOverlay").classList.remove("hidden");
+  await renderInventorySessionsTable();
+}
+
+function closeInventoryModal() {
+  document.getElementById("inventoryOverlay").classList.add("hidden");
+}
+
+async function renderInventorySessionsTable() {
+  const banner = document.getElementById("inventoryActiveBanner");
+  if (state.activeInventorySession) {
+    banner.textContent = `Сейчас идёт инвентаризация (${state.activeInventorySession.startedBy}, начата ${state.activeInventorySession.startedAt}).`;
+    banner.classList.remove("hidden");
+  } else {
+    banner.classList.add("hidden");
+  }
+
+  const response = await apiFetch("/api/inventory/sessions");
+  if (!response.ok) {
+    showToast("Не удалось загрузить список инвентаризаций.", "error");
+    return;
+  }
+  const data = await response.json();
+  const tbody = document.getElementById("inventorySessionsBody");
+  tbody.innerHTML = data.sessions.map((s) => `
+    <tr>
+      <td>${escapeHtml(s.startedAt)}</td>
+      <td>${escapeHtml(s.startedBy)}</td>
+      <td>${s.status === "open" ? "Идёт" : "Завершена"}</td>
+      <td>${s.foundCount}</td>
+      <td>${s.missingCount}</td>
+      <td>${s.wrongLocationCount}</td>
+      <td>${s.extraCount}</td>
+      <td>${s.status === "finished" ? `<button type="button" class="secondary download-inventory-act-btn" data-session-id="${s.id}">Акт</button>` : ""}</td>
+    </tr>
+  `).join("");
+}
+
+async function downloadInventoryAct(sessionId) {
+  // Тот же приём, что уже используется для акта выдачи/возврата (см. вызов
+  // /api/act выше по файлу): apiFetch несёт заголовок авторизации, поэтому
+  // обычная <a href> ссылка не подойдёт — сервер потребует Bearer-токен,
+  // которого у прямого перехода по ссылке нет.
+  const response = await apiFetch(`/api/inventory/sessions/${sessionId}/act`);
+  if (!response.ok) {
+    showToast("Не удалось скачать акт.", "error");
+    return;
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `inventory_act_${sessionId.slice(0, 8)}.docx`;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
 }
 
 async function openSettingsModal() {
