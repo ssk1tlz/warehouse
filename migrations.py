@@ -206,6 +206,10 @@ def _migrate_026_inventory_tables(c):
     )
 
 
+def _migrate_027_label_printed_at(c):
+    _add_column_if_missing(c, "assets", "label_printed_at", "label_printed_at TEXT")
+
+
 MIGRATIONS: list[Migration] = [
     (1, "assets.repair_quantity", _migrate_001),
     (2, "assets.retired_quantity", _migrate_002),
@@ -233,6 +237,7 @@ MIGRATIONS: list[Migration] = [
     (24, "audit_log.actor", _migrate_024_audit_log_actor),
     (25, "assets.rev", _migrate_025_assets_rev),
     (26, "inventory_sessions + inventory_scans tables", _migrate_026_inventory_tables),
+    (27, "assets.label_printed_at", _migrate_027_label_printed_at),
 ]
 
 

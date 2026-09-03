@@ -205,6 +205,19 @@ def test_get_state_includes_asset_rev(live_server):
     assert body["assets"][0]["rev"] == 0
 
 
+def test_state_includes_label_printed_at_for_assets(live_server):
+    token = _create_admin(live_server)
+    with sqlite3.connect(server.DB_PATH) as conn:
+        conn.execute("INSERT INTO assets (id, name, label_printed_at) VALUES (?, ?, ?)",
+                     ("a1", "Монитор", "2026-09-02T10:00:00+00:00"))
+        conn.execute("INSERT INTO assets (id, name) VALUES (?, ?)", ("a2", "Клавиатура"))
+        conn.commit()
+    status, body = _request(live_server, "GET", "/api/state", token=token)
+    by_id = {a["id"]: a for a in body["assets"]}
+    assert by_id["a1"]["labelPrintedAt"] == "2026-09-02T10:00:00+00:00"
+    assert by_id["a2"]["labelPrintedAt"] is None
+
+
 def _asset_payload(**overrides):
     payload = {
         "id": "ast_1",

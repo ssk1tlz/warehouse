@@ -304,6 +304,7 @@ function normalizeAsset(asset) {
     repairDate: asset.repairDate || "",
     location: asset.location || "",
     photoUrl: asset.photoUrl || "",
+    labelPrintedAt: asset.labelPrintedAt || null,
     allocations: Array.isArray(asset.allocations)
       ? asset.allocations
           .map((entry) => ({

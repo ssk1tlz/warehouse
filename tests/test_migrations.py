@@ -220,3 +220,15 @@ def test_migration_026_inventory_scans_references_existing_asset(legacy_alloc_co
     ).fetchone()
     assert row["asset_id"] == "ast_1"
     assert row["status"] == "found"
+
+
+def test_migration_027_adds_label_printed_at_column(legacy_conn):
+    migrations.run_migrations(legacy_conn)
+    columns = {row["name"] for row in legacy_conn.execute("PRAGMA table_info(assets)")}
+    assert "label_printed_at" in columns
+
+
+def test_migration_027_defaults_existing_rows_to_null(legacy_conn):
+    migrations.run_migrations(legacy_conn)
+    row = legacy_conn.execute("SELECT label_printed_at FROM assets WHERE id='ast_1'").fetchone()
+    assert row["label_printed_at"] is None

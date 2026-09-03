@@ -472,7 +472,7 @@ def export_state() -> dict:
 
         assets = []
         for row in connection.execute(
-            "SELECT id, name, category, inventory_number, serial_number, purchase_date, status, notes, quantity, repair_quantity, retired_quantity, min_quantity, warranty_end, price, repair_date, location, photo_url, rev FROM assets ORDER BY name"
+            "SELECT id, name, category, inventory_number, serial_number, purchase_date, status, notes, quantity, repair_quantity, retired_quantity, min_quantity, warranty_end, price, repair_date, location, photo_url, label_printed_at, rev FROM assets ORDER BY name"
         ):
             assets.append(
                 {
@@ -493,6 +493,7 @@ def export_state() -> dict:
                     "repairDate": row["repair_date"] or "",
                     "location": row["location"] or "",
                     "photoUrl": row["photo_url"] or "",
+                    "labelPrintedAt": row["label_printed_at"] or None,
                     "rev": row["rev"],
                     "allocations": allocations_by_asset.get(row["id"], []),
                 }

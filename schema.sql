@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS assets (
   repair_date TEXT NOT NULL DEFAULT '',
   location TEXT NOT NULL DEFAULT '',
   photo_url TEXT NOT NULL DEFAULT '',
+  label_printed_at TEXT,
   rev INTEGER NOT NULL DEFAULT 0
 );
 
