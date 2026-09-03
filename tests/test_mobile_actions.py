@@ -672,6 +672,28 @@ def test_apply_inventory_complete_replay_returns_cached_result(conn):
     assert count == 1
 
 
+def test_apply_inventory_complete_excludes_fully_retired_assets_from_missing(conn):
+    # A fully-retired asset (quantity driven to 0 by apply_retire) can never be
+    # scanned again — it must not show up in missingAssetIds on every future
+    # inventory session (fix for review finding on Task A2).
+    conn.execute(
+        "INSERT INTO assets (id, name, quantity, retired_quantity) VALUES (?, ?, 0, 1)",
+        ("retired_1", "Списанный монитор"),
+    )
+    conn.execute(
+        "INSERT INTO inventory_sessions (id, started_at, started_by, status) VALUES (?, ?, ?, 'open')",
+        ("s1", "2026-09-02T10:00:00+00:00", "alan"),
+    )
+    action = {
+        "clientActionId": "c7", "type": "inventory_complete", "sessionId": "s1",
+        "scans": [], "extraCodes": [],
+    }
+    result = mobile_actions.apply_action(conn, action)
+    assert "retired_1" not in result["missingAssetIds"]
+    # ast_1 (the fixture's seeded asset, quantity=5) is still active and unscanned here.
+    assert "ast_1" in result["missingAssetIds"]
+
+
 def test_existing_action_types_still_require_asset_id(conn):
     # Guards the shared apply_action() change: only inventory_complete is exempt.
     action = {"clientActionId": "c6", "type": "issue", "quantity": 1}

@@ -403,7 +403,7 @@ def apply_inventory_complete(connection: sqlite3.Connection, action: dict) -> di
         else:
             wrong_location_count += 1
 
-    all_asset_ids = [row["id"] for row in connection.execute("SELECT id FROM assets ORDER BY name")]
+    all_asset_ids = [row["id"] for row in connection.execute("SELECT id FROM assets WHERE quantity > 0 ORDER BY name")]
     missing_asset_ids = [asset_id for asset_id in all_asset_ids if asset_id not in scanned_ids]
 
     connection.execute(
