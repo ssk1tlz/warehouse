@@ -478,6 +478,18 @@ def compute_attention_items(assets: list[dict], settings: dict, *, today: date |
                 "assetName": asset.get("name") or "",
                 "detail": f"Свободно {max(available, 0)} шт., минимум {min_quantity} шт.",
             })
+        repair_date = (asset.get("repairDate") or "").strip()
+        if int(asset.get("repairQuantity") or 0) > 0 and repair_date:
+            try:
+                started = date.fromisoformat(repair_date)
+            except ValueError:
+                started = None
+            if started is not None and (today - started).days > repair_days:
+                items.append({
+                    "type": "long_repair", "assetId": asset["id"],
+                    "assetName": asset.get("name") or "",
+                    "detail": f"В ремонте {(today - started).days} дн.",
+                })
     return items
 
 
@@ -552,6 +564,10 @@ def export_state() -> dict:
             kits.append({"id": row["id"], "name": row["name"], "items": json.loads(row["items"] or "[]")})
 
         active_inventory_session = _load_active_inventory_session(connection)
+        attention_items = compute_attention_items(assets, {
+            "attentionWarrantyDays": 30,
+            "attentionRepairDays": 14,
+        })
 
     return {
         "meta": {"updatedAt": meta_row["value"] if meta_row else None, "version": version},
@@ -563,6 +579,7 @@ def export_state() -> dict:
         "auditLog": audit,
         "kitTemplates": kits,
         "activeInventorySession": active_inventory_session,
+        "attentionItems": attention_items,
     }
 
 

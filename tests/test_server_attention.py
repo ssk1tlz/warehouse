@@ -1,4 +1,5 @@
 from datetime import date
+import sqlite3
 
 import server
 
@@ -72,3 +73,36 @@ def test_low_stock_accounts_for_repair_quantity():
     # available = 5 - 0 - 2 = 3 == minQuantity(3) -> не сигнал
     items = server.compute_attention_items([asset], DEFAULT_SETTINGS, today=date(2026, 9, 4))
     assert not any(i["type"] == "low_stock" for i in items)
+
+
+def test_long_repair_flagged_past_threshold():
+    asset = _asset(status="repair", repairQuantity=1, repairDate="2026-08-10")
+    # 2026-09-04 - 2026-08-10 = 25 дней > 14
+    items = server.compute_attention_items([asset], DEFAULT_SETTINGS, today=date(2026, 9, 4))
+    assert any(i["type"] == "long_repair" and i["assetId"] == "a1" for i in items)
+
+
+def test_long_repair_not_flagged_before_threshold():
+    asset = _asset(status="repair", repairQuantity=1, repairDate="2026-09-01")
+    # 3 дня < 14
+    items = server.compute_attention_items([asset], DEFAULT_SETTINGS, today=date(2026, 9, 4))
+    assert not any(i["type"] == "long_repair" for i in items)
+
+
+def test_long_repair_ignores_assets_with_no_repair_quantity():
+    asset = _asset(status="in_stock", repairQuantity=0, repairDate="2026-01-01")
+    items = server.compute_attention_items([asset], DEFAULT_SETTINGS, today=date(2026, 9, 4))
+    assert not any(i["type"] == "long_repair" for i in items)
+
+
+def test_export_state_includes_attention_items(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "DB_PATH", tmp_path / "test.db")
+    server.init_db()
+    with sqlite3.connect(server.DB_PATH) as conn:
+        conn.execute(
+            "INSERT INTO assets (id, name, quantity, warranty_end) VALUES (?, ?, ?, ?)",
+            ("a1", "Монитор", 1, "2026-08-01"),
+        )
+        conn.commit()
+    state = server.export_state()
+    assert any(i["assetId"] == "a1" and i["type"] == "warranty" for i in state["attentionItems"])
