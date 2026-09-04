@@ -1184,6 +1184,62 @@ function triggerDownload(blob, filename) {
   setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
 }
 
+function buildHandoverRows(state, filter) {
+  const headers = ["Актив", "Инв. номер", "Количество", "Цена", "Сумма"];
+  const rows = [];
+  for (const asset of state.assets) {
+    for (const alloc of asset.allocations || []) {
+      // Mirror the mutual-exclusivity check used by getDepartmentAllocation/getSiteAllocation
+      // so an allocation carrying more than one owner field can't double-count into a filter
+      // it doesn't actually belong to.
+      const matches = filter.employeeId ? alloc.employeeId === filter.employeeId
+        : filter.department ? (!alloc.employeeId && !alloc.site && alloc.department === filter.department)
+        : filter.site ? (!alloc.employeeId && !alloc.department && alloc.site === filter.site)
+        : false;
+      if (!matches) continue;
+      const price = Number(asset.price || 0);
+      rows.push([asset.name, asset.inventoryNumber || "", alloc.quantity, price, price * alloc.quantity]);
+    }
+  }
+  return { headers, data: rows };
+}
+
+function exportHandoverCsv(filter, filenameSuffix) {
+  const { headers, data } = buildHandoverRows(state, filter);
+  const escape = (v) => {
+    const s = String(v == null ? "" : v);
+    if (/[";\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+  // Use ';' separator + UTF-8 BOM so Excel opens Cyrillic correctly (same pattern as exportRegistryCsv).
+  const csv = [headers, ...data].map((row) => row.map(escape).join(";")).join("\r\n");
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+  const stamp = new Date().toISOString().slice(0, 10);
+  // Strip characters that are invalid in Windows filenames; the suffix is free-text
+  // (employee/department/site name) so it isn't safe to use verbatim.
+  const safeSuffix = String(filenameSuffix || "").replace(/[\\/:*?"<>|]/g, "_").trim() || "Ведомость";
+  triggerDownload(blob, `Ведомость_${safeSuffix}_${stamp}.csv`);
+  showToast("Ведомость выгружена в CSV.", "info");
+}
+
+function exportEmployeeHandoverCsv(employeeId) {
+  const employee = getEmployeeById(employeeId);
+  if (!employee) return;
+  exportHandoverCsv({ employeeId }, employee.fullName || employeeId);
+}
+
+function exportDepartmentHandoverCsv(departmentId) {
+  const dept = state.departments.find((d) => d.id === departmentId);
+  if (!dept) return;
+  exportHandoverCsv({ department: dept.name }, dept.name);
+}
+
+function exportSiteHandoverCsv(siteId) {
+  const site = state.sites.find((s) => s.id === siteId);
+  if (!site) return;
+  exportHandoverCsv({ site: site.name }, site.name);
+}
+
 // ─── СОТРУДНИКИ ─────────────────────────────────────────────────
 const AVATAR_COLORS = [
   "#2563eb", "#16a34a", "#9333ea", "#ea580c", "#0d9488",
@@ -1633,6 +1689,7 @@ function openEmployeeDetailsModal(employeeId) {
     <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:10px">
       <button type="button" class="secondary" onclick="closeEmployeeDetailsModal()">Закрыть</button>
       <button type="button" class="secondary" onclick="closeEmployeeDetailsModal(); openEditEmployeeModal('${employee.id}')">Редактировать</button>
+      <button type="button" class="secondary" onclick="exportEmployeeHandoverCsv('${employee.id}')">Экспорт CSV</button>
       <button type="button" class="btn-primary" onclick="closeEmployeeDetailsModal(); openOperationModal('issueModal'); setTimeout(() => { const sel = document.getElementById('issueEmployeeSelect'); if(sel) { sel.value = '${employee.id}'; sel.dispatchEvent(new Event('change')); } }, 100);">Выдать технику</button>
     </div>
   `;
@@ -1709,6 +1766,7 @@ function renderDepartments() {
       <div class="card-header">
         <strong>${escapeHtml(dept.name)}</strong>
         <div class="card-actions">
+          <button type="button" class="secondary" data-action="export-department" data-id="${dept.id}">Экспорт CSV</button>
           <button type="button" class="edit-button" data-action="edit-department" data-id="${dept.id}">Ред.</button>
           <button type="button" class="danger-button" data-action="delete-department" data-id="${dept.id}">Удалить</button>
         </div>
@@ -1851,6 +1909,7 @@ function renderSites() {
       <div class="card-header">
         <strong>${escapeHtml(site.name)}</strong>
         <div class="card-actions">
+          <button type="button" class="secondary" data-action="export-site" data-id="${site.id}">Экспорт CSV</button>
           <button type="button" class="edit-button" data-action="edit-site" data-id="${site.id}">Ред.</button>
           <button type="button" class="danger-button" data-action="delete-site" data-id="${site.id}">Удалить</button>
         </div>
@@ -3796,6 +3855,7 @@ function bindEvents() {
     if (!action || !id) return;
     if (action === "edit-department") enterDepartmentEditMode(id);
     if (action === "delete-department") handleDepartmentDelete(id);
+    if (action === "export-department") exportDepartmentHandoverCsv(id);
   });
   document.getElementById("sitesList")?.addEventListener("click", (e) => {
     const action = e.target.closest("button")?.dataset.action;
@@ -3803,6 +3863,7 @@ function bindEvents() {
     if (!action || !id) return;
     if (action === "edit-site") enterSiteEditMode(id);
     if (action === "delete-site") handleSiteDelete(id);
+    if (action === "export-site") exportSiteHandoverCsv(id);
   });
   dom.movementsTableBody.addEventListener("click", handleMovementTableClick);
   document.querySelector(".operation-actions").addEventListener("click", handleOperationLauncherClick);
