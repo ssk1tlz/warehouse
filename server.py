@@ -469,6 +469,15 @@ def compute_attention_items(assets: list[dict], settings: dict, *, today: date |
                     "type": "warranty", "assetId": asset["id"],
                     "assetName": asset.get("name") or "", "detail": detail,
                 })
+        allocated = sum(int(a.get("quantity") or 0) for a in (asset.get("allocations") or []))
+        available = int(asset.get("quantity") or 0) - allocated - int(asset.get("repairQuantity") or 0)
+        min_quantity = int(asset.get("minQuantity") or 0)
+        if min_quantity > 0 and available < min_quantity:
+            items.append({
+                "type": "low_stock", "assetId": asset["id"],
+                "assetName": asset.get("name") or "",
+                "detail": f"Свободно {max(available, 0)} шт., минимум {min_quantity} шт.",
+            })
     return items
 
 
