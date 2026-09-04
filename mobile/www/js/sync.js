@@ -61,12 +61,24 @@ function dataUrlToBytes(dataUrl) {
 
 // Shared by this task's immediate-upload attempt and Task C6's retry loop —
 // both paths sign correctly with zero duplicated upload logic.
+//
+// The body is sent as a File, NOT a raw Uint8Array. This project runs with
+// CapacitorHttp.enabled: true, which patches window.fetch on real devices:
+// its convertBody() TextDecoder().decode()'s a Uint8Array body into a JS
+// string, corrupting any bytes that aren't valid UTF-8 (which a JPEG almost
+// always contains) before it ever reaches the network. A File body takes a
+// different, byte-exact branch (base64-encoded and decoded back to the
+// original bytes on the Java side), so the server receives exactly what was
+// captured. The HMAC signature is still computed over the original
+// `bodyBytes` (not the File) — since File preserves those bytes exactly,
+// the signature the server checks against still matches what it receives.
 async function uploadPhoto(assetId, dataUrl) {
   const settings = await Settings.get();
   const bodyBytes = dataUrlToBytes(dataUrl);
+  const bodyFile = new File([bodyBytes], 'photo.jpg', { type: 'image/jpeg' });
   const path = `/api/assets/${assetId}/photo`;
   const headers = { 'Content-Type': 'image/jpeg', ...(await signedHeadersBytes(settings, 'POST', path, bodyBytes)) };
-  const response = await fetch(`${settings.serverUrl}${path}`, { method: 'POST', headers, body: bodyBytes });
+  const response = await fetch(`${settings.serverUrl}${path}`, { method: 'POST', headers, body: bodyFile });
   if (!response.ok) throw new Error(`upload failed: HTTP ${response.status}`);
 }
 

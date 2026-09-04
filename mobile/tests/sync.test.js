@@ -213,12 +213,35 @@ test('uploadPhoto POSTs the decoded bytes as the body with image/jpeg content-ty
   assert.equal(seen.options.method, 'POST');
   assert.equal(seen.options.headers['Content-Type'], 'image/jpeg');
   assert.equal(seen.options.headers.Authorization, 'Bearer tok123');
-  assert.deepEqual(Buffer.from(seen.options.body), original);
+  // The body must be a File, not a raw Uint8Array/ArrayBuffer — see the
+  // regression test below for why (CapacitorHttp corrupts non-File bodies).
+  assert.ok(seen.options.body instanceof File, 'body must be a File instance');
+  assert.deepEqual(Buffer.from(await seen.options.body.arrayBuffer()), original);
   const [timestamp, digest] = seen.options.headers['X-Signature'].split('.');
   const bodyHash = nodeCrypto.createHash('sha256').update(original).digest('hex');
   const message = `POST\n/api/assets/ast_42/photo\n${timestamp}\n${bodyHash}`;
   const expected = nodeCrypto.createHmac('sha256', Buffer.from(secretHex, 'hex')).update(message).digest('hex');
   assert.equal(digest, expected);
+});
+
+test('uploadPhoto sends a genuine File instance carrying the exact original bytes (regression guard: CapacitorHttp.enabled corrupts non-File binary bodies via TextDecoder, breaking every real-device photo upload)', async () => {
+  // Non-UTF8-safe bytes, like a real JPEG: if the body were ever coerced
+  // through TextDecoder().decode() (what CapacitorHttp's convertBody() does
+  // to a raw Uint8Array/ArrayBuffer body), these would come back mangled
+  // with U+FFFD replacement characters and fail this byte-for-byte check.
+  const original = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x80, 0x81, 0xfe, 0xfd, 0x00, 0x01, 0x02, 0x03]);
+  const dataUrl = 'data:image/jpeg;base64,' + original.toString('base64');
+  let seen;
+  global.fetch = async (url, options) => {
+    seen = { url, options };
+    return { ok: true, status: 200 };
+  };
+  global.Settings = { get: async () => ({ serverUrl: 'http://192.168.0.1:8765', token: 'tok123' }) };
+  await Sync.uploadPhoto('ast_1', dataUrl);
+  assert.ok(seen.options.body instanceof File, 'body must be a File, not a raw Uint8Array/ArrayBuffer');
+  assert.equal(seen.options.body.type, 'image/jpeg');
+  const roundTripped = Buffer.from(await seen.options.body.arrayBuffer());
+  assert.deepEqual(roundTripped, original, 'File must carry the exact original bytes, byte-for-byte');
 });
 
 test('uploadPhoto throws on a non-ok response', async () => {
