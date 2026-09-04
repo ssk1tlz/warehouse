@@ -40,6 +40,9 @@ CREATE TABLE IF NOT EXISTS inventory_scan_state (
   found_location TEXT NOT NULL DEFAULT '', scanned_at TEXT NOT NULL,
   PRIMARY KEY (session_id, asset_id)
 );
+CREATE TABLE IF NOT EXISTS pending_photo_uploads (
+  asset_id TEXT PRIMARY KEY, local_path TEXT NOT NULL, created_at TEXT NOT NULL
+);
 `;
 
 async function open() {
@@ -401,6 +404,22 @@ async function clearActiveInventorySessionMeta() {
   await db.run("DELETE FROM meta WHERE key = 'activeInventorySession'", []);
 }
 
+async function queuePhotoUpload(assetId, localPath) {
+  await db.run(
+    'INSERT OR REPLACE INTO pending_photo_uploads (asset_id, local_path, created_at) VALUES (?, ?, ?)',
+    [assetId, localPath, new Date().toISOString()]
+  );
+}
+
+async function listPendingPhotoUploads() {
+  const result = await db.query('SELECT asset_id AS assetId, local_path AS localPath, created_at AS createdAt FROM pending_photo_uploads');
+  return result.values;
+}
+
+async function clearPendingPhotoUpload(assetId) {
+  await db.run('DELETE FROM pending_photo_uploads WHERE asset_id = ?', [assetId]);
+}
+
 async function getAllAssets() {
   // quantity > 0 excludes fully-retired assets (retire decrements quantity
   // to 0 but never deletes the row) — same fix as mobile_actions.py's
@@ -417,4 +436,4 @@ async function getAllAssets() {
   }));
 }
 
-window.Db = { open, replaceState, getAssetById, getStateMeta, listEmployeesById, listMovementsForAsset, listMovementHistory, searchAssets, enqueueAction, listPendingActions, markActionSynced, markActionFailed, retryAction, markActionConflict, retryActionOnTop, cancelAction, generateClientActionId, saveInventoryScan, getInventoryScans, clearInventoryScans, getAllAssets, clearActiveInventorySessionMeta, searchEmployees, getAllocationsForEmployee };
+window.Db = { open, replaceState, getAssetById, getStateMeta, listEmployeesById, listMovementsForAsset, listMovementHistory, searchAssets, enqueueAction, listPendingActions, markActionSynced, markActionFailed, retryAction, markActionConflict, retryActionOnTop, cancelAction, generateClientActionId, saveInventoryScan, getInventoryScans, clearInventoryScans, getAllAssets, clearActiveInventorySessionMeta, queuePhotoUpload, listPendingPhotoUploads, clearPendingPhotoUpload, searchEmployees, getAllocationsForEmployee };
