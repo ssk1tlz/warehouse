@@ -783,6 +783,20 @@ def import_state(payload: dict, actor: str) -> dict:
     return export_state()
 
 
+def _is_safe_asset_id(asset_id: str) -> bool:
+    """Reject an id before it is spliced into an UPLOADS_DIR filesystem path.
+
+    assets.id is never validated anywhere else in the codebase — /api/state
+    only checks truthiness on asset.get("id") before inserting it as the
+    primary key — so an id like "../../../../Users/Public/pwned" is a
+    perfectly normal row today. The asset-photo endpoints are the first place
+    an id is used to build a filesystem path (UPLOADS_DIR / f"{asset_id}.jpg")
+    rather than passed as a parameterized SQL value, so the guard belongs
+    here rather than assuming upstream validation exists.
+    """
+    return bool(asset_id) and "/" not in asset_id and "\\" not in asset_id and asset_id not in (".", "..")
+
+
 class WarehouseHandler(BaseHTTPRequestHandler):
     def read_body(self) -> bytes:
         """Read the request body, or None if the request must be rejected.
@@ -1565,6 +1579,11 @@ class WarehouseHandler(BaseHTTPRequestHandler):
         self.send_json({"ok": True})
 
     def handle_get_asset_photo(self, asset_id: str) -> None:
+        if not _is_safe_asset_id(asset_id):
+            # Same response as "asset not found" — doesn't leak that path
+            # validation exists.
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
         with get_connection() as connection:
             row = connection.execute("SELECT photo_url FROM assets WHERE id = ?", (asset_id,)).fetchone()
         if row is None or not row["photo_url"]:
@@ -1583,6 +1602,9 @@ class WarehouseHandler(BaseHTTPRequestHandler):
         self.wfile.write(photo_bytes)
 
     def handle_upload_asset_photo(self, asset_id: str, body: bytes) -> None:
+        if not _is_safe_asset_id(asset_id):
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
         with get_connection() as connection:
             row = connection.execute("SELECT id FROM assets WHERE id = ?", (asset_id,)).fetchone()
             if row is None:

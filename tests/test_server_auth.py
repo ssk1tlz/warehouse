@@ -427,6 +427,49 @@ def test_asset_photo_upload_role_matrix(live_server, role, expected_status):
     assert status == expected_status
 
 
+def test_asset_photo_upload_rejects_path_traversal_asset_id(live_server):
+    # assets.id is never validated anywhere else in this codebase (POST
+    # /api/state only checks truthiness on asset.get("id") before inserting
+    # it as the primary key), so a row with a traversal id like "../evil" is
+    # a perfectly normal accepted row today — simulate that directly rather
+    # than going through /api/state. Without the guard, "SELECT id FROM
+    # assets WHERE id = ?" would find this row and the write would proceed,
+    # so seeding it is what makes this test actually exercise the guard
+    # (an unseeded id 404s anyway, for an unrelated reason).
+    with sqlite3.connect(server.DB_PATH) as conn:
+        conn.execute("INSERT INTO assets (id, name, quantity) VALUES (?, ?, ?)", ("../evil", "Traversal", 1))
+        conn.commit()
+    token = _create_admin(live_server)
+    req = urllib.request.Request(f"{live_server}/api/assets/../evil/photo", data=b"malicious", method="POST")
+    req.add_header("Authorization", f"Bearer {token}")
+    req.add_header("Content-Type", "image/jpeg")
+    try:
+        urllib.request.urlopen(req)
+        assert False, "expected HTTPError"
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 404
+    # Must not have escaped UPLOADS_DIR (tmp_path/uploads) onto its parent.
+    assert not (server.UPLOADS_DIR.parent / "evil.jpg").exists()
+
+
+def test_asset_photo_get_rejects_path_traversal_asset_id(live_server):
+    # A decoy file sits exactly where the traversal would land if the guard
+    # were absent, with content that must never be served back — proves the
+    # endpoint genuinely refuses to read outside UPLOADS_DIR, not just that
+    # some unrelated 404 happens to fire first.
+    server.UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    (server.UPLOADS_DIR.parent / "evil.jpg").write_bytes(b"secret-outside-uploads")
+    with sqlite3.connect(server.DB_PATH) as conn:
+        conn.execute(
+            "INSERT INTO assets (id, name, quantity, photo_url) VALUES (?, ?, ?, ?)",
+            ("../evil", "Traversal", 1, "uploads/whatever.jpg"),
+        )
+        conn.commit()
+    token = _create_admin(live_server)
+    status, _ = _fetch_bytes(live_server, "/api/assets/../evil/photo", token)
+    assert status == 404
+
+
 def test_import_state_returns_conflict_when_deleting_an_asset_with_scan_history(live_server):
     # The narrower edge case Fix 2's deferred-FK approach cannot resolve on
     # its own: the desktop payload genuinely OMITS an asset (a true delete,
