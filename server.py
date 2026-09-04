@@ -37,6 +37,7 @@ from paths import (
     RESOURCE_DIR,
     SCHEMA_PATH,
     UPDATE_CACHE_PATH,
+    UPLOADS_DIR,
     VERSION_PATH,
 )
 
@@ -884,6 +885,10 @@ class WarehouseHandler(BaseHTTPRequestHandler):
                 return
             self.handle_get_settings()
             return
+        if parsed.path.startswith("/api/assets/") and parsed.path.endswith("/photo"):
+            asset_id = parsed.path[len("/api/assets/"):-len("/photo")]
+            self.handle_get_asset_photo(asset_id)
+            return
         self.send_error(HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:
@@ -949,6 +954,12 @@ class WarehouseHandler(BaseHTTPRequestHandler):
             if not self.require_role(user, ("admin", "storekeeper")):
                 return
             self.handle_mark_labels_printed(body)
+            return
+        if parsed.path.startswith("/api/assets/") and parsed.path.endswith("/photo"):
+            if not self.require_role(user, ("admin", "storekeeper")):
+                return
+            asset_id = parsed.path[len("/api/assets/"):-len("/photo")]
+            self.handle_upload_asset_photo(asset_id, body)
             return
         if parsed.path != "/api/state":
             self.send_error(HTTPStatus.NOT_FOUND)
@@ -1551,6 +1562,35 @@ class WarehouseHandler(BaseHTTPRequestHandler):
                     return
                 updates_to_apply[key] = value
         save_config(updates_to_apply)
+        self.send_json({"ok": True})
+
+    def handle_get_asset_photo(self, asset_id: str) -> None:
+        with get_connection() as connection:
+            row = connection.execute("SELECT photo_url FROM assets WHERE id = ?", (asset_id,)).fetchone()
+        if row is None or not row["photo_url"]:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        photo_path = UPLOADS_DIR / f"{asset_id}.jpg"
+        if not photo_path.exists():
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        photo_bytes = photo_path.read_bytes()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(photo_bytes)))
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(photo_bytes)
+
+    def handle_upload_asset_photo(self, asset_id: str, body: bytes) -> None:
+        with get_connection() as connection:
+            row = connection.execute("SELECT id FROM assets WHERE id = ?", (asset_id,)).fetchone()
+            if row is None:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+            (UPLOADS_DIR / f"{asset_id}.jpg").write_bytes(body)
+            connection.execute("UPDATE assets SET photo_url = ? WHERE id = ?", (f"uploads/{asset_id}.jpg", asset_id))
         self.send_json({"ok": True})
 
     def handle_mark_labels_printed(self, body: bytes) -> None:

@@ -46,6 +46,7 @@ BACKUP_DIR = DATA_DIR / "backups"
 CONFIG_PATH = DATA_DIR / "config.json"
 LOG_DIR = DATA_DIR / "logs"
 UPDATE_CACHE_PATH = DATA_DIR / "update_check.json"
+UPLOADS_DIR = DATA_DIR / "uploads"
 
 RESOURCE_DIR = resource_dir()
 SCHEMA_PATH = RESOURCE_DIR / "schema.sql"

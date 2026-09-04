@@ -22,6 +22,7 @@ def live_server(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "BACKUP_DIR", tmp_path / "backups")
     monkeypatch.setattr(server, "CONFIG_PATH", tmp_path / "config.json")
     monkeypatch.setattr(server, "UPDATE_CACHE_PATH", tmp_path / "update_check.json")
+    monkeypatch.setattr(server, "UPLOADS_DIR", tmp_path / "uploads")
     # GET /api/state spawns a real background update check whenever no cache
     # exists yet (should_check() with an empty cache is True) — which almost
     # every test here triggers just by calling /api/state at all. Today that
@@ -357,6 +358,73 @@ def test_import_state_preserves_photo_url_across_a_desktop_save(live_server):
     assert status == 200, body
     saved = next(a for a in body["assets"] if a["id"] == "ast_1")
     assert saved["photoUrl"] == "uploads/ast_1.jpg"
+
+
+def test_asset_photo_upload_then_get_returns_same_bytes(live_server):
+    _seed_asset(server.DB_PATH)
+    token = _create_admin(live_server)
+    photo_bytes = b"\xff\xd8\xff\xe0fake-jpeg-bytes"
+    req = urllib.request.Request(f"{live_server}/api/assets/ast_1/photo", data=photo_bytes, method="POST")
+    req.add_header("Authorization", f"Bearer {token}")
+    req.add_header("Content-Type", "image/jpeg")
+    with urllib.request.urlopen(req) as response:
+        assert response.status == 200
+
+    status, body = _fetch_bytes(live_server, "/api/assets/ast_1/photo", token)
+    assert status == 200
+    assert body == photo_bytes
+
+
+def test_asset_photo_upload_replaces_previous_photo(live_server):
+    _seed_asset(server.DB_PATH)
+    token = _create_admin(live_server)
+    for content in (b"first-photo", b"second-photo"):
+        req = urllib.request.Request(f"{live_server}/api/assets/ast_1/photo", data=content, method="POST")
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("Content-Type", "image/jpeg")
+        with urllib.request.urlopen(req) as response:
+            assert response.status == 200
+    status, body = _fetch_bytes(live_server, "/api/assets/ast_1/photo", token)
+    assert body == b"second-photo"
+
+
+def test_asset_photo_get_returns_404_when_no_photo_exists(live_server):
+    _seed_asset(server.DB_PATH)
+    token = _create_admin(live_server)
+    status, _ = _fetch_bytes(live_server, "/api/assets/ast_1/photo", token)
+    assert status == 404
+
+
+def test_asset_photo_upload_returns_404_for_unknown_asset(live_server):
+    token = _create_admin(live_server)
+    req = urllib.request.Request(f"{live_server}/api/assets/unknown/photo", data=b"x", method="POST")
+    req.add_header("Authorization", f"Bearer {token}")
+    try:
+        urllib.request.urlopen(req)
+        assert False, "expected HTTPError"
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 404
+
+
+@pytest.mark.parametrize("role,expected_status", [("admin", 200), ("storekeeper", 200), ("viewer", 403)])
+def test_asset_photo_upload_role_matrix(live_server, role, expected_status):
+    _seed_asset(server.DB_PATH)
+    admin_token = _create_admin(live_server)
+    if role == "admin":
+        token = admin_token
+    else:
+        _request(live_server, "POST", "/api/users", token=admin_token,
+                 json_body={"username": role, "password": "pass1234", "role": role})
+        _, body = _request(live_server, "POST", "/api/login", json_body={"username": role, "password": "pass1234"})
+        token = body["token"]
+    req = urllib.request.Request(f"{live_server}/api/assets/ast_1/photo", data=b"x", method="POST")
+    req.add_header("Authorization", f"Bearer {token}")
+    try:
+        with urllib.request.urlopen(req) as response:
+            status = response.status
+    except urllib.error.HTTPError as exc:
+        status = exc.code
+    assert status == expected_status
 
 
 def test_import_state_returns_conflict_when_deleting_an_asset_with_scan_history(live_server):
