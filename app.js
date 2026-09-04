@@ -1174,6 +1174,26 @@ function exportRegistryXls() {
   showToast("Реестр выгружен в Excel.", "info");
 }
 
+function exportBalanceCsv() {
+  const headers = ["Актив", "Инв. номер", "Остаток", "Цена", "Сумма остатка"];
+  const rows = state.assets.map((asset) => {
+    const available = getAvailableQuantity(asset);
+    const price = Number(asset.price || 0);
+    return [asset.name, asset.inventoryNumber || "", available, price, available * price];
+  });
+  const escape = (v) => {
+    const s = String(v == null ? "" : v);
+    if (/[";\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+  // Use ';' separator + UTF-8 BOM so Excel opens Cyrillic correctly (same pattern as exportRegistryCsv).
+  const csv = [headers, ...rows].map((row) => row.map(escape).join(";")).join("\r\n");
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+  const stamp = new Date().toISOString().slice(0, 10);
+  triggerDownload(blob, `Остатки_${stamp}.csv`);
+  showToast("Остатки выгружены в CSV.", "info");
+}
+
 function triggerDownload(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -4037,6 +4057,7 @@ function bindEvents() {
   document.getElementById('registrySortDir')?.addEventListener('change', () => { registryCurrentPage = 1; renderRegistry(); });
   document.getElementById('exportRegistryCsvBtn')?.addEventListener('click', exportRegistryCsv);
   document.getElementById('exportRegistryXlsBtn')?.addEventListener('click', exportRegistryXls);
+  document.getElementById('exportBalanceCsvBtn')?.addEventListener('click', exportBalanceCsv);
   document.getElementById('registryPerPageSelect')?.addEventListener('change', (e) => {
     registryPerPage = parseInt(e.target.value, 10);
     registryCurrentPage = 1;
