@@ -8,7 +8,7 @@ import sqlite3
 import sys
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from logging.handlers import RotatingFileHandler
@@ -444,6 +444,32 @@ def read_state_version(connection: sqlite3.Connection) -> int:
 def get_state_version() -> int:
     with get_connection() as connection:
         return read_state_version(connection)
+
+
+def compute_attention_items(assets: list[dict], settings: dict, *, today: date | None = None) -> list[dict]:
+    today = today or datetime.now(timezone.utc).date()
+    warranty_days = int(settings.get("attentionWarrantyDays") or 30)
+    repair_days = int(settings.get("attentionRepairDays") or 14)
+    items: list[dict] = []
+    for asset in assets:
+        warranty_end = (asset.get("warrantyEnd") or "").strip()
+        if warranty_end:
+            try:
+                end_date = date.fromisoformat(warranty_end)
+            except ValueError:
+                end_date = None
+            if end_date is not None and (end_date - today).days <= warranty_days:
+                days_left = (end_date - today).days
+                detail = (
+                    f"Гарантия истекла {days_left * -1} дн. назад" if days_left < 0
+                    else f"Гарантия истекает через {days_left} дн." if days_left > 0
+                    else "Гарантия истекает сегодня"
+                )
+                items.append({
+                    "type": "warranty", "assetId": asset["id"],
+                    "assetName": asset.get("name") or "", "detail": detail,
+                })
+    return items
 
 
 def export_state() -> dict:
