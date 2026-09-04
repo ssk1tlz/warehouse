@@ -339,6 +339,26 @@ def test_import_state_succeeds_after_an_inventory_scan_exists_and_preserves_labe
     assert saved["labelPrintedAt"] == "2026-09-02T10:00:00+00:00"
 
 
+def test_import_state_preserves_photo_url_across_a_desktop_save(live_server):
+    # photo_url is server-owned (set by the upload endpoint added in Task
+    # C2), by the same reasoning as label_printed_at above — the desktop
+    # app.js state object never carries a meaningful photoUrl on every save,
+    # so an ordinary desktop save (payload with no photoUrl key at all, like
+    # _asset_payload()) must not silently wipe it to an empty string.
+    token = _create_admin(live_server)
+    with sqlite3.connect(server.DB_PATH) as conn:
+        conn.execute(
+            "INSERT INTO assets (id, name, quantity, photo_url) VALUES (?, ?, ?, ?)",
+            ("ast_1", "Ноутбук", 5, "uploads/ast_1.jpg"),
+        )
+        conn.commit()
+    status, body = _request(live_server, "POST", "/api/state", token=token,
+                             json_body=_state_payload(_asset_payload()))
+    assert status == 200, body
+    saved = next(a for a in body["assets"] if a["id"] == "ast_1")
+    assert saved["photoUrl"] == "uploads/ast_1.jpg"
+
+
 def test_import_state_returns_conflict_when_deleting_an_asset_with_scan_history(live_server):
     # The narrower edge case Fix 2's deferred-FK approach cannot resolve on
     # its own: the desktop payload genuinely OMITS an asset (a true delete,

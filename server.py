@@ -626,11 +626,11 @@ def import_state(payload: dict, actor: str) -> dict:
             row["id"]: (
                 row["name"], row["category"] or "", row["inventory_number"] or "",
                 row["serial_number"] or "", row["location"] or "", row["purchase_date"] or "",
-                row["warranty_end"] or "", row["rev"], row["label_printed_at"],
+                row["warranty_end"] or "", row["rev"], row["label_printed_at"], row["photo_url"],
             )
             for row in connection.execute(
                 "SELECT id, name, category, inventory_number, serial_number, location, "
-                "purchase_date, warranty_end, rev, label_printed_at FROM assets"
+                "purchase_date, warranty_end, rev, label_printed_at, photo_url FROM assets"
             )
         }
         connection.execute("DELETE FROM asset_allocations")
@@ -690,6 +690,13 @@ def import_state(payload: dict, actor: str) -> dict:
             # OLD row rather than read from the client payload, exactly like
             # rev above. Otherwise every desktop save would silently wipe it.
             old_label_printed_at = old[8] if old is not None else None
+            # photo_url is server-owned (set by the photo-upload endpoint,
+            # Task C2) for the same reason as label_printed_at above — the
+            # desktop app.js state object never carries a meaningful
+            # photoUrl, so it must be preserved from the OLD row rather than
+            # read from the client payload. Otherwise every desktop save
+            # would silently wipe it.
+            old_photo_url = old[9] if old is not None else ""
             connection.execute(
                 """
                 INSERT INTO assets (id, name, category, inventory_number, serial_number, purchase_date, status, notes, quantity, repair_quantity, retired_quantity, min_quantity, warranty_end, price, repair_date, location, photo_url, rev, label_printed_at)
@@ -712,7 +719,7 @@ def import_state(payload: dict, actor: str) -> dict:
                     max(0, float(asset.get("price") or 0)),
                     asset.get("repairDate") or "",
                     asset.get("location") or "",
-                    asset.get("photoUrl") or "",
+                    old_photo_url,
                     new_rev,
                     old_label_printed_at,
                 ),
