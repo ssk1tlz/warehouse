@@ -99,3 +99,18 @@ test('renderAttentionBadgeText returns the count as a string', () => {
   const { renderAttentionBadgeText } = require('../www/js/screens.js');
   assert.equal(renderAttentionBadgeText([{}, {}, {}]), '3');
 });
+
+test('summarizeOffboarding reports allDone true when nothing remains', () => {
+  const { summarizeOffboarding } = require('../www/js/screens.js');
+  const result = summarizeOffboarding([]);
+  assert.equal(result.allDone, true);
+  assert.equal(result.remaining, 0);
+});
+
+test('summarizeOffboarding reports remaining items when allocations exist', () => {
+  const { summarizeOffboarding } = require('../www/js/screens.js');
+  const result = summarizeOffboarding([{ quantity: 2 }, { quantity: 1 }]);
+  assert.equal(result.allDone, false);
+  assert.equal(result.total, 3);
+  assert.equal(result.remaining, 3);
+});

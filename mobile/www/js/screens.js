@@ -52,6 +52,11 @@ function renderAttentionBadgeText(items) {
   return items.length === 0 ? '' : String(items.length);
 }
 
+function summarizeOffboarding(allocations) {
+  const total = allocations.reduce((sum, a) => sum + Number(a.quantity || 0), 0);
+  return { total, remaining: total, allDone: allocations.length === 0 };
+}
+
 const ATTENTION_LABELS = { warranty: 'Гарантия', low_stock: 'Мало на складе', long_repair: 'Долгий ремонт' };
 
 const NAV_SCREEN_MAP = {
@@ -377,22 +382,58 @@ async function openEmployeeDetailScreen(employeeId) {
   // who doesn't happen to sort into the first page.
   const employees = await Db.searchEmployees('', 10000);
   const employee = employees.find((e) => e.id === employeeId);
+  const isOffboarding = !!(employee && employee.status === 'inactive');
   document.getElementById('employeeDetailName').textContent = employee ? employee.fullName : '';
   document.getElementById('employeeDetailStatus').textContent =
-    employee && employee.status === 'inactive' ? 'Уволен(а)' : 'Активен';
+    isOffboarding ? 'Уволен(а) — обходной лист' : 'Активен';
   const allocations = await Db.getAllocationsForEmployee(employeeId);
   const listEl = document.getElementById('employeeAllocationsList');
+  // DOM-построение, как везде в этом файле (см. renderInventoryList выше) —
+  // createElement + textContent, НЕ innerHTML со строковой интерполяцией.
   listEl.innerHTML = '';
   if (!allocations.length) {
-    listEl.innerHTML = '<li>Ничего не числится</li>';
+    const li = document.createElement('li');
+    li.textContent = 'Ничего не числится';
+    listEl.appendChild(li);
   } else {
     for (const alloc of allocations) {
       const li = document.createElement('li');
-      li.textContent = `${alloc.name} — ${alloc.quantity} шт.`;
+      const text = document.createElement('span');
+      text.textContent = `${alloc.name} — ${alloc.quantity} шт.`;
+      const returnBtn = document.createElement('button');
+      returnBtn.type = 'button';
+      returnBtn.className = 'employee-return-btn';
+      returnBtn.textContent = 'Вернуть';
+      returnBtn.addEventListener('click', () => {
+        quickReturnFromEmployee(employeeId, alloc.assetId, alloc.quantity);
+      });
+      li.append(text, returnBtn);
       listEl.appendChild(li);
     }
   }
+  const summaryEl = document.getElementById('employeeOffboardingSummary');
+  if (isOffboarding) {
+    const summary = summarizeOffboarding(allocations);
+    summaryEl.textContent = summary.allDone ? 'Всё сдано.' : `Осталось сдать: ${summary.remaining} шт.`;
+    summaryEl.classList.remove('hidden');
+  } else {
+    summaryEl.classList.add('hidden');
+  }
   showScreen('screen-employee-detail');
+}
+
+async function quickReturnFromEmployee(employeeId, assetId, quantity) {
+  await Db.enqueueAction({
+    type: 'return',
+    assetId,
+    employeeId,
+    quantity,
+    date: new Date().toISOString().slice(0, 10),
+  });
+  Toast.show('Возврат в очереди', 'info');
+  await refreshQueueCount();
+  Sync.run().then((r) => { refreshQueueCount(); refreshAttentionBadge(); ConnStatus.report(r.pulled, r.needsReauth); });
+  await openEmployeeDetailScreen(employeeId); // перерисовать список/сводку после постановки в очередь
 }
 
 function addHistoryDetailRow(dl, label, value) {
@@ -883,7 +924,7 @@ function initSwipeBack() {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { describeScanError, describeUpdate, reconcileInventory, renderAttentionBadgeText };
+  module.exports = { describeScanError, describeUpdate, reconcileInventory, renderAttentionBadgeText, summarizeOffboarding };
 }
 if (typeof window !== 'undefined') {
   window.App = { init };
