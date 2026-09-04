@@ -441,14 +441,27 @@ function getAvailableQuantity(asset) {
 // revoked before the next one is created (avoids leaking blob: URLs as the
 // user opens/edits different assets).
 let assetPhotoObjectUrl = null;
+// Monotonic call counter, so a call whose async photo GET resolves after a
+// *newer* call has already taken over the preview (e.g. the user clicks
+// Edit on asset A, then Edit on asset B before A's fetch finishes) can tell
+// its response is stale and bail — instead of clobbering B's already-shown
+// photo/object URL with A's late-arriving one.
+let assetPhotoRenderToken = 0;
 
 async function renderAssetPhotoPreview(asset) {
+  const myToken = ++assetPhotoRenderToken;
   const img = document.getElementById("assetPhotoImg");
   const placeholder = document.getElementById("assetPhotoPlaceholder");
   const uploadBtn = document.getElementById("assetPhotoUploadBtn");
   const fileInput = document.getElementById("assetPhotoFileInput");
   if (!img || !placeholder || !uploadBtn || !fileInput) return;
 
+  // This call now owns the preview: reset to placeholder immediately (not
+  // gated on the token — this is synchronous, current DOM state, not a
+  // stale async continuation) and revoke whatever object URL was showing.
+  // Safe even if that URL belongs to an older in-flight call: that call's
+  // continuation below bails via the token check before it could ever
+  // touch assetPhotoObjectUrl or the DOM again.
   if (assetPhotoObjectUrl) {
     URL.revokeObjectURL(assetPhotoObjectUrl);
     assetPhotoObjectUrl = null;
@@ -456,6 +469,33 @@ async function renderAssetPhotoPreview(asset) {
   img.classList.add("hidden");
   img.removeAttribute("src");
   placeholder.classList.remove("hidden");
+
+  uploadBtn.onclick = () => fileInput.click();
+  fileInput.onchange = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    const bytes = await file.arrayBuffer();
+    try {
+      const response = await apiFetch(`/api/assets/${asset.id}/photo`, {
+        method: "POST",
+        headers: { "Content-Type": "image/jpeg" },
+        body: bytes,
+      });
+      fileInput.value = "";
+      if (response.ok) {
+        showToast("Фото загружено.", "info");
+        asset.photoUrl = `uploads/${asset.id}.jpg`;
+        asset.rev = (asset.rev || 0) + 1; // локальный кэш-бастинг; реальный rev подтянется на следующем /api/state
+        renderAssetPhotoPreview(asset);
+      } else {
+        showToast("Не удалось загрузить фото.", "error");
+      }
+    } catch (error) {
+      console.error(error);
+      fileInput.value = "";
+      showToast("Не удалось загрузить фото — нет связи с сервером.", "error");
+    }
+  };
 
   if (asset.photoUrl && asset.id) {
     try {
@@ -466,8 +506,13 @@ async function renderAssetPhotoPreview(asset) {
       // hand the <img> an object URL instead — same pattern already used
       // for the .docx act download (see downloadActDocx()'s apiFetch("/api/act")).
       const response = await apiFetch(`/api/assets/${asset.id}/photo?v=${asset.rev || 0}`);
-      if (response.ok) {
-        const blob = await response.blob();
+      const blob = response.ok ? await response.blob() : null;
+      // A newer call may have started (and possibly already finished)
+      // while the two awaits above were in flight. If so, this response is
+      // stale: discard it without touching the DOM or assetPhotoObjectUrl,
+      // so it can never overwrite whatever the newer call has shown.
+      if (myToken !== assetPhotoRenderToken) return;
+      if (blob) {
         assetPhotoObjectUrl = URL.createObjectURL(blob);
         img.src = assetPhotoObjectUrl;
         img.classList.remove("hidden");
@@ -477,27 +522,6 @@ async function renderAssetPhotoPreview(asset) {
       console.error(error);
     }
   }
-
-  uploadBtn.onclick = () => fileInput.click();
-  fileInput.onchange = async (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-    const bytes = await file.arrayBuffer();
-    const response = await apiFetch(`/api/assets/${asset.id}/photo`, {
-      method: "POST",
-      headers: { "Content-Type": "image/jpeg" },
-      body: bytes,
-    });
-    fileInput.value = "";
-    if (response.ok) {
-      showToast("Фото загружено.", "info");
-      asset.photoUrl = `uploads/${asset.id}.jpg`;
-      asset.rev = (asset.rev || 0) + 1; // локальный кэш-бастинг; реальный rev подтянется на следующем /api/state
-      renderAssetPhotoPreview(asset);
-    } else {
-      showToast("Не удалось загрузить фото.", "error");
-    }
-  };
 }
 
 function getActiveEmployees(employees) {
