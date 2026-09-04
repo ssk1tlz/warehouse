@@ -431,6 +431,10 @@ function getAvailableQuantity(asset) {
   return Math.max(0, Number(asset.quantity || 0) - getAllocatedQuantity(asset) - Number(asset.repairQuantity || 0));
 }
 
+function getActiveEmployees(employees) {
+  return employees.filter((e) => (e.status || "active") !== "inactive");
+}
+
 function getEmployeeAllocation(asset, employeeId) {
   return asset.allocations.find((entry) => entry.employeeId === employeeId && !entry.department) || null;
 }
@@ -2118,6 +2122,9 @@ function renderSelects() {
   const employeeOptions = state.employees
     .map((e) => `<option value="${e.id}">${escapeHtml(e.fullName)}</option>`)
     .join("");
+  const activeEmployeeOptions = getActiveEmployees(state.employees)
+    .map((e) => `<option value="${e.id}">${escapeHtml(e.fullName)}</option>`)
+    .join("");
 
   const employeeDeptSelect = document.getElementById("employeeDepartmentSelect");
   if (employeeDeptSelect) {
@@ -2139,7 +2146,7 @@ function renderSelects() {
   const repairAssets = state.assets.filter((asset) => Number(asset.repairQuantity || 0) > 0);
   const selectedRepairSource = dom.repairSourceSelect?.value || "warehouse";
   const selectedRepairTarget = dom.repairReturnTargetSelect?.value || "warehouse";
-  dom.issueEmployeeSelect.innerHTML = employeeOptions;
+  dom.issueEmployeeSelect.innerHTML = activeEmployeeOptions;
   dom.returnEmployeeSelect.innerHTML = employeeOptions;
   dom.manualActEmployeeSelect.innerHTML = employeeOptions;
   const issueDeptSelect = document.getElementById("issueDepartmentSelect");
