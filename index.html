@@ -208,8 +208,13 @@
                   <datalist id="locationDatalist"></datalist>
                 </label>
                 <label class="form-field">
-                  <span class="form-label">Фото (URL)</span>
-                  <input name="photoUrl" placeholder="https://...">
+                  <span class="form-label">Фото</span>
+                  <div id="assetPhotoPreview" class="asset-photo-preview">
+                    <img id="assetPhotoImg" class="hidden" alt="Фото актива">
+                    <span id="assetPhotoPlaceholder">Нет фото</span>
+                  </div>
+                  <input type="file" id="assetPhotoFileInput" accept="image/*" class="hidden">
+                  <button type="button" id="assetPhotoUploadBtn" class="secondary">Загрузить фото</button>
                 </label>
               </div>
             </div>

@@ -304,6 +304,11 @@ function normalizeAsset(asset) {
     repairDate: asset.repairDate || "",
     location: asset.location || "",
     photoUrl: asset.photoUrl || "",
+    // rev is server-owned (bumped by server.py whenever a save changes
+    // core fields) and arrives on every asset in GET /api/state — kept
+    // here so the photo preview's cache-busting query param survives a
+    // page reload instead of resetting to 0 every time.
+    rev: asset.rev || 0,
     labelPrintedAt: asset.labelPrintedAt || null,
     allocations: Array.isArray(asset.allocations)
       ? asset.allocations
@@ -429,6 +434,70 @@ function getAllocatedQuantity(asset) {
 
 function getAvailableQuantity(asset) {
   return Math.max(0, Number(asset.quantity || 0) - getAllocatedQuantity(asset) - Number(asset.repairQuantity || 0));
+}
+
+// ─── ПРЕВЬЮ ФОТО АКТИВА ───────────────────────────────────────
+// Holds the object URL for whatever photo is currently shown, so it can be
+// revoked before the next one is created (avoids leaking blob: URLs as the
+// user opens/edits different assets).
+let assetPhotoObjectUrl = null;
+
+async function renderAssetPhotoPreview(asset) {
+  const img = document.getElementById("assetPhotoImg");
+  const placeholder = document.getElementById("assetPhotoPlaceholder");
+  const uploadBtn = document.getElementById("assetPhotoUploadBtn");
+  const fileInput = document.getElementById("assetPhotoFileInput");
+  if (!img || !placeholder || !uploadBtn || !fileInput) return;
+
+  if (assetPhotoObjectUrl) {
+    URL.revokeObjectURL(assetPhotoObjectUrl);
+    assetPhotoObjectUrl = null;
+  }
+  img.classList.add("hidden");
+  img.removeAttribute("src");
+  placeholder.classList.remove("hidden");
+
+  if (asset.photoUrl && asset.id) {
+    try {
+      // GET /api/assets/<id>/photo requires the same Bearer-token auth as
+      // every other /api/ route, so a plain <img src="..."> would get a
+      // 401 — a browser never attaches localStorage's token to an <img>
+      // request. Fetch the bytes through apiFetch (which does add it) and
+      // hand the <img> an object URL instead — same pattern already used
+      // for the .docx act download (see downloadActDocx()'s apiFetch("/api/act")).
+      const response = await apiFetch(`/api/assets/${asset.id}/photo?v=${asset.rev || 0}`);
+      if (response.ok) {
+        const blob = await response.blob();
+        assetPhotoObjectUrl = URL.createObjectURL(blob);
+        img.src = assetPhotoObjectUrl;
+        img.classList.remove("hidden");
+        placeholder.classList.add("hidden");
+      }
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
+  uploadBtn.onclick = () => fileInput.click();
+  fileInput.onchange = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    const bytes = await file.arrayBuffer();
+    const response = await apiFetch(`/api/assets/${asset.id}/photo`, {
+      method: "POST",
+      headers: { "Content-Type": "image/jpeg" },
+      body: bytes,
+    });
+    fileInput.value = "";
+    if (response.ok) {
+      showToast("Фото загружено.", "info");
+      asset.photoUrl = `uploads/${asset.id}.jpg`;
+      asset.rev = (asset.rev || 0) + 1; // локальный кэш-бастинг; реальный rev подтянется на следующем /api/state
+      renderAssetPhotoPreview(asset);
+    } else {
+      showToast("Не удалось загрузить фото.", "error");
+    }
+  };
 }
 
 function getActiveEmployees(employees) {
@@ -615,6 +684,7 @@ function resetAssetForm() {
   dom.assetCancelBtn.classList.add("hidden");
   setDefaultDates();
   updateInventoryHint();
+  renderAssetPhotoPreview({ id: "", photoUrl: "" });
 }
 
 function resetEmployeeForm() {
@@ -2409,7 +2479,7 @@ function duplicateAsset(assetId) {
   if (form.elements.warrantyEnd) form.elements.warrantyEnd.value = "";
   if (form.elements.price) form.elements.price.value = asset.price || 0;
   if (form.elements.location) form.elements.location.value = asset.location || "";
-  if (form.elements.photoUrl) form.elements.photoUrl.value = "";
+  renderAssetPhotoPreview({ id: "", photoUrl: "" }); // дубликат — новая позиция без фото
   dom.assetFormTitle.textContent = "Дублировать позицию";
   dom.assetSubmitBtn.textContent = "Сохранить копию";
   dom.assetCancelBtn.classList.remove("hidden");
@@ -2601,7 +2671,7 @@ function enterAssetEditMode(assetId) {
   if (dom.assetForm.elements.warrantyEnd) dom.assetForm.elements.warrantyEnd.value = asset.warrantyEnd || "";
   if (dom.assetForm.elements.price) dom.assetForm.elements.price.value = asset.price || 0;
   if (dom.assetForm.elements.location) dom.assetForm.elements.location.value = asset.location || "";
-  if (dom.assetForm.elements.photoUrl) dom.assetForm.elements.photoUrl.value = asset.photoUrl || "";
+  renderAssetPhotoPreview(asset);
   dom.assetFormTitle.textContent = "Редактировать технику";
   dom.assetSubmitBtn.textContent = "Сохранить изменения";
   dom.assetCancelBtn.classList.remove("hidden");
@@ -2733,7 +2803,9 @@ async function handleAssetSubmit(event) {
     asset.warrantyEnd = formData.get("warrantyEnd") || "";
     asset.price = Math.max(0, Number(formData.get("price") || 0));
     asset.location = String(formData.get("location") || "").trim();
-    asset.photoUrl = String(formData.get("photoUrl") || "").trim();
+    // photoUrl is intentionally NOT touched here: it's server-owned (set only
+    // by the photo-upload endpoint, Task C1/C2) and the form no longer has a
+    // field for it, so a normal edit-save must leave it exactly as-is.
     addAuditEntry("asset", asset.id, "edit", changes);
     addMovement({ type: "edit", assetId: asset.id, quantity: asset.quantity, date: today(), notes: "Обновлена карточка техники" });
   } else if (duplicate) {
@@ -2755,7 +2827,9 @@ async function handleAssetSubmit(event) {
       warrantyEnd: formData.get("warrantyEnd") || "",
       price: Math.max(0, Number(formData.get("price") || 0)),
       location: String(formData.get("location") || "").trim(),
-      photoUrl: String(formData.get("photoUrl") || "").trim(),
+      // No photoUrl here: a newly created asset has no photo yet (the form
+      // no longer has a manual URL field to read from), normalizeAsset()
+      // defaults it to "".
       allocations: [],
     });
     state.assets.push(asset);
