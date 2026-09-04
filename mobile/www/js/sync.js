@@ -126,6 +126,22 @@ async function flushQueue(settings) {
   return { flushed, failed, conflicted, needsReauth };
 }
 
+// Drains pending_photo_uploads the same way flushQueue drains pending_actions:
+// reuses Sync.uploadPhoto() (correctly signed, see Task C5) so there's no
+// second upload implementation. A failed attempt (still offline, server
+// unreachable) leaves the entry queued for the next Sync.run() to retry.
+async function retryPendingPhotoUploads() {
+  const pending = await Db.listPendingPhotoUploads();
+  for (const photo of pending) {
+    try {
+      await uploadPhoto(photo.assetId, photo.localPath);
+      await Db.clearPendingPhotoUpload(photo.assetId);
+    } catch (err) {
+      // Still offline or server unreachable — leave it queued, retry next Sync.run().
+    }
+  }
+}
+
 async function pullState(settings) {
   const headers = await signedHeaders(settings, 'GET', '/api/state', '');
   const response = await fetch(`${settings.serverUrl}/api/state`, { headers });
@@ -144,6 +160,7 @@ async function run() {
   const settings = await Settings.get();
   if (!settings.serverUrl || !settings.token) return { pulled: false, flushed: 0, failed: 0, needsReauth: false };
   const { flushed, failed, needsReauth } = await flushQueue(settings);
+  await retryPendingPhotoUploads();
   let pulled = false;
   let sessionExpired = Boolean(needsReauth);
   try {
@@ -158,7 +175,7 @@ async function run() {
   return { pulled, flushed, failed, needsReauth: sessionExpired };
 }
 
-const Sync = { run, flushQueue, pullState, pair, signRequest, signedHeaders, signRequestBytes, signedHeadersBytes, dataUrlToBytes, uploadPhoto };
+const Sync = { run, flushQueue, pullState, pair, signRequest, signedHeaders, signRequestBytes, signedHeadersBytes, dataUrlToBytes, uploadPhoto, retryPendingPhotoUploads };
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = Sync;
 }

@@ -111,6 +111,7 @@ test('run() surfaces needsReauth:true when pullState gets a 401', async () => {
   global.Db = {
     listPendingActions: async () => [],
     replaceState: async () => {},
+    listPendingPhotoUploads: async () => [],
   };
   const result = await Sync.run();
   assert.equal(result.needsReauth, true);
@@ -121,7 +122,7 @@ test('run() reports needsReauth:false when the server is merely unreachable', as
   // Offline must stay distinguishable from "session revoked".
   global.fetch = async () => { throw new TypeError('Failed to fetch'); };
   global.Settings = { get: async () => ({ serverUrl: 'http://x', token: 'tok' }) };
-  global.Db = { listPendingActions: async () => [], replaceState: async () => {} };
+  global.Db = { listPendingActions: async () => [], replaceState: async () => {}, listPendingPhotoUploads: async () => [] };
   const result = await Sync.run();
   assert.equal(result.needsReauth, false);
   assert.equal(result.pulled, false);
@@ -246,4 +247,53 @@ test('flushQueue still marks a plain 400 as "failed", unaffected by conflict han
   assert.equal(result.failed, 1);
   assert.equal(result.conflicted, 0);
   assert.deepEqual(failed, [{ id: 'a1', error: 'Недостаточно остатка.' }]);
+});
+
+test('retryPendingPhotoUploads clears the specific queue entry on a successful upload (reuses uploadPhoto, so it signs correctly)', async () => {
+  const nodeCrypto = require('node:crypto');
+  const secretHex = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
+  const dataUrl = 'data:image/jpeg;base64,' + Buffer.from('fake-jpeg-bytes').toString('base64');
+  let seen;
+  const cleared = [];
+  global.fetch = async (url, options) => {
+    seen = { url, options };
+    return { ok: true, status: 200 };
+  };
+  global.Settings = { get: async () => ({ serverUrl: 'http://192.168.0.1:8765', token: 'tok123', deviceSecret: secretHex }) };
+  global.Db = {
+    listPendingPhotoUploads: async () => ([{ assetId: 'ast_1', localPath: dataUrl, createdAt: '2026-09-04T00:00:00.000Z' }]),
+    clearPendingPhotoUpload: async (assetId) => cleared.push(assetId),
+  };
+  await Sync.retryPendingPhotoUploads();
+  assert.deepEqual(cleared, ['ast_1'], 'only the retried entry is cleared');
+  assert.equal(seen.url, 'http://192.168.0.1:8765/api/assets/ast_1/photo');
+  // Confirms the retry went through the real uploadPhoto() (HMAC-signed), not a second inline fetch.
+  assert.ok(seen.options.headers['X-Signature']);
+  assert.match(seen.options.headers['X-Signature'], /^\d+\.[0-9a-f]{64}$/);
+});
+
+test('retryPendingPhotoUploads leaves the entry queued when the upload fails (network error) — no throw, retried next Sync.run()', async () => {
+  const dataUrl = 'data:image/jpeg;base64,' + Buffer.from('fake-jpeg-bytes').toString('base64');
+  let clearedCount = 0;
+  global.fetch = async () => { throw new TypeError('Failed to fetch'); };
+  global.Settings = { get: async () => ({ serverUrl: 'http://192.168.0.1:8765', token: 'tok123' }) };
+  global.Db = {
+    listPendingPhotoUploads: async () => ([{ assetId: 'ast_1', localPath: dataUrl, createdAt: '2026-09-04T00:00:00.000Z' }]),
+    clearPendingPhotoUpload: async () => { clearedCount += 1; },
+  };
+  await assert.doesNotReject(() => Sync.retryPendingPhotoUploads());
+  assert.equal(clearedCount, 0, 'a network error must leave the entry queued, not clear it');
+});
+
+test('retryPendingPhotoUploads leaves the entry queued when the server rejects the upload (non-2xx)', async () => {
+  const dataUrl = 'data:image/jpeg;base64,' + Buffer.from('fake-jpeg-bytes').toString('base64');
+  let clearedCount = 0;
+  global.fetch = async () => ({ ok: false, status: 500 });
+  global.Settings = { get: async () => ({ serverUrl: 'http://192.168.0.1:8765', token: 'tok123' }) };
+  global.Db = {
+    listPendingPhotoUploads: async () => ([{ assetId: 'ast_1', localPath: dataUrl, createdAt: '2026-09-04T00:00:00.000Z' }]),
+    clearPendingPhotoUpload: async () => { clearedCount += 1; },
+  };
+  await Sync.retryPendingPhotoUploads();
+  assert.equal(clearedCount, 0);
 });
