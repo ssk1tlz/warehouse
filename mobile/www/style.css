@@ -234,6 +234,21 @@ li {
 .nav-scan svg { width: 28px; height: 28px; }
 .nav-scan:active { background: var(--brand-2); }
 
+/* With 8 nav items now (search/queue/scan/history/inventory/employees/
+   attention/settings), the pill's 7 regular 44px .nav-item buttons plus the
+   56px scan FAB no longer fit comfortably on narrow phones (~360-390px CSS
+   width) at full size — .nav-item has no flex-shrink override, so it
+   shrinks under space pressure rather than overflowing/clipping, but gets
+   uncomfortably tight. Shrink the whole pill proactively below this
+   breakpoint instead of relying on flex-shrink to do it implicitly. */
+@media (max-width: 400px) {
+  .bottom-nav { padding: 6px 6px; }
+  .nav-item { width: 38px; height: 38px; }
+  .nav-item svg { width: 22px; height: 22px; }
+  .nav-scan { width: 50px; height: 50px; margin-top: -18px; }
+  .nav-scan svg { width: 24px; height: 24px; }
+}
+
 /* ─── expandable history rows ──────────────────────────────────── */
 #historyList li { padding: 0; display: block; }
 #historyList summary {
