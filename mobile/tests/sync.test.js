@@ -146,6 +146,89 @@ test('flushQueue marks a 409 edit conflict with status "conflict", not "failed"'
   assert.deepEqual(marked, [{ id: 'a1', currentAsset: { rev: 3, name: 'X' } }]);
 });
 
+test('signRequestBytes produces a "timestamp.hexdigest" string matching Node\'s crypto HMAC over raw bytes', async () => {
+  const nodeCrypto = require('node:crypto');
+  const secretHex = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
+  // A realistic multi-KB body: raw (non-UTF8-safe) bytes, as a real JPEG would be.
+  const bodyBytes = new Uint8Array(50000);
+  for (let i = 0; i < bodyBytes.length; i++) bodyBytes[i] = i % 256;
+  const header = await Sync.signRequestBytes('POST', '/api/assets/ast_1/photo', bodyBytes, secretHex);
+  const [timestamp, digest] = header.split('.');
+  assert.match(timestamp, /^\d+$/);
+  const bodyHash = nodeCrypto.createHash('sha256').update(Buffer.from(bodyBytes)).digest('hex');
+  const message = `POST\n/api/assets/ast_1/photo\n${timestamp}\n${bodyHash}`;
+  const expected = nodeCrypto.createHmac('sha256', Buffer.from(secretHex, 'hex')).update(message).digest('hex');
+  assert.equal(digest, expected);
+});
+
+test('signedHeadersBytes includes Authorization and X-Signature derived from the raw body bytes', async () => {
+  const nodeCrypto = require('node:crypto');
+  const secretHex = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
+  const bodyBytes = new Uint8Array([1, 2, 3, 250, 251, 252, 0, 255]);
+  const settings = { token: 'tok123', deviceSecret: secretHex };
+  const headers = await Sync.signedHeadersBytes(settings, 'POST', '/api/assets/ast_1/photo', bodyBytes);
+  assert.equal(headers.Authorization, 'Bearer tok123');
+  assert.match(headers['X-Signature'], /^\d+\.[0-9a-f]{64}$/);
+  const [timestamp, digest] = headers['X-Signature'].split('.');
+  const bodyHash = nodeCrypto.createHash('sha256').update(Buffer.from(bodyBytes)).digest('hex');
+  const message = `POST\n/api/assets/ast_1/photo\n${timestamp}\n${bodyHash}`;
+  const expected = nodeCrypto.createHmac('sha256', Buffer.from(secretHex, 'hex')).update(message).digest('hex');
+  assert.equal(digest, expected);
+});
+
+test('signedHeadersBytes omits X-Signature when there is no deviceSecret (e.g. loopback pairing not yet done)', async () => {
+  const headers = await Sync.signedHeadersBytes({ token: 'tok123' }, 'POST', '/api/assets/ast_1/photo', new Uint8Array([1]));
+  assert.equal(headers.Authorization, 'Bearer tok123');
+  assert.equal('X-Signature' in headers, false);
+});
+
+test('dataUrlToBytes round-trips a small string', () => {
+  const dataUrl = 'data:image/jpeg;base64,' + Buffer.from('hello').toString('base64');
+  const bytes = Sync.dataUrlToBytes(dataUrl);
+  assert.equal(Buffer.from(bytes).toString('utf8'), 'hello');
+});
+
+test('dataUrlToBytes round-trips a realistic multi-KB binary payload (not just ASCII text)', () => {
+  const original = Buffer.alloc(20000);
+  for (let i = 0; i < original.length; i++) original[i] = (i * 7) % 256; // includes every byte value, not just printable ASCII
+  const dataUrl = 'data:image/jpeg;base64,' + original.toString('base64');
+  const bytes = Sync.dataUrlToBytes(dataUrl);
+  assert.deepEqual(Buffer.from(bytes), original);
+});
+
+test('uploadPhoto POSTs the decoded bytes as the body with image/jpeg content-type and a valid signature', async () => {
+  const nodeCrypto = require('node:crypto');
+  const secretHex = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
+  const original = Buffer.from('fake-jpeg-bytes-not-really-a-jpeg-but-long-enough-to-matter');
+  const dataUrl = 'data:image/jpeg;base64,' + original.toString('base64');
+  let seen;
+  global.fetch = async (url, options) => {
+    seen = { url, options };
+    return { ok: true, status: 200 };
+  };
+  global.Settings = { get: async () => ({ serverUrl: 'http://192.168.0.1:8765', token: 'tok123', deviceSecret: secretHex }) };
+  await Sync.uploadPhoto('ast_42', dataUrl);
+  assert.equal(seen.url, 'http://192.168.0.1:8765/api/assets/ast_42/photo');
+  assert.equal(seen.options.method, 'POST');
+  assert.equal(seen.options.headers['Content-Type'], 'image/jpeg');
+  assert.equal(seen.options.headers.Authorization, 'Bearer tok123');
+  assert.deepEqual(Buffer.from(seen.options.body), original);
+  const [timestamp, digest] = seen.options.headers['X-Signature'].split('.');
+  const bodyHash = nodeCrypto.createHash('sha256').update(original).digest('hex');
+  const message = `POST\n/api/assets/ast_42/photo\n${timestamp}\n${bodyHash}`;
+  const expected = nodeCrypto.createHmac('sha256', Buffer.from(secretHex, 'hex')).update(message).digest('hex');
+  assert.equal(digest, expected);
+});
+
+test('uploadPhoto throws on a non-ok response', async () => {
+  global.fetch = async () => ({ ok: false, status: 500 });
+  global.Settings = { get: async () => ({ serverUrl: 'http://x', token: 't' }) };
+  await assert.rejects(
+    () => Sync.uploadPhoto('ast_1', 'data:image/jpeg;base64,' + Buffer.from('x').toString('base64')),
+    /HTTP 500/,
+  );
+});
+
 test('flushQueue still marks a plain 400 as "failed", unaffected by conflict handling', async () => {
   global.fetch = async () => ({
     ok: false,

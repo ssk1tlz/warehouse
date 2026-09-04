@@ -27,6 +27,49 @@ async function signedHeaders(settings, method, path, bodyText) {
   return headers;
 }
 
+// Bytes-native counterparts to signRequest/signedHeaders above, for bodies that
+// are raw binary (e.g. a JPEG) rather than text — a blob's bytes can't safely
+// round-trip through a JS string, so this hashes/signs the Uint8Array directly
+// instead of going through TextEncoder. Kept separate from signRequest/
+// signedHeaders (used by the tested, working JSON-action sync path) so this
+// addition carries zero risk to that path.
+async function signRequestBytes(method, path, bodyBytes, secretHex) {
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const bodyHashBuffer = await crypto.subtle.digest('SHA-256', bodyBytes);
+  const bodyHashHex = toHex(new Uint8Array(bodyHashBuffer));
+  const message = `${method}\n${path}\n${timestamp}\n${bodyHashHex}`;
+  const key = await crypto.subtle.importKey('raw', fromHex(secretHex), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const signatureBuffer = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(message));
+  return `${timestamp}.${toHex(new Uint8Array(signatureBuffer))}`;
+}
+
+async function signedHeadersBytes(settings, method, path, bodyBytes) {
+  const headers = settings.token ? { Authorization: `Bearer ${settings.token}` } : {};
+  if (settings.deviceSecret) {
+    headers['X-Signature'] = await signRequestBytes(method, path, bodyBytes, settings.deviceSecret);
+  }
+  return headers;
+}
+
+function dataUrlToBytes(dataUrl) {
+  const base64 = dataUrl.split(',')[1];
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+// Shared by this task's immediate-upload attempt and Task C6's retry loop —
+// both paths sign correctly with zero duplicated upload logic.
+async function uploadPhoto(assetId, dataUrl) {
+  const settings = await Settings.get();
+  const bodyBytes = dataUrlToBytes(dataUrl);
+  const path = `/api/assets/${assetId}/photo`;
+  const headers = { 'Content-Type': 'image/jpeg', ...(await signedHeadersBytes(settings, 'POST', path, bodyBytes)) };
+  const response = await fetch(`${settings.serverUrl}${path}`, { method: 'POST', headers, body: bodyBytes });
+  if (!response.ok) throw new Error(`upload failed: HTTP ${response.status}`);
+}
+
 async function pair(serverUrl, code) {
   const response = await fetch(`${serverUrl}/api/pair`, {
     method: 'POST',
@@ -115,7 +158,7 @@ async function run() {
   return { pulled, flushed, failed, needsReauth: sessionExpired };
 }
 
-const Sync = { run, flushQueue, pullState, pair, signRequest, signedHeaders };
+const Sync = { run, flushQueue, pullState, pair, signRequest, signedHeaders, signRequestBytes, signedHeadersBytes, dataUrlToBytes, uploadPhoto };
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = Sync;
 }

@@ -158,6 +158,71 @@ async function openAssetScreen(assetId) {
   showScreen('screen-asset');
 }
 
+function isCameraCancel(error) {
+  return error && typeof error.message === 'string' && /cancel/i.test(error.message);
+}
+
+// Кнопка "Сфотографировать" на карточке актива: снять фото камерой, сжать на
+// клиенте и попытаться загрузить сразу; при сбое сети — поставить в очередь
+// докачки (Task C6 её дозаливает). Камера вызывается напрямую через
+// Capacitor.Plugins.Camera (как в scanner.js:75), а не через Scanner.*, потому
+// что здесь нужны реальные байты изображения (resultType: 'dataUrl') для
+// сжатия на canvas, а не путь к файлу для OCR-плагина.
+async function capturePhotoForCurrentAsset() {
+  if (!currentAssetId) return;
+  const { Camera } = Capacitor.Plugins;
+  let photo;
+  try {
+    photo = await Camera.getPhoto({
+      source: 'CAMERA',
+      resultType: 'dataUrl',
+      quality: 90,
+      correctOrientation: true,
+      saveToGallery: false,
+    });
+  } catch (error) {
+    if (isCameraCancel(error)) return; // пользователь отменил съёмку
+    Toast.show(describeScanError(error, 'Не удалось получить фото с камеры.'), 'error');
+    return;
+  }
+  const compressed = await compressPhotoDataUrl(photo.dataUrl, 1600, 0.7);
+  await uploadOrQueuePhoto(currentAssetId, compressed);
+}
+
+// Уменьшает фото до maxDimension по большей стороне и перекодирует в JPEG с
+// заданным качеством — снимки с телефона легко весят 3-5 МБ, а склад работает
+// по LAN на телефонах с ограниченным трафиком/памятью.
+function compressPhotoDataUrl(dataUrl, maxDimension, quality) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxDimension / Math.max(img.width, img.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
+// Пытается загрузить фото сразу (Sync.uploadPhoto — тот же подписанный путь,
+// которым в Task C6 будет докачивать очередь); при сбое сети/сервера — просто
+// кладёт data URL в pending_photo_uploads (столбец local_path, TEXT — см.
+// Task C4) для последующей докачки, без записи на диск устройства (плагин
+// @capacitor/filesystem не является зависимостью проекта).
+async function uploadOrQueuePhoto(assetId, dataUrl) {
+  try {
+    await Sync.uploadPhoto(assetId, dataUrl);
+    Toast.show('Фото загружено.', 'info');
+  } catch (err) {
+    await Db.queuePhotoUpload(assetId, dataUrl);
+    Toast.show('Нет сети — фото поставлено в очередь на отправку.', 'info');
+  }
+}
+
 // Заполняет пустые поля формы редактирования тем, что распозналось на этикетке.
 // Непустые поля не трогаем — распознавание подсказывает, а не перезаписывает.
 function applyLabelToEditForm(parsed) {
@@ -823,6 +888,7 @@ async function init() {
     showScreen('screen-settings');
   });
   document.getElementById('assetBackBtn').addEventListener('click', () => showScreen('screen-scan'));
+  document.getElementById('assetPhotoBtn')?.addEventListener('click', capturePhotoForCurrentAsset);
   document.getElementById('actionBackBtn').addEventListener('click', () => showScreen('screen-asset'));
   document.getElementById('editBackBtn').addEventListener('click', () => showScreen('screen-asset'));
   document.getElementById('actionForm').addEventListener('submit', submitAction);
