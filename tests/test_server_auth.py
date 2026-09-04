@@ -484,6 +484,30 @@ def test_asset_photo_get_rejects_path_traversal_asset_id(live_server):
     assert status == 404
 
 
+def test_asset_photo_upload_rejects_windows_drive_relative_asset_id(live_server):
+    # "d:evil" contains no "/" or "\\" at all, so a deny-list guard (blocking
+    # only those characters plus "." and "..") lets it straight through. On
+    # Windows, pathlib resolves a drive-relative segment like this relative
+    # to that drive's CWD rather than the joined-in parent — i.e. OUTSIDE
+    # UPLOADS_DIR — so this is a real traversal, not just a lint nit. Confirm
+    # the allow-list regex rejects the id format itself directly...
+    assert server._is_safe_asset_id("d:evil") is False
+    # ...and confirm the HTTP endpoint refuses it end-to-end too, the same
+    # way the "../evil" tests above do for the slash-based case.
+    with sqlite3.connect(server.DB_PATH) as conn:
+        conn.execute("INSERT INTO assets (id, name, quantity) VALUES (?, ?, ?)", ("d:evil", "DriveRelative", 1))
+        conn.commit()
+    token = _create_admin(live_server)
+    req = urllib.request.Request(f"{live_server}/api/assets/d:evil/photo", data=b"malicious", method="POST")
+    req.add_header("Authorization", f"Bearer {token}")
+    req.add_header("Content-Type", "image/jpeg")
+    try:
+        urllib.request.urlopen(req)
+        assert False, "expected HTTPError"
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 404
+
+
 def test_import_state_returns_conflict_when_deleting_an_asset_with_scan_history(live_server):
     # The narrower edge case Fix 2's deferred-FK approach cannot resolve on
     # its own: the desktop payload genuinely OMITS an asset (a true delete,

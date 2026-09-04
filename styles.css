@@ -2307,32 +2307,6 @@ button.small-button {
 
 @media (max-width: 900px) { .chart-grid { grid-template-columns: 1fr; } }
 
-/* ─── DASHBOARD ALERTS ───────────────────────────────────────── */
-#dashboardAlerts { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
-#dashboardAlerts:empty { display: none; margin: 0; }
-
-.alert-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
-  border-radius: var(--r-sm);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.alert-warn {
-  background: var(--warn-dim);
-  color: var(--warn);
-  border: 1px solid rgba(245,158,11,0.2);
-}
-
-.alert-danger {
-  background: var(--danger-dim);
-  color: var(--danger);
-  border: 1px solid rgba(244,63,94,0.2);
-}
-
 /* ─── ATTENTION PANEL ───────────────────────────────────────── */
 .attention-panel { margin-bottom: 16px; }
 

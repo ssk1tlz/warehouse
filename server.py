@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
+import re
 import shutil
 import sqlite3
 import sys
@@ -461,6 +462,14 @@ def compute_attention_items(assets: list[dict], settings: dict, *, today: date |
     repair_days = int(settings.get("attentionRepairDays") or 14)
     items: list[dict] = []
     for asset in assets:
+        # A retired asset (quantity decremented to 0; this codebase's rows
+        # are never deleted on retirement) must not flag forever with no way
+        # to clear it — the same reasoning mobile/www/js/db.js's
+        # getAllAssets, mobile_actions.py's apply_inventory_complete, and
+        # server.py's handle_inventory_act already apply for the identical
+        # reason.
+        if int(asset.get("quantity") or 0) <= 0:
+            continue
         warranty_end = (asset.get("warrantyEnd") or "").strip()
         if warranty_end:
             try:
@@ -783,6 +792,9 @@ def import_state(payload: dict, actor: str) -> dict:
     return export_state()
 
 
+_SAFE_ASSET_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
 def _is_safe_asset_id(asset_id: str) -> bool:
     """Reject an id before it is spliced into an UPLOADS_DIR filesystem path.
 
@@ -793,8 +805,15 @@ def _is_safe_asset_id(asset_id: str) -> bool:
     an id is used to build a filesystem path (UPLOADS_DIR / f"{asset_id}.jpg")
     rather than passed as a parameterized SQL value, so the guard belongs
     here rather than assuming upstream validation exists.
+
+    Deliberately an allow-list, not a deny-list of "/", "\\", ".", "..": a
+    deny-list still lets through a Windows drive-relative segment like
+    "d:evil" (no slash or backslash at all), which pathlib resolves relative
+    to the CWD of that drive — i.e. outside UPLOADS_DIR — on Windows. The
+    allow-list instead matches this codebase's real id format: createId() in
+    app.js emits "prefix_timestamp_random" ids, always [A-Za-z0-9_-].
     """
-    return bool(asset_id) and "/" not in asset_id and "\\" not in asset_id and asset_id not in (".", "..")
+    return bool(asset_id) and _SAFE_ASSET_ID_RE.fullmatch(asset_id) is not None
 
 
 class WarehouseHandler(BaseHTTPRequestHandler):

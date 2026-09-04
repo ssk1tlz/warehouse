@@ -190,7 +190,7 @@ function applyRoleVisibility() {
 }
 
 const VIEW_RENDERERS = {
-  dashboard: () => { renderStats(); renderDashboardAlerts(); renderAttentionPanel(); renderCharts(); renderRecentMovements(); renderAssignedSummary(); },
+  dashboard: () => { renderStats(); renderAttentionPanel(); renderCharts(); renderRecentMovements(); renderAssignedSummary(); },
   inventory: () => { renderAssetsTable(); },
   employees: () => { renderEmployees(); },
   departments: () => { renderDepartments(); },
@@ -2439,45 +2439,14 @@ function resolveActNumber(movement) {
 }
 
 // ─── DASHBOARD ALERTS ──────────────────────────────────────────
-function renderDashboardAlerts() {
-  const container = document.getElementById("dashboardAlerts");
-  if (!container) return;
-  const alerts = [];
-  const REPAIR_WARN_DAYS = 14;
-  const todayMs = Date.now();
-
-  // Overdue repairs
-  state.assets.forEach((asset) => {
-    if (Number(asset.repairQuantity || 0) > 0 && asset.repairDate) {
-      const days = Math.floor((todayMs - new Date(asset.repairDate).getTime()) / 86400000);
-      if (days >= REPAIR_WARN_DAYS) {
-        alerts.push({ type: "danger", text: `«${asset.name}» в ремонте ${days} дн.` });
-      }
-    }
-  });
-
-  // Low stock
-  state.assets.forEach((asset) => {
-    if (asset.minQuantity > 0 && getAvailableQuantity(asset) < asset.minQuantity) {
-      alerts.push({ type: "warn", text: `«${asset.name}» — остаток ${getAvailableQuantity(asset)} из мин. ${asset.minQuantity}` });
-    }
-  });
-
-  // Warranty expiring within 30 days
-  state.assets.forEach((asset) => {
-    if (asset.warrantyEnd) {
-      const daysLeft = Math.floor((new Date(asset.warrantyEnd).getTime() - todayMs) / 86400000);
-      if (daysLeft >= 0 && daysLeft <= 30) {
-        alerts.push({ type: "warn", text: `Гарантия «${asset.name}» истекает через ${daysLeft} дн.` });
-      } else if (daysLeft < 0 && daysLeft > -7) {
-        alerts.push({ type: "danger", text: `Гарантия «${asset.name}» истекла` });
-      }
-    }
-  });
-
-  if (!alerts.length) { container.innerHTML = ""; return; }
-  container.innerHTML = alerts.map((a) => `<div class="alert-item alert-${a.type}">${a.text}</div>`).join("");
-}
+// (renderDashboardAlerts() was removed here — see renderAttentionPanel()
+// below. That pre-existing function duplicated warranty/low-stock/
+// long-repair signals with its own hardcoded 30/14/7-day thresholds,
+// independent of and disagreeing with the server-computed, admin-
+// configurable attention panel. Per spec ("считается один раз на сервере,
+// не дублируется"), the server-computed panel is the single source of
+// truth for this — this client-side duplicate is intentionally gone, not
+// merely disabled.)
 
 const ATTENTION_LABELS = { warranty: "Гарантия", low_stock: "Мало на складе", long_repair: "Долгий ремонт" };
 
