@@ -1240,6 +1240,32 @@ function exportSiteHandoverCsv(siteId) {
   exportHandoverCsv({ site: site.name }, site.name);
 }
 
+function exportMovementsCsv(dateFrom, dateTo) {
+  const headers = ["Дата", "Тип", "Актив", "Количество", "Сотрудник/Отдел/Объект"];
+  const filtered = [...state.movements]
+    .filter((m) => (!dateFrom || m.date >= dateFrom) && (!dateTo || m.date <= dateTo))
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+  const rows = filtered.map((m) => {
+    const asset = getAssetById(m.assetId);
+    const employee = getEmployeeById(m.employeeId);
+    // Issue/return movements are mutually exclusive on employee/department/site
+    // (the operation form only lets you pick one target), so unlike the D1
+    // allocation filter there's no ambiguity here — just pick whichever is set.
+    const target = employee ? employee.fullName : (m.department || m.site || "Склад");
+    return [m.date, movementLabels[m.type] || m.type, asset ? asset.name : m.assetId, m.quantity, target];
+  });
+  const escape = (v) => {
+    const s = String(v == null ? "" : v);
+    if (/[";\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+  // Use ';' separator + UTF-8 BOM so Excel opens Cyrillic correctly (same pattern as exportRegistryCsv).
+  const csv = [headers, ...rows].map((row) => row.map(escape).join(";")).join("\r\n");
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+  triggerDownload(blob, `Движения_${dateFrom || "все"}_${dateTo || "все"}.csv`);
+  showToast("Движения выгружены в CSV.", "info");
+}
+
 // ─── СОТРУДНИКИ ─────────────────────────────────────────────────
 const AVATAR_COLORS = [
   "#2563eb", "#16a34a", "#9333ea", "#ea580c", "#0d9488",

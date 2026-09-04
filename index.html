@@ -633,6 +633,15 @@
             <h3>Журнал операций</h3>
             <input id="movementSearchInput" class="search" style="max-width:280px" placeholder="Поиск…">
           </div>
+          <div class="table-filters">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2)">С
+              <input type="date" id="movementsFrom">
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2)">По
+              <input type="date" id="movementsTo">
+            </label>
+            <button type="button" class="secondary" onclick="exportMovementsCsv(document.getElementById('movementsFrom').value, document.getElementById('movementsTo').value)">↓ CSV за период</button>
+          </div>
           <div class="table-wrap">
             <table>
               <thead>
