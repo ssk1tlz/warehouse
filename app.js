@@ -3579,6 +3579,22 @@ function bindEvents() {
     }
     showToast(e.target.checked ? "Проверка обновлений включена" : "Проверка обновлений выключена", "success");
   });
+  document.getElementById("attentionWarrantyDaysInput")?.addEventListener("change", async (e) => {
+    const value = parseInt(e.target.value, 10);
+    if (!Number.isFinite(value) || value <= 0) return;
+    await apiFetch("/api/settings", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ attentionWarrantyDays: value }),
+    });
+  });
+  document.getElementById("attentionRepairDaysInput")?.addEventListener("change", async (e) => {
+    const value = parseInt(e.target.value, 10);
+    if (!Number.isFinite(value) || value <= 0) return;
+    await apiFetch("/api/settings", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ attentionRepairDays: value }),
+    });
+  });
   document.getElementById("dismissUpdateBtn")?.addEventListener("click", () => {
     updateBannerDismissed = true;
     renderUpdateBanner();
@@ -3994,6 +4010,8 @@ async function openSettingsModal() {
   const response = await apiFetch("/api/settings");
   const data = await response.json();
   document.getElementById("checkUpdatesInput").checked = Boolean(data.checkUpdates);
+  document.getElementById("attentionWarrantyDaysInput").value = data.attentionWarrantyDays ?? 30;
+  document.getElementById("attentionRepairDaysInput").value = data.attentionRepairDays ?? 14;
   document.getElementById("currentVersionLabel").textContent =
     `Версия программы: ${state.currentVersion || "неизвестна"}`;
   document.getElementById("settingsOverlay").classList.remove("hidden");

@@ -96,6 +96,14 @@ def check_updates_enabled() -> bool:
     return bool(load_config().get("checkUpdates", True))
 
 
+def _attention_warranty_days() -> int:
+    return int(load_config().get("attentionWarrantyDays") or 30)
+
+
+def _attention_repair_days() -> int:
+    return int(load_config().get("attentionRepairDays") or 14)
+
+
 def current_update() -> dict | None:
     """Кэшированная новая версия, если она есть, новее текущей и проверка включена."""
     if not check_updates_enabled():
@@ -565,8 +573,8 @@ def export_state() -> dict:
 
         active_inventory_session = _load_active_inventory_session(connection)
         attention_items = compute_attention_items(assets, {
-            "attentionWarrantyDays": 30,
-            "attentionRepairDays": 14,
+            "attentionWarrantyDays": _attention_warranty_days(),
+            "attentionRepairDays": _attention_repair_days(),
         })
 
     return {
@@ -1336,7 +1344,11 @@ class WarehouseHandler(BaseHTTPRequestHandler):
         self.send_json({"ok": True})
 
     def handle_get_settings(self) -> None:
-        self.send_json({"checkUpdates": check_updates_enabled()})
+        self.send_json({
+            "checkUpdates": check_updates_enabled(),
+            "attentionWarrantyDays": _attention_warranty_days(),
+            "attentionRepairDays": _attention_repair_days(),
+        })
 
     def handle_list_inventory_sessions(self) -> None:
         with get_connection() as connection:
@@ -1517,11 +1529,21 @@ class WarehouseHandler(BaseHTTPRequestHandler):
         if not isinstance(payload, dict):
             self.send_json_error(HTTPStatus.BAD_REQUEST, "Payload must be a JSON object.")
             return
-        value = payload.get("checkUpdates")
-        if not isinstance(value, bool):
-            self.send_json_error(HTTPStatus.BAD_REQUEST, "Поле checkUpdates должно быть true или false.")
-            return
-        save_config({"checkUpdates": value})
+        updates_to_apply: dict = {}
+        if "checkUpdates" in payload:
+            value = payload.get("checkUpdates")
+            if not isinstance(value, bool):
+                self.send_json_error(HTTPStatus.BAD_REQUEST, "Поле checkUpdates должно быть true или false.")
+                return
+            updates_to_apply["checkUpdates"] = value
+        for key in ("attentionWarrantyDays", "attentionRepairDays"):
+            if key in payload:
+                value = payload.get(key)
+                if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                    self.send_json_error(HTTPStatus.BAD_REQUEST, f"Поле {key} должно быть положительным числом.")
+                    return
+                updates_to_apply[key] = value
+        save_config(updates_to_apply)
         self.send_json({"ok": True})
 
     def handle_mark_labels_printed(self, body: bytes) -> None:

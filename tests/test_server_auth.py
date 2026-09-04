@@ -767,6 +767,34 @@ def test_settings_default_to_update_checks_enabled(live_server):
     assert body["checkUpdates"] is True
 
 
+def test_settings_default_attention_thresholds(live_server):
+    token = _create_admin(live_server)
+    status, body = _request(live_server, "GET", "/api/settings", token=token)
+    assert status == 200
+    assert body["attentionWarrantyDays"] == 30
+    assert body["attentionRepairDays"] == 14
+
+
+def test_settings_attention_thresholds_round_trip(live_server):
+    token = _create_admin(live_server)
+    status, _ = _request(live_server, "POST", "/api/settings", token=token,
+                          json_body={"attentionWarrantyDays": 45, "attentionRepairDays": 7})
+    assert status == 200
+    status, body = _request(live_server, "GET", "/api/settings", token=token)
+    assert body["attentionWarrantyDays"] == 45
+    assert body["attentionRepairDays"] == 7
+
+
+def test_settings_rejects_non_positive_attention_threshold(live_server):
+    token = _create_admin(live_server)
+    status, _ = _request(live_server, "POST", "/api/settings", token=token,
+                          json_body={"attentionWarrantyDays": 0})
+    assert status == 400
+    status, _ = _request(live_server, "POST", "/api/settings", token=token,
+                          json_body={"attentionRepairDays": -5})
+    assert status == 400
+
+
 def test_settings_round_trip_and_survive_in_config(live_server, monkeypatch):
     token = _create_admin(live_server)
     status, _ = _request(live_server, "POST", "/api/settings", token=token,
