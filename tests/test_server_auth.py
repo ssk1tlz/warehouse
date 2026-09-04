@@ -795,6 +795,23 @@ def test_settings_rejects_non_positive_attention_threshold(live_server):
     assert status == 400
 
 
+def test_settings_saving_one_attention_threshold_preserves_the_others(live_server):
+    # POST-ing just attentionWarrantyDays should not clobber checkUpdates
+    # or attentionRepairDays — handle_save_settings only touches keys that
+    # are actually present in the request body.
+    token = _create_admin(live_server)
+    _request(live_server, "POST", "/api/settings", token=token,
+             json_body={"checkUpdates": False, "attentionRepairDays": 7})
+    status, _ = _request(live_server, "POST", "/api/settings", token=token,
+                          json_body={"attentionWarrantyDays": 60})
+    assert status == 200
+    status, body = _request(live_server, "GET", "/api/settings", token=token)
+    assert status == 200
+    assert body["attentionWarrantyDays"] == 60
+    assert body["attentionRepairDays"] == 7
+    assert body["checkUpdates"] is False
+
+
 def test_settings_round_trip_and_survive_in_config(live_server, monkeypatch):
     token = _create_admin(live_server)
     status, _ = _request(live_server, "POST", "/api/settings", token=token,
