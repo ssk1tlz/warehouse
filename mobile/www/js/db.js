@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS assets (
   rev INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS employees (
-  id TEXT PRIMARY KEY, full_name TEXT NOT NULL, department TEXT, site TEXT
+  id TEXT PRIMARY KEY, full_name TEXT NOT NULL, department TEXT, site TEXT, status TEXT
 );
 CREATE TABLE IF NOT EXISTS departments (id TEXT PRIMARY KEY, name TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS sites (id TEXT PRIMARY KEY, name TEXT NOT NULL);
@@ -54,6 +54,11 @@ async function open() {
     // has no "ADD COLUMN IF NOT EXISTS", so a failed ALTER here is the expected,
     // safe outcome on every launch after the first; a genuinely different error
     // would surface immediately on the next db.query/db.run call anyway.
+  }
+  try {
+    await db.execute('ALTER TABLE employees ADD COLUMN status TEXT');
+  } catch (err) {
+    // Уже есть колонка — см. комментарий у ALTER TABLE assets ADD COLUMN rev выше.
   }
 }
 
@@ -94,8 +99,8 @@ async function replaceState(state) {
   }
   for (const e of state.employees) {
     txn.push({
-      statement: 'INSERT INTO employees (id, full_name, department, site) VALUES (?,?,?,?)',
-      values: [e.id, e.fullName, e.department, e.site],
+      statement: 'INSERT INTO employees (id, full_name, department, site, status) VALUES (?,?,?,?,?)',
+      values: [e.id, e.fullName, e.department, e.site, e.status || 'active'],
     });
   }
   for (const d of state.departments) {
@@ -280,6 +285,30 @@ async function searchAssets(query, limit = 30) {
   return assets;
 }
 
+async function searchEmployees(query, limit = 30) {
+  const q = `%${String(query || '').trim()}%`;
+  const result = await db.query(
+    'SELECT * FROM employees WHERE full_name LIKE ? ORDER BY full_name LIMIT ?',
+    [q, limit]
+  );
+  return result.values.map((row) => ({
+    id: row.id, fullName: row.full_name, department: row.department,
+    site: row.site, status: row.status || 'active',
+  }));
+}
+
+async function getAllocationsForEmployee(employeeId) {
+  const result = await db.query(
+    `SELECT allocations.asset_id AS assetId, allocations.quantity AS quantity,
+            assets.name AS name, assets.inventory_number AS inventoryNumber, assets.category AS category
+     FROM allocations JOIN assets ON assets.id = allocations.asset_id
+     WHERE allocations.employee_id = ? AND allocations.quantity > 0
+     ORDER BY assets.name`,
+    [employeeId]
+  );
+  return result.values;
+}
+
 function generateClientActionId() {
   // RFC-4122-ish v4 UUID, good enough as a dedup key — Capacitor's JS runtime
   // has crypto.randomUUID() on modern Android WebViews; fall back if not.
@@ -388,4 +417,4 @@ async function getAllAssets() {
   }));
 }
 
-window.Db = { open, replaceState, getAssetById, getStateMeta, listEmployeesById, listMovementsForAsset, listMovementHistory, searchAssets, enqueueAction, listPendingActions, markActionSynced, markActionFailed, retryAction, markActionConflict, retryActionOnTop, cancelAction, generateClientActionId, saveInventoryScan, getInventoryScans, clearInventoryScans, getAllAssets, clearActiveInventorySessionMeta };
+window.Db = { open, replaceState, getAssetById, getStateMeta, listEmployeesById, listMovementsForAsset, listMovementHistory, searchAssets, enqueueAction, listPendingActions, markActionSynced, markActionFailed, retryAction, markActionConflict, retryActionOnTop, cancelAction, generateClientActionId, saveInventoryScan, getInventoryScans, clearInventoryScans, getAllAssets, clearActiveInventorySessionMeta, searchEmployees, getAllocationsForEmployee };

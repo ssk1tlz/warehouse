@@ -110,6 +110,19 @@
     <ul id="attentionList"></ul>
   </section>
 
+  <section id="screen-employees-search" class="screen hidden" data-back="screen-scan">
+    <h2>Сотрудники</h2>
+    <input type="text" id="employeeSearchInput" placeholder="Поиск по имени">
+    <ul id="employeeSearchResults"></ul>
+  </section>
+
+  <section id="screen-employee-detail" class="screen hidden" data-back="screen-employees-search">
+    <button id="employeeDetailBackBtn" type="button" class="ghost">‹ Назад</button>
+    <h2 id="employeeDetailName"></h2>
+    <p id="employeeDetailStatus"></p>
+    <ul id="employeeAllocationsList"></ul>
+  </section>
+
   <nav class="bottom-nav" aria-label="Основная навигация">
     <button id="navSearchBtn" class="nav-item" type="button" aria-label="Поиск" title="Поиск">
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4.3-4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -126,6 +139,9 @@
     </button>
     <button id="navInventoryBtn" class="nav-item hidden" type="button" aria-label="Инвентаризация" title="Инвентаризация">
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="6" y="4" width="12" height="16" rx="1.5" stroke="currentColor" stroke-width="2"/><path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1" stroke="currentColor" stroke-width="2"/><path d="M9 13l2 2 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <button id="navEmployeesBtn" class="nav-item hidden" type="button" aria-label="Сотрудники" title="Сотрудники">
+      <span>Сотрудники</span>
     </button>
     <button id="navAttentionBtn" class="nav-item" type="button" aria-label="Требует внимания" title="Требует внимания">
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4l9 16H3l9-16z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 10v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="16.5" r="1" fill="currentColor"/></svg>

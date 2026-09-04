@@ -60,6 +60,7 @@ const NAV_SCREEN_MAP = {
   navHistoryBtn: 'screen-history',
   navInventoryBtn: 'screen-inventory-start',
   navAttentionBtn: 'screen-attention',
+  navEmployeesBtn: 'screen-employees-search',
   navSettingsBtn: 'screen-settings',
 };
 
@@ -343,6 +344,55 @@ async function openAttentionScreen() {
     }
   }
   showScreen('screen-attention');
+}
+
+let currentEmployeeId = null;
+
+async function openEmployeeSearchScreen() {
+  await runEmployeeSearch('');
+  showScreen('screen-employees-search');
+}
+
+async function runEmployeeSearch(query) {
+  const employees = await Db.searchEmployees(query);
+  const listEl = document.getElementById('employeeSearchResults');
+  listEl.innerHTML = '';
+  if (!employees.length) {
+    listEl.innerHTML = '<li>Ничего не найдено</li>';
+    return;
+  }
+  for (const employee of employees) {
+    const li = document.createElement('li');
+    li.textContent = employee.fullName + (employee.status === 'inactive' ? ' (уволен)' : '');
+    li.addEventListener('click', () => openEmployeeDetailScreen(employee.id));
+    listEl.appendChild(li);
+  }
+}
+
+async function openEmployeeDetailScreen(employeeId) {
+  currentEmployeeId = employeeId;
+  // High limit (not the 30-result default meant for the browse/search list above) —
+  // this lookup needs to find ONE specific employee by id regardless of alphabetical
+  // rank, so capping it at 30 would silently blank out the name/status for anyone
+  // who doesn't happen to sort into the first page.
+  const employees = await Db.searchEmployees('', 10000);
+  const employee = employees.find((e) => e.id === employeeId);
+  document.getElementById('employeeDetailName').textContent = employee ? employee.fullName : '';
+  document.getElementById('employeeDetailStatus').textContent =
+    employee && employee.status === 'inactive' ? 'Уволен(а)' : 'Активен';
+  const allocations = await Db.getAllocationsForEmployee(employeeId);
+  const listEl = document.getElementById('employeeAllocationsList');
+  listEl.innerHTML = '';
+  if (!allocations.length) {
+    listEl.innerHTML = '<li>Ничего не числится</li>';
+  } else {
+    for (const alloc of allocations) {
+      const li = document.createElement('li');
+      li.textContent = `${alloc.name} — ${alloc.quantity} шт.`;
+      listEl.appendChild(li);
+    }
+  }
+  showScreen('screen-employee-detail');
 }
 
 function addHistoryDetailRow(dl, label, value) {
@@ -643,6 +693,7 @@ async function submitInventoryResult() {
 async function applyRoleVisibility() {
   const { role } = await Settings.get();
   document.getElementById('navInventoryBtn')?.classList.toggle('hidden', role !== 'admin');
+  document.getElementById('navEmployeesBtn')?.classList.toggle('hidden', role !== 'admin');
 }
 
 async function init() {
@@ -709,6 +760,9 @@ async function init() {
   document.getElementById('navHistoryBtn').addEventListener('click', openHistoryScreen);
   document.getElementById('navInventoryBtn')?.addEventListener('click', openInventoryStartScreen);
   document.getElementById('navAttentionBtn')?.addEventListener('click', openAttentionScreen);
+  document.getElementById('navEmployeesBtn')?.addEventListener('click', openEmployeeSearchScreen);
+  document.getElementById('employeeSearchInput')?.addEventListener('input', (e) => runEmployeeSearch(e.target.value));
+  document.getElementById('employeeDetailBackBtn')?.addEventListener('click', openEmployeeSearchScreen);
   document.getElementById('inventoryStartBtn')?.addEventListener('click', startInventoryScanning);
   document.getElementById('inventoryFinishBtn')?.addEventListener('click', finishInventoryScanning);
   document.getElementById('inventorySubmitBtn')?.addEventListener('click', submitInventoryResult);
