@@ -79,7 +79,18 @@ async function uploadPhoto(assetId, dataUrl) {
   const path = `/api/assets/${assetId}/photo`;
   const headers = { 'Content-Type': 'image/jpeg', ...(await signedHeadersBytes(settings, 'POST', path, bodyBytes)) };
   const response = await fetch(`${settings.serverUrl}${path}`, { method: 'POST', headers, body: bodyFile });
-  if (!response.ok) throw new Error(`upload failed: HTTP ${response.status}`);
+  if (!response.ok) {
+    // A non-2xx here means the server explicitly rejected THIS request
+    // (403 wrong role, 404 asset deleted, 400 body too large, ...) — retrying
+    // the identical request will never succeed. Mark the error `.permanent`
+    // so callers (retryPendingPhotoUploads below, and screens.js's
+    // uploadOrQueuePhoto) can tell it apart from a network-level throw
+    // (genuinely offline/unreachable — transient, worth retrying).
+    const error = new Error(`upload failed: HTTP ${response.status}`);
+    error.permanent = true;
+    error.status = response.status;
+    throw error;
+  }
 }
 
 async function pair(serverUrl, code) {
@@ -149,6 +160,21 @@ async function retryPendingPhotoUploads() {
       await uploadPhoto(photo.assetId, photo.localPath);
       await Db.clearPendingPhotoUpload(photo.assetId);
     } catch (err) {
+      if (err && err.permanent) {
+        // The server definitively rejected this exact upload — retrying it
+        // again next Sync.run() would just fail the same way forever
+        // (e.g. the role changed, the asset was deleted, the body was too
+        // large). Drop it from the queue instead of looping silently, and
+        // surface the loss rather than hiding it.
+        await Db.clearPendingPhotoUpload(photo.assetId);
+        const message = `Не удалось отправить фото (HTTP ${err.status}). Снято с очереди.`;
+        if (typeof Toast !== 'undefined' && Toast && typeof Toast.show === 'function') {
+          Toast.show(message, 'error');
+        } else {
+          console.error(message);
+        }
+        continue;
+      }
       // Still offline or server unreachable — leave it queued, retry next Sync.run().
     }
   }

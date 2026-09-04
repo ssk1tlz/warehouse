@@ -308,15 +308,45 @@ test('retryPendingPhotoUploads leaves the entry queued when the upload fails (ne
   assert.equal(clearedCount, 0, 'a network error must leave the entry queued, not clear it');
 });
 
-test('retryPendingPhotoUploads leaves the entry queued when the server rejects the upload (non-2xx)', async () => {
+test('uploadPhoto marks a non-ok response error as .permanent with the HTTP status attached, so callers can tell "server said no" from "network is down"', async () => {
+  global.fetch = async () => ({ ok: false, status: 403 });
+  global.Settings = { get: async () => ({ serverUrl: 'http://x', token: 't' }) };
+  try {
+    await Sync.uploadPhoto('ast_1', 'data:image/jpeg;base64,' + Buffer.from('x').toString('base64'));
+    assert.fail('expected uploadPhoto to throw');
+  } catch (err) {
+    assert.equal(err.permanent, true);
+    assert.equal(err.status, 403);
+  }
+});
+
+test('retryPendingPhotoUploads clears the queue entry when the server permanently rejects the upload (non-2xx) — regression guard: this must not retry forever (403/404/400 will never succeed on retry)', async () => {
   const dataUrl = 'data:image/jpeg;base64,' + Buffer.from('fake-jpeg-bytes').toString('base64');
-  let clearedCount = 0;
-  global.fetch = async () => ({ ok: false, status: 500 });
+  const cleared = [];
+  global.fetch = async () => ({ ok: false, status: 403 });
   global.Settings = { get: async () => ({ serverUrl: 'http://192.168.0.1:8765', token: 'tok123' }) };
   global.Db = {
     listPendingPhotoUploads: async () => ([{ assetId: 'ast_1', localPath: dataUrl, createdAt: '2026-09-04T00:00:00.000Z' }]),
-    clearPendingPhotoUpload: async () => { clearedCount += 1; },
+    clearPendingPhotoUpload: async (assetId) => cleared.push(assetId),
   };
+  delete global.Toast; // no Toast available (e.g. not yet loaded) — must fall back gracefully, not throw
+  await assert.doesNotReject(() => Sync.retryPendingPhotoUploads());
+  assert.deepEqual(cleared, ['ast_1'], 'a permanent (non-2xx) failure must be dropped from the queue, not left retrying forever');
+});
+
+test('retryPendingPhotoUploads surfaces a permanent failure via Toast.show (when available) instead of failing silently', async () => {
+  const dataUrl = 'data:image/jpeg;base64,' + Buffer.from('fake-jpeg-bytes').toString('base64');
+  const toastCalls = [];
+  global.fetch = async () => ({ ok: false, status: 404 });
+  global.Settings = { get: async () => ({ serverUrl: 'http://192.168.0.1:8765', token: 'tok123' }) };
+  global.Db = {
+    listPendingPhotoUploads: async () => ([{ assetId: 'ast_1', localPath: dataUrl, createdAt: '2026-09-04T00:00:00.000Z' }]),
+    clearPendingPhotoUpload: async () => {},
+  };
+  global.Toast = { show: (message, type) => toastCalls.push({ message, type }) };
   await Sync.retryPendingPhotoUploads();
-  assert.equal(clearedCount, 0);
+  delete global.Toast;
+  assert.equal(toastCalls.length, 1);
+  assert.match(toastCalls[0].message, /404/);
+  assert.equal(toastCalls[0].type, 'error');
 });

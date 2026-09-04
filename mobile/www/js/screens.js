@@ -218,6 +218,15 @@ async function uploadOrQueuePhoto(assetId, dataUrl) {
     await Sync.uploadPhoto(assetId, dataUrl);
     Toast.show('Фото загружено.', 'info');
   } catch (err) {
+    if (err && err.permanent) {
+      // The server definitively rejected this upload (wrong role, asset
+      // deleted, body too large, ...) — queueing it would only create an
+      // entry retryPendingPhotoUploads immediately drops again, and "нет
+      // сети, поставлено в очередь" would be actively misleading here: the
+      // network is fine, the server said no.
+      Toast.show(`Не удалось загрузить фото (HTTP ${err.status}).`, 'error');
+      return;
+    }
     await Db.queuePhotoUpload(assetId, dataUrl);
     Toast.show('Нет сети — фото поставлено в очередь на отправку.', 'info');
   }
@@ -800,6 +809,11 @@ async function applyRoleVisibility() {
   const { role } = await Settings.get();
   document.getElementById('navInventoryBtn')?.classList.toggle('hidden', role !== 'admin');
   document.getElementById('navEmployeesBtn')?.classList.toggle('hidden', role !== 'admin');
+  // The server's POST /api/assets/<id>/photo requires admin or storekeeper
+  // (already tested server-side) — a viewer tapping this button would
+  // trigger the camera for nothing and get a permanently-looping failed
+  // queue entry with a misleading "поставлено в очередь" toast.
+  document.getElementById('assetPhotoBtn')?.classList.toggle('hidden', role !== 'admin' && role !== 'storekeeper');
 }
 
 async function init() {
