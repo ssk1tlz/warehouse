@@ -80,6 +80,20 @@ def _fetch_bytes(base_url, path, token):
         return exc.code, exc.read()
 
 
+def _fetch_bytes_post(base_url, path, token, json_body):
+    """POST a JSON body, expecting a binary (status, body-bytes) response — for
+    endpoints like /api/act that return a .docx, not JSON."""
+    data = json.dumps(json_body).encode("utf-8")
+    req = urllib.request.Request(f"{base_url}{path}", data=data, method="POST")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("Authorization", f"Bearer {token}")
+    try:
+        with urllib.request.urlopen(req) as response:
+            return response.status, response.read()
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read()
+
+
 def _create_admin(base_url):
     status, body = _request(base_url, "POST", "/api/setup", json_body={"username": "admin", "password": "adminpass"})
     assert status == 200, body
@@ -1275,3 +1289,17 @@ def test_marking_labels_printed_ignores_unknown_ids(live_server):
                             json_body={"assetIds": ["does-not-exist"]})
     assert status == 200
     assert body["updated"] == 0
+
+
+def test_act_endpoint_accepts_custom_action_phrase(live_server):
+    token = _create_admin(live_server)
+    status, body = _fetch_bytes_post(live_server, "/api/act", token, {
+        "actNumber": 1, "date": "2026-09-04",
+        "employee": {"fullName": "Иванов И.И."},
+        "items": [{"name": "Ноутбук", "quantity": 1, "price": 1000}],
+        "isIssue": True,
+        "actionPhrase": "За Работником числится по состоянию на",
+    })
+    assert status == 200
+    zf = zipfile.ZipFile(BytesIO(body))
+    assert "За Работником числится" in zf.read("word/document.xml").decode("utf-8")

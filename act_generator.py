@@ -14,6 +14,10 @@ exact spelling)::
     {{MONTH}}           - month name in Russian (e.g. мая)
     {{YEAR}}            - year (YYYY)
     {{ACTION_PHRASE}}   - "Работодатель передал, а Работник принял" or reverse
+                          (or the ``action_phrase`` override passed to
+                          :func:`generate_act`, e.g. for a signed handover
+                          sheet — same template, same table-filling code,
+                          just a different lead-in sentence)
 
 Adding new placeholders is just a matter of: (1) putting ``{{NAME}}`` into
 the .docx in Word, and (2) registering it in :data:`PLACEHOLDERS`.
@@ -49,6 +53,7 @@ MONTHS_RU = [
 
 ISSUE_PHRASE = "Работодатель передал, а Работник принял"
 RETURN_PHRASE = "Работник вернул, а Работодатель принял"
+HANDOVER_PHRASE = "За Работником числится по состоянию на"
 
 
 def parse_iso_date(value: str) -> tuple[str, str, str] | None:
@@ -97,6 +102,7 @@ def _build_placeholders(
     date_iso,
     employee,
     is_issue: bool,
+    action_phrase: str | None = None,
 ) -> dict[str, str]:
     """Return the {{TOKEN}} -> value mapping. Missing values fall back to
     an underscore-filled placeholder that mimics the look of a blank field."""
@@ -120,7 +126,7 @@ def _build_placeholders(
         "{{DAY}}": day,
         "{{MONTH}}": month,
         "{{YEAR}}": year,
-        "{{ACTION_PHRASE}}": ISSUE_PHRASE if is_issue else RETURN_PHRASE,
+        "{{ACTION_PHRASE}}": action_phrase or (ISSUE_PHRASE if is_issue else RETURN_PHRASE),
     }
 
 
@@ -131,6 +137,7 @@ def generate_act(
     employee: dict | None = None,
     items: list[dict] | None = None,
     is_issue: bool = True,
+    action_phrase: str | None = None,
 ) -> bytes:
     """Build a filled .docx and return its bytes."""
     if not TEMPLATE_PATH.exists():
@@ -148,6 +155,7 @@ def generate_act(
         date_iso=date_iso,
         employee=employee,
         is_issue=is_issue,
+        action_phrase=action_phrase,
     )
     for token, value in placeholders.items():
         if token in document_xml:

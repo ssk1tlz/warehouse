@@ -1283,6 +1283,7 @@ class WarehouseHandler(BaseHTTPRequestHandler):
                 employee=payload.get("employee"),
                 items=payload.get("items") or [],
                 is_issue=bool(payload.get("isIssue", True)),
+                action_phrase=payload.get("actionPhrase") or None,
             )
         except Exception as exc:  # noqa: BLE001
             body = json.dumps({"error": str(exc)}, ensure_ascii=False).encode("utf-8")

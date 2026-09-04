@@ -1248,6 +1248,26 @@ function exportEmployeeHandoverCsv(employeeId) {
   exportHandoverCsv({ employeeId }, employee.fullName || employeeId);
 }
 
+// "Ведомость на подпись" — a signed handover sheet: the same act_generator.py
+// .docx machinery used for issue/return acts (downloadActDocx -> POST /api/act),
+// but with a custom action phrase ("currently on hand as of <date>" instead of
+// "issued/returned") and the item list built from the same buildHandoverRows()
+// used by the employee's CSV export above, so both exports agree on contents.
+async function downloadHandoverSheet(employeeId) {
+  const employee = getEmployeeById(employeeId);
+  if (!employee) return;
+  const { data } = buildHandoverRows(state, { employeeId });
+  const items = data.map(([name, inventoryNumber, quantity, price]) => ({ name, inventoryNumber, quantity, price }));
+  await downloadActDocx({
+    actNumber: null,
+    date: new Date().toISOString().slice(0, 10),
+    employee,
+    items,
+    isIssue: true,
+    actionPhrase: "За Работником числится по состоянию на",
+  });
+}
+
 function exportDepartmentHandoverCsv(departmentId) {
   const dept = state.departments.find((d) => d.id === departmentId);
   if (!dept) return;
@@ -1736,6 +1756,7 @@ function openEmployeeDetailsModal(employeeId) {
       <button type="button" class="secondary" onclick="closeEmployeeDetailsModal()">Закрыть</button>
       <button type="button" class="secondary" onclick="closeEmployeeDetailsModal(); openEditEmployeeModal('${employee.id}')">Редактировать</button>
       <button type="button" class="secondary" onclick="exportEmployeeHandoverCsv('${employee.id}')">Экспорт CSV</button>
+      <button type="button" class="secondary" onclick="downloadHandoverSheet('${employee.id}')">Ведомость на подпись</button>
       <button type="button" class="btn-primary" onclick="closeEmployeeDetailsModal(); openOperationModal('issueModal'); setTimeout(() => { const sel = document.getElementById('issueEmployeeSelect'); if(sel) { sel.value = '${employee.id}'; sel.dispatchEvent(new Event('change')); } }, 100);">Выдать технику</button>
     </div>
   `;
@@ -3286,7 +3307,7 @@ function buildActItemPayload(entry) {
   };
 }
 
-async function downloadActDocx({ actNumber, date, employee, items, isIssue }) {
+async function downloadActDocx({ actNumber, date, employee, items, isIssue, actionPhrase }) {
   try {
     const payload = {
       actNumber,
@@ -3298,6 +3319,7 @@ async function downloadActDocx({ actNumber, date, employee, items, isIssue }) {
         department: employee.department || "",
       } : null,
       items,
+      actionPhrase: actionPhrase || undefined,
       filename: `Акт_${actNumber || "документ"}.docx`,
     };
     const response = await apiFetch("/api/act", {

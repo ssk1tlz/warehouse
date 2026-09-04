@@ -67,3 +67,17 @@ def test_generate_inventory_act_handles_empty_lists_without_crashing():
     )
     zf = zipfile.ZipFile(BytesIO(data))
     assert zf.testzip() is None
+
+
+def test_generate_act_uses_custom_action_phrase_when_provided():
+    docx_bytes = act_generator.generate_act(
+        act_number=1, date_iso="2026-09-04",
+        employee={"fullName": "Иванов И.И.", "position": "Инженер"},
+        items=[{"name": "Ноутбук", "quantity": 1, "price": 1000}],
+        is_issue=True,
+        action_phrase="За Работником числится по состоянию на",
+    )
+    zf = zipfile.ZipFile(BytesIO(docx_bytes))
+    document_xml = zf.read("word/document.xml").decode("utf-8")
+    assert "За Работником числится по состоянию на" in document_xml
+    assert act_generator.ISSUE_PHRASE not in document_xml
