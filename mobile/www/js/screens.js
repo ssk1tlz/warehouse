@@ -48,11 +48,18 @@ function reconcileInventory(scans, allAssets, extraCodes) {
   return { missing, wrongLocation, foundCount, extra: extraCodes || [] };
 }
 
+function renderAttentionBadgeText(items) {
+  return items.length === 0 ? '' : String(items.length);
+}
+
+const ATTENTION_LABELS = { warranty: 'Гарантия', low_stock: 'Мало на складе', long_repair: 'Долгий ремонт' };
+
 const NAV_SCREEN_MAP = {
   navSearchBtn: 'screen-search',
   navQueueBtn: 'screen-queue',
   navHistoryBtn: 'screen-history',
   navInventoryBtn: 'screen-inventory-start',
+  navAttentionBtn: 'screen-attention',
   navSettingsBtn: 'screen-settings',
 };
 
@@ -74,6 +81,15 @@ async function refreshQueueCount() {
   const badge = document.getElementById('queueCount');
   badge.textContent = pending.length;
   badge.classList.toggle('hidden', pending.length === 0);
+}
+
+async function refreshAttentionBadge() {
+  const meta = await Db.getStateMeta();
+  const items = meta.attentionItems ? JSON.parse(meta.attentionItems) : [];
+  const badge = document.getElementById('attentionBadge');
+  const text = renderAttentionBadgeText(items);
+  badge.textContent = text;
+  badge.classList.toggle('hidden', text === '');
 }
 
 async function openAssetScreen(assetId) {
@@ -183,7 +199,7 @@ async function submitEdit(event) {
   await Db.enqueueAction(payload);
   Toast.show('Действие в очереди', 'info');
   await refreshQueueCount();
-  Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled, r.needsReauth); });
+  Sync.run().then((r) => { refreshQueueCount(); refreshAttentionBadge(); ConnStatus.report(r.pulled, r.needsReauth); });
   showScreen('screen-scan');
 }
 
@@ -234,7 +250,7 @@ async function submitAction(event) {
   await Db.enqueueAction(payload);
   Toast.show('Действие в очереди', 'info');
   await refreshQueueCount();
-  Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled, r.needsReauth); }); // fire-and-forget, but still refresh the badges once sync settles
+  Sync.run().then((r) => { refreshQueueCount(); refreshAttentionBadge(); ConnStatus.report(r.pulled, r.needsReauth); }); // fire-and-forget, but still refresh the badges once sync settles
   showScreen('screen-scan');
 }
 
@@ -284,7 +300,7 @@ async function openQueueScreen() {
         retryBtn.addEventListener('click', async () => {
           await Db.retryAction(row.client_action_id);
           await openQueueScreen();
-          Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled, r.needsReauth); });
+          Sync.run().then((r) => { refreshQueueCount(); refreshAttentionBadge(); ConnStatus.report(r.pulled, r.needsReauth); });
         });
         li.appendChild(retryBtn);
       } else if (row.status === 'conflict') {
@@ -294,7 +310,7 @@ async function openQueueScreen() {
         retryOnTopBtn.addEventListener('click', async () => {
           await Db.retryActionOnTop(row.client_action_id, currentAssetSnapshot.rev);
           await openQueueScreen();
-          Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled, r.needsReauth); });
+          Sync.run().then((r) => { refreshQueueCount(); refreshAttentionBadge(); ConnStatus.report(r.pulled, r.needsReauth); });
         });
         const cancelBtn = document.createElement('button');
         cancelBtn.textContent = 'Отменить';
@@ -310,6 +326,23 @@ async function openQueueScreen() {
     }
   }
   showScreen('screen-queue');
+}
+
+async function openAttentionScreen() {
+  const meta = await Db.getStateMeta();
+  const items = meta.attentionItems ? JSON.parse(meta.attentionItems) : [];
+  const listEl = document.getElementById('attentionList');
+  listEl.innerHTML = '';
+  if (!items.length) {
+    listEl.innerHTML = '<li>Нет сигналов</li>';
+  } else {
+    for (const item of items) {
+      const li = document.createElement('li');
+      li.textContent = `${ATTENTION_LABELS[item.type] || item.type}: ${item.assetName} — ${item.detail}`;
+      listEl.appendChild(li);
+    }
+  }
+  showScreen('screen-attention');
 }
 
 function addHistoryDetailRow(dl, label, value) {
@@ -635,14 +668,15 @@ async function init() {
   } else {
     showScreen('screen-scan');
     await refreshQueueCount();
-    Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled, r.needsReauth); });
+    await refreshAttentionBadge();
+    Sync.run().then((r) => { refreshQueueCount(); refreshAttentionBadge(); ConnStatus.report(r.pulled, r.needsReauth); });
   }
 
   document.getElementById('settingsSaveBtn').addEventListener('click', async () => {
     const current = await Settings.get();
     await Settings.set({ serverUrl: document.getElementById('settingsUrl').value, token: current.token, deviceSecret: current.deviceSecret, role: current.role });
     showScreen('screen-scan');
-    Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled, r.needsReauth); });
+    Sync.run().then((r) => { refreshQueueCount(); refreshAttentionBadge(); ConnStatus.report(r.pulled, r.needsReauth); });
   });
 
   document.getElementById('scanBtn').addEventListener('click', async () => {
@@ -664,7 +698,7 @@ async function init() {
       await applyRoleVisibility();
       document.getElementById('settingsUrl').value = result.serverUrl;
       showScreen('screen-scan');
-      Sync.run().then((r) => { refreshQueueCount(); ConnStatus.report(r.pulled, r.needsReauth); });
+      Sync.run().then((r) => { refreshQueueCount(); refreshAttentionBadge(); ConnStatus.report(r.pulled, r.needsReauth); });
     } catch (error) {
       Toast.show(describeScanError(error, 'Не удалось выполнить сканирование.'), 'error');
     }
@@ -674,6 +708,7 @@ async function init() {
   document.getElementById('navQueueBtn').addEventListener('click', openQueueScreen);
   document.getElementById('navHistoryBtn').addEventListener('click', openHistoryScreen);
   document.getElementById('navInventoryBtn')?.addEventListener('click', openInventoryStartScreen);
+  document.getElementById('navAttentionBtn')?.addEventListener('click', openAttentionScreen);
   document.getElementById('inventoryStartBtn')?.addEventListener('click', startInventoryScanning);
   document.getElementById('inventoryFinishBtn')?.addEventListener('click', finishInventoryScanning);
   document.getElementById('inventorySubmitBtn')?.addEventListener('click', submitInventoryResult);
@@ -794,7 +829,7 @@ function initSwipeBack() {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { describeScanError, describeUpdate, reconcileInventory };
+  module.exports = { describeScanError, describeUpdate, reconcileInventory, renderAttentionBadgeText };
 }
 if (typeof window !== 'undefined') {
   window.App = { init };

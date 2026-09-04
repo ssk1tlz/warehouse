@@ -89,3 +89,13 @@ test('reconcileInventory passes extraCodes through unchanged', () => {
   const result = reconcileInventory([], [], ['WH1:unknown-1', 'WH1:unknown-1']);
   assert.deepEqual(result.extra, ['WH1:unknown-1', 'WH1:unknown-1']);
 });
+
+test('renderAttentionBadgeText returns empty string for no items', () => {
+  const { renderAttentionBadgeText } = require('../www/js/screens.js');
+  assert.equal(renderAttentionBadgeText([]), '');
+});
+
+test('renderAttentionBadgeText returns the count as a string', () => {
+  const { renderAttentionBadgeText } = require('../www/js/screens.js');
+  assert.equal(renderAttentionBadgeText([{}, {}, {}]), '3');
+});

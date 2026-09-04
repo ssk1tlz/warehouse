@@ -144,6 +144,10 @@ async function replaceState(state) {
     statement: `INSERT OR REPLACE INTO meta (key, value) VALUES ('activeInventorySession', ?)`,
     values: [state.activeInventorySession ? JSON.stringify(state.activeInventorySession) : null],
   });
+  txn.push({
+    statement: `INSERT OR REPLACE INTO meta (key, value) VALUES ('attentionItems', ?)`,
+    values: [JSON.stringify(state.attentionItems || [])],
+  });
   // executeTransaction() begins the transaction, runs each task with transaction:false,
   // commits on success, and rolls back + rejects on any failure — equivalent to (and safer
   // than) the manual begin/try/commit/catch/rollback pattern this replaces.

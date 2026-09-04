@@ -105,6 +105,11 @@
     <button id="inventorySubmitBtn">Отправить на сервер</button>
   </section>
 
+  <section id="screen-attention" class="screen hidden" data-back="screen-scan">
+    <h1>Требует внимания</h1>
+    <ul id="attentionList"></ul>
+  </section>
+
   <nav class="bottom-nav" aria-label="Основная навигация">
     <button id="navSearchBtn" class="nav-item" type="button" aria-label="Поиск" title="Поиск">
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4.3-4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -121,6 +126,10 @@
     </button>
     <button id="navInventoryBtn" class="nav-item hidden" type="button" aria-label="Инвентаризация" title="Инвентаризация">
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="6" y="4" width="12" height="16" rx="1.5" stroke="currentColor" stroke-width="2"/><path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1" stroke="currentColor" stroke-width="2"/><path d="M9 13l2 2 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <button id="navAttentionBtn" class="nav-item" type="button" aria-label="Требует внимания" title="Требует внимания">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4l9 16H3l9-16z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 10v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="16.5" r="1" fill="currentColor"/></svg>
+      <span id="attentionBadge" class="nav-badge hidden">0</span>
     </button>
     <button id="navSettingsBtn" class="nav-item" type="button" aria-label="Настройки" title="Настройки">
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.4-2.3.9a7.7 7.7 0 0 0-1.7-1L15 3h-6l-.4 2.5a7.7 7.7 0 0 0-1.7 1l-2.3-.9-2 3.4L4.6 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.4 2.3-.9a7.7 7.7 0 0 0 1.7 1L9 21h6l.4-2.5a7.7 7.7 0 0 0 1.7-1l2.3.9 2-3.4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
