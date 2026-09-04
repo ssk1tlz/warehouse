@@ -409,6 +409,21 @@ def test_asset_photo_get_returns_404_when_no_photo_exists(live_server):
     assert status == 404
 
 
+def test_asset_photo_upload_rejects_empty_body(live_server):
+    _seed_asset(server.DB_PATH)
+    token = _create_admin(live_server)
+    req = urllib.request.Request(f"{live_server}/api/assets/ast_1/photo", data=b"", method="POST")
+    req.add_header("Authorization", f"Bearer {token}")
+    req.add_header("Content-Type", "image/jpeg")
+    try:
+        urllib.request.urlopen(req)
+        assert False, "expected HTTPError"
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 400
+    # Must not have written a broken (empty) file to disk.
+    assert not (server.UPLOADS_DIR / "ast_1.jpg").exists()
+
+
 def test_asset_photo_upload_returns_404_for_unknown_asset(live_server):
     token = _create_admin(live_server)
     req = urllib.request.Request(f"{live_server}/api/assets/unknown/photo", data=b"x", method="POST")

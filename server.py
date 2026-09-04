@@ -1625,6 +1625,16 @@ class WarehouseHandler(BaseHTTPRequestHandler):
         if not _is_safe_asset_id(asset_id):
             self.send_error(HTTPStatus.NOT_FOUND)
             return
+        if not body:
+            # A minimal guard against writing an obviously-broken file to
+            # disk. Deliberately NOT a strict JPEG-magic-bytes (FF D8 FF)
+            # check: several existing tests in this suite legitimately post
+            # arbitrary non-JPEG bytes on the happy path (e.g.
+            # test_asset_photo_upload_replaces_previous_photo), and this
+            # endpoint has never validated content beyond "is it bytes" —
+            # only an empty body is unambiguously never a valid photo.
+            self.send_json_error(HTTPStatus.BAD_REQUEST, "Пустое тело запроса.")
+            return
         with get_connection() as connection:
             row = connection.execute("SELECT id FROM assets WHERE id = ?", (asset_id,)).fetchone()
             if row is None:

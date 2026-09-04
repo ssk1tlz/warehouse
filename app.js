@@ -470,6 +470,13 @@ async function renderAssetPhotoPreview(asset) {
   img.removeAttribute("src");
   placeholder.classList.remove("hidden");
 
+  // A brand-new, not-yet-saved asset form has asset.id === "" — the upload
+  // endpoint is /api/assets/<id>/photo, so uploading before the asset has
+  // ever been saved (and thus has a real id) would silently 404. Disable
+  // the button rather than let that happen.
+  uploadBtn.disabled = !asset.id;
+  uploadBtn.title = asset.id ? "" : "Сначала сохраните позицию";
+
   uploadBtn.onclick = () => fileInput.click();
   fileInput.onchange = async (event) => {
     const file = event.target.files[0];
@@ -497,8 +504,17 @@ async function renderAssetPhotoPreview(asset) {
     }
   };
 
-  if (asset.photoUrl && asset.id) {
+  if (asset.id) {
     try {
+      // Deliberately NOT gated on asset.photoUrl: that's the client's
+      // already-loaded (possibly stale) copy of state, which never changes
+      // just because a photo was uploaded from elsewhere (e.g. a phone) —
+      // the desktop only calls loadState() at boot/re-auth, it doesn't
+      // poll. Always attempt the GET when the card is opened, so a photo
+      // uploaded elsewhere shows up the next time this asset's card is
+      // opened, not only after a full app reload. A 404 (genuinely no
+      // photo) already renders correctly as "Нет фото" below.
+      //
       // GET /api/assets/<id>/photo requires the same Bearer-token auth as
       // every other /api/ route, so a plain <img src="..."> would get a
       // 401 — a browser never attaches localStorage's token to an <img>
