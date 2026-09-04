@@ -2316,6 +2316,42 @@ button.small-button {
   border: 1px solid rgba(244,63,94,0.2);
 }
 
+/* ─── ATTENTION PANEL ───────────────────────────────────────── */
+.attention-panel { margin-bottom: 16px; }
+
+.attention-list { display: flex; flex-direction: column; gap: 6px; list-style: none; padding: 0; margin: 0; }
+
+.attention-item {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.attention-item:hover { border-color: var(--line-2); background: var(--surface-2); }
+
+.attention-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text-3);
+}
+
+.attention-name { font-size: 13px; font-weight: 600; color: var(--text); }
+
+.attention-detail { font-size: 12.5px; color: var(--text-2); }
+
+.attention-warranty { border-left: 3px solid var(--warn); }
+.attention-low_stock { border-left: 3px solid var(--danger); }
+.attention-long_repair { border-left: 3px solid var(--brand); }
+
 /* ─── BULK BAR ──────────────────────────────────────────────── */
 .bulk-bar {
   display: flex;

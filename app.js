@@ -190,7 +190,7 @@ function applyRoleVisibility() {
 }
 
 const VIEW_RENDERERS = {
-  dashboard: () => { renderStats(); renderDashboardAlerts(); renderCharts(); renderRecentMovements(); renderAssignedSummary(); },
+  dashboard: () => { renderStats(); renderDashboardAlerts(); renderAttentionPanel(); renderCharts(); renderRecentMovements(); renderAssignedSummary(); },
   inventory: () => { renderAssetsTable(); },
   employees: () => { renderEmployees(); },
   departments: () => { renderDepartments(); },
@@ -352,6 +352,7 @@ function hydrateState(parsed) {
     latestVersion: parsed.latestVersion || null,
     releaseUrl: parsed.releaseUrl || null,
     activeInventorySession: parsed.activeInventorySession || null,
+    attentionItems: Array.isArray(parsed.attentionItems) ? parsed.attentionItems : [],
   };
 }
 
@@ -2249,6 +2250,27 @@ function renderDashboardAlerts() {
 
   if (!alerts.length) { container.innerHTML = ""; return; }
   container.innerHTML = alerts.map((a) => `<div class="alert-item alert-${a.type}">${a.text}</div>`).join("");
+}
+
+const ATTENTION_LABELS = { warranty: "Гарантия", low_stock: "Мало на складе", long_repair: "Долгий ремонт" };
+
+function renderAttentionPanel() {
+  const panel = document.getElementById("attentionPanel");
+  const list = document.getElementById("attentionPanelList");
+  if (!panel || !list) return;
+  const items = state.attentionItems || [];
+  panel.classList.toggle("hidden", items.length === 0);
+  if (items.length === 0) { list.innerHTML = ""; return; }
+  list.innerHTML = items.map((item) => `
+    <li class="attention-item attention-${item.type}" data-asset-id="${item.assetId}">
+      <span class="attention-label">${ATTENTION_LABELS[item.type] || item.type}</span>
+      <span class="attention-name">${escapeHtml(item.assetName)}</span>
+      <span class="attention-detail">${escapeHtml(item.detail)}</span>
+    </li>
+  `).join("");
+  list.querySelectorAll(".attention-item").forEach((el) => {
+    el.addEventListener("click", () => enterAssetEditMode(el.dataset.assetId));
+  });
 }
 
 // ─── CHARTS ──────────────────────────────────────────────────────
