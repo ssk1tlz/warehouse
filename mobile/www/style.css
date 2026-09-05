@@ -43,7 +43,7 @@ body {
   margin: 0;
   padding: 16px;
   padding-top: 44px;
-  padding-bottom: 100px;
+  padding-bottom: 124px;
   font-size: 15px;
   line-height: 1.5;
   min-height: 100vh;
@@ -187,54 +187,74 @@ li {
 #assetActions button { flex: 1 1 calc(50% - 4px); }
 
 /* ─── BOTTOM NAV — floating pill, persistent on every screen ──────── */
-/* A single flex row of 5 items (not 2 side-groups + an absolutely
-   positioned FAB) — true even spacing falls out of flexbox for free this
-   way, instead of needing matched column math on both sides. The scan
-   button is a normal flex child too; it only *looks* elevated via a
-   negative margin-top pulling it above the pill's edge, so its horizontal
-   position is still decided by the same space-around flow as its siblings. */
+/* Floating labeled tab bar, split into two equal-width groups (left/right)
+   with scanBtn taken out of flow (position: absolute) between them. Because
+   .bottom-nav has equal left/right insets, its own horizontal center is the
+   viewport's mathematical center — so centering scanBtn on .bottom-nav
+   (left: 50%) keeps it exactly centered on screen no matter how the two
+   groups' item counts compare (e.g. admin's extra Инв./Сотр. buttons make
+   the right group wider than the left). Each .nav-item is an equal flex
+   share of its group (flex: 1 1 0), so labels/icons redistribute themselves
+   automatically at any width from 320px up — no per-breakpoint item sizing
+   needed the way the old single-row layout required. */
 .bottom-nav {
   position: fixed;
   left: 16px;
   right: 16px;
-  bottom: calc(16px + env(safe-area-inset-bottom));
+  bottom: calc(14px + env(safe-area-inset-bottom));
   display: flex;
   align-items: center;
-  justify-content: space-around;
-  padding: 8px 10px;
-  background: var(--surface);
+  padding: 6px 8px;
+  background: var(--bg-3);
   border: 1px solid var(--line);
   border-radius: 999px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
   z-index: 20;
 }
+.nav-group { flex: 1 1 0; display: flex; min-width: 0; }
+.nav-group-left { padding-right: 30px; }
+.nav-group-right { padding-left: 30px; }
+
 .nav-item {
-  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
   background: transparent;
   border: 0;
-  color: var(--text-3);
+  color: var(--text-2);
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
+  gap: 3px;
+  padding: 7px 2px;
+  border-radius: 14px;
+  transition: transform .12s ease, color .12s ease;
 }
-.nav-item svg { width: 27px; height: 27px; stroke: currentColor; transition: color .12s ease; }
+.nav-icon { position: relative; display: flex; align-items: center; justify-content: center; }
+.nav-item svg { width: 24px; height: 24px; stroke: currentColor; }
+.nav-label {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .nav-item.current { color: var(--brand-light); }
-.nav-item:active { color: var(--brand-light); }
+.nav-item:active { transform: scale(0.96); }
 
 .nav-badge {
   position: absolute;
-  top: 2px;
-  right: 2px;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
+  top: -5px;
+  right: -8px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
   border-radius: 99px;
   background: var(--danger);
   color: #fff;
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 800;
   font-family: var(--mono);
   display: flex;
@@ -244,35 +264,35 @@ li {
 .nav-badge.hidden { display: none; }
 
 .nav-scan {
-  flex-shrink: 0;
-  width: 56px;
-  height: 56px;
+  position: absolute;
+  left: 50%;
+  top: -30px;
+  transform: translateX(-50%);
+  width: 66px;
+  height: 66px;
   border-radius: 50%;
-  background: var(--brand);
+  background: linear-gradient(155deg, #2878ff 0%, #1769f5 100%);
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
-  margin-top: -22px;
-  border: 4px solid var(--bg);
-  box-shadow: 0 6px 20px var(--brand-glow), var(--shadow);
+  border: 5px solid var(--bg);
+  box-shadow: 0 8px 22px var(--brand-glow), 0 4px 16px rgba(0,0,0,0.45);
+  transition: transform .12s ease;
 }
-.nav-scan svg { width: 28px; height: 28px; }
-.nav-scan:active { background: var(--brand-2); }
+.nav-scan svg { width: 27px; height: 27px; }
+.nav-scan:active { transform: translateX(-50%) scale(0.93); }
 
-/* With 8 nav items now (search/queue/scan/history/inventory/employees/
-   attention/settings), the pill's 7 regular 44px .nav-item buttons plus the
-   56px scan FAB no longer fit comfortably on narrow phones (~360-390px CSS
-   width) at full size — .nav-item has no flex-shrink override, so it
-   shrinks under space pressure rather than overflowing/clipping, but gets
-   uncomfortably tight. Shrink the whole pill proactively below this
-   breakpoint instead of relying on flex-shrink to do it implicitly. */
-@media (max-width: 400px) {
-  .bottom-nav { padding: 6px 6px; }
-  .nav-item { width: 38px; height: 38px; }
-  .nav-item svg { width: 22px; height: 22px; }
-  .nav-scan { width: 50px; height: 50px; margin-top: -18px; }
+/* Smallest supported phones (320px CSS width): tighten side padding and the
+   scan button a touch so the admin-only 4-item right group (История, Инв.,
+   Сотр., Настройки) has enough room for icon + label without crowding —
+   labels still ellipsis via .nav-label if a device goes narrower still. */
+@media (max-width: 340px) {
+  .bottom-nav { padding: 6px 4px; }
+  .nav-group-left { padding-right: 26px; }
+  .nav-group-right { padding-left: 26px; }
+  .nav-scan { width: 60px; height: 60px; top: -26px; }
   .nav-scan svg { width: 24px; height: 24px; }
 }
 
