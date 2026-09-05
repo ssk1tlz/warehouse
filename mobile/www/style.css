@@ -167,59 +167,52 @@ li {
 #assetActions { display: flex; flex-wrap: wrap; gap: 8px; }
 #assetActions button { flex: 1 1 calc(50% - 4px); }
 
-/* ─── BOTTOM NAV — single pill with the scan button over its centre ── */
-/* Панель — одна сплошная «пилюля» на все четыре пункта; кнопка
-   сканирования стоит по её центру обычным флекс-ребёнком между двумя
-   группами по две кнопки. Группы нужны только для раскладки (равная
-   ширина слева и справа от кнопки), своего фона у них нет — иначе панель
-   визуально разрезалась бы надвое. */
+/* ─── BOTTOM NAV ─────────────────────────────────────────────────── */
+/* Раскладка по присланному эталону: сетка из пяти колонок
+   1fr 1fr <сканер> 1fr 1fr — кнопка сканирования занимает среднюю
+   колонку, поэтому по два пункта слева и справа расставляются
+   симметрично сами, без групп-обёрток и ручных отступов. Панель
+   сплошная; кнопка отделена от неё кольцом цвета фона страницы. */
 .bottom-nav {
   position: fixed;
-  left: 12px;
-  right: 12px;
-  bottom: calc(14px + env(safe-area-inset-bottom));
-  display: flex;
+  left: 10px;
+  right: 10px;
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  height: 88px;
+  display: grid;
+  grid-template-columns: 1fr 1fr 82px 1fr 1fr;
   align-items: center;
-  gap: 6px;
-  padding: 8px 6px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 30px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+  padding: 0 8px;
+  background: rgba(18, 29, 53, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 48px;
+  box-shadow: 0 15px 40px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.025);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   z-index: 20;
-}
-
-.nav-group {
-  flex: 1 1 0;
-  min-width: 0;
-  display: flex;
-  justify-content: space-around;
-  gap: 2px;
 }
 
 .nav-item {
   position: relative;
-  flex: 1 1 0;
+  height: 100%;
   min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 3px;
-  padding: 5px 1px;
+  padding: 0;
   background: transparent;
   border: 0;
-  border-radius: 16px;
-  color: var(--text-3);
-  transition: color .12s ease;
+  color: #75809a;
+  transition: color 0.2s ease, transform 0.2s ease;
 }
-.nav-icon { position: relative; display: flex; align-items: center; justify-content: center; }
-.nav-item svg { width: 23px; height: 23px; stroke: currentColor; }
+.nav-item svg { width: 25px; height: 25px; stroke: currentColor; }
 .nav-label {
-  /* Тянется по ширине экрана: на 360px «Настройки» иначе обрезается. */
+  /* Тянется по ширине экрана: при фиксированных 10px «Настройки»
+     обрезается на 360px. */
   font-size: clamp(9px, 2.55vw, 10px);
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-weight: 500;
   line-height: 1.1;
   white-space: nowrap;
   overflow: hidden;
@@ -227,55 +220,62 @@ li {
   max-width: 100%;
 }
 .nav-item.current { color: var(--brand-light); }
-.nav-item:active { color: var(--brand-light); }
+.nav-item:active { color: #b9c3d9; transform: translateY(-2px); }
 
 .nav-badge {
   position: absolute;
-  top: -5px;
-  right: -8px;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
+  top: 17px;
+  right: calc(50% - 29px);
+  min-width: 21px;
+  height: 21px;
+  padding: 0 5px;
   border-radius: 99px;
-  background: var(--danger);
+  background: #ff3d5a;
   color: #fff;
-  font-size: 10px;
-  font-weight: 800;
-  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 2px solid var(--surface);
+  box-shadow: 0 4px 12px rgba(255, 61, 90, 0.3);
 }
 .nav-badge.hidden { display: none; }
 
-/* Кнопка сканирования — крупнее групп и со свечением, поэтому выступает
-   и вверх, и вниз за их края: это главное действие приложения. */
-/* Кнопка сканирования лежит на сплошной панели, но отделена от неё
-   кольцом цвета фона страницы: получается «вырез», в котором она висит,
-   а сама панель при этом не разрезается надвое. */
+.scanner-wrapper {
+  position: relative;
+  width: 82px;
+  height: 82px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+}
+
 .nav-scan {
-  flex-shrink: 0;
-  width: 58px;
-  height: 58px;
-  margin: -7px 0;
+  width: 68px;
+  height: 68px;
+  border: 0;
   border-radius: 50%;
-  background: var(--brand);
-  color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
-  border: 5px solid var(--bg);
-  box-shadow: 0 0 18px 2px var(--brand-glow);
+  color: #fff;
+  background: linear-gradient(145deg, #3283ff, #1661e8);
+  box-shadow: 0 0 0 7px var(--bg), 0 8px 20px rgba(22, 97, 232, 0.35);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
-.nav-scan svg { width: 29px; height: 29px; }
-.nav-scan:active { background: var(--brand-2); box-shadow: 0 0 12px 1px var(--brand-glow); }
+.nav-scan svg { width: 36px; height: 36px; }
+.nav-scan:active {
+  transform: scale(0.96);
+  box-shadow: 0 0 0 7px var(--bg), 0 10px 26px rgba(22, 97, 232, 0.5);
+}
 
 /* Очень узкие экраны: подписи убираем, иначе они начинают обрезаться. */
-@media (max-width: 340px) {
+@media (max-width: 330px) {
   .nav-label { display: none; }
-  .nav-item { padding: 11px 2px; }
+  .nav-item svg { width: 27px; height: 27px; }
+  .nav-badge { top: 20px; }
 }
 
 /* ─── expandable history rows ──────────────────────────────────── */
