@@ -251,11 +251,14 @@ li {
 
 /* Кнопка сканирования — крупнее групп и со свечением, поэтому выступает
    и вверх, и вниз за их края: это главное действие приложения. */
+/* Кнопка сканирования лежит на сплошной панели, но отделена от неё
+   кольцом цвета фона страницы: получается «вырез», в котором она висит,
+   а сама панель при этом не разрезается надвое. */
 .nav-scan {
   flex-shrink: 0;
-  width: 60px;
-  height: 60px;
-  margin: 0 2px;
+  width: 58px;
+  height: 58px;
+  margin: -7px 0;
   border-radius: 50%;
   background: var(--brand);
   color: #fff;
@@ -263,11 +266,11 @@ li {
   align-items: center;
   justify-content: center;
   padding: 0;
-  border: 0;
-  box-shadow: 0 0 0 6px rgba(59,130,246,0.12), 0 8px 22px var(--brand-glow);
+  border: 5px solid var(--bg);
+  box-shadow: 0 0 18px 2px var(--brand-glow);
 }
 .nav-scan svg { width: 29px; height: 29px; }
-.nav-scan:active { background: var(--brand-2); box-shadow: 0 0 0 4px rgba(59,130,246,0.2); }
+.nav-scan:active { background: var(--brand-2); box-shadow: 0 0 12px 1px var(--brand-glow); }
 
 /* Очень узкие экраны: подписи убираем, иначе они начинают обрезаться. */
 @media (max-width: 340px) {
