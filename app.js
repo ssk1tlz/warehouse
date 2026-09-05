@@ -1192,7 +1192,11 @@ function exportRegistryXls() {
 
 function exportBalanceCsv() {
   const headers = ["Актив", "Инв. номер", "Остаток", "Цена", "Сумма остатка"];
-  const rows = state.assets.map((asset) => {
+  // Same filtered/sorted set the registry's own CSV/Excel export use
+  // (buildRegistryRows() -> getRegistryFilteredAssets()), not the raw,
+  // unfiltered state.assets — this button lives on the same registry
+  // screen and should respect the same active filters as its siblings.
+  const rows = getRegistryFilteredAssets().map((asset) => {
     const available = getAvailableQuantity(asset);
     const price = Number(asset.price || 0);
     return [asset.name, asset.inventoryNumber || "", available, price, available * price];
@@ -1274,13 +1278,20 @@ async function downloadHandoverSheet(employeeId) {
   if (!employee) return;
   const { data } = buildHandoverRows(state, { employeeId });
   const items = data.map(([name, inventoryNumber, quantity, price]) => ({ name, inventoryNumber, quantity, price }));
+  const date = new Date().toISOString().slice(0, 10);
+  // actNumber is always null here (a handover sheet isn't a numbered act), so
+  // downloadActDocx()'s default filename ("Акт_документ.docx") would be
+  // identical for every employee/date, overwriting the previous download.
+  // Same filename-sanitizing pattern as exportHandoverCsv()'s safeSuffix.
+  const safeName = String(employee.fullName || employeeId).replace(/[\\/:*?"<>|]/g, "_").trim() || employeeId;
   await downloadActDocx({
     actNumber: null,
-    date: new Date().toISOString().slice(0, 10),
+    date,
     employee,
     items,
     isIssue: true,
     actionPhrase: "За Работником числится по состоянию на",
+    filename: `Обходной_лист_${safeName}_${date}.docx`,
   });
 }
 
@@ -3292,7 +3303,7 @@ function buildActItemPayload(entry) {
   };
 }
 
-async function downloadActDocx({ actNumber, date, employee, items, isIssue, actionPhrase }) {
+async function downloadActDocx({ actNumber, date, employee, items, isIssue, actionPhrase, filename }) {
   try {
     const payload = {
       actNumber,
@@ -3305,7 +3316,12 @@ async function downloadActDocx({ actNumber, date, employee, items, isIssue, acti
       } : null,
       items,
       actionPhrase: actionPhrase || undefined,
-      filename: `Акт_${actNumber || "документ"}.docx`,
+      // Real acts (printAct/printManualAct) always pass a real actNumber and
+      // rely on this default; downloadHandoverSheet() passes an explicit
+      // filename instead, since it always has actNumber: null (a handover
+      // sheet isn't a numbered act) — without an override every handover
+      // sheet would download as the same indistinguishable "Акт_документ.docx".
+      filename: filename || `Акт_${actNumber || "документ"}.docx`,
     };
     const response = await apiFetch("/api/act", {
       method: "POST",
