@@ -3501,18 +3501,35 @@ function bindEvents() {
     if (!btn) return;
     const userId = btn.closest("tr").dataset.userId;
     if (btn.dataset.action === "toggle-active") {
-      const isActive = btn.textContent.trim() === "Активировать";
-      await apiFetch(`/api/users/${userId}`, {
+      const isActive = btn.dataset.nextActive === "true";
+      const response = await apiFetch(`/api/users/${userId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isActive }),
       });
+      if (!response.ok) {
+        // Сервер отклоняет, например, отключение последнего активного админа —
+        // без этого кнопка молча ничего не делала.
+        const data = await response.json().catch(() => ({}));
+        showToast(data.error || "Не удалось изменить статус пользователя.", "error");
+        return;
+      }
       await renderUsersTable();
     }
     if (btn.dataset.action === "generate-qr") {
       document.getElementById("usersOverlay").classList.add("hidden");
       await openLanQrModal(userId);
     }
+  });
+  document.getElementById("toggleNewUserPassword")?.addEventListener("click", () => {
+    const input = document.getElementById("newUserPassword");
+    const btn = document.getElementById("toggleNewUserPassword");
+    const show = input.type === "password";
+    input.type = show ? "text" : "password";
+    input.classList.toggle("has-eye", true);
+    btn.classList.toggle("is-on", show);
+    btn.title = show ? "Скрыть пароль" : "Показать пароль";
+    btn.setAttribute("aria-label", btn.title);
   });
   document.getElementById("createUserForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -3863,14 +3880,25 @@ function closeUsersModal() {
 async function renderUsersTable() {
   const response = await apiFetch("/api/users");
   const data = await response.json();
+  const qrIcon = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="5" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="2" width="5" height="5" stroke="currentColor" stroke-width="1.3"/><rect x="2" y="9" width="5" height="5" stroke="currentColor" stroke-width="1.3"/><path d="M9 9h2v2H9zM12 9h2v2h-2zM9 12h2v2H9zM12 12h2v2h-2z" fill="currentColor"/></svg>`;
+  const deactivateIcon = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="5" r="2.25" stroke="currentColor" stroke-width="1.3"/><path d="M2.5 13c0-2.05 1.79-3.5 4-3.5 .53 0 1.03.08 1.5.23" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M10.5 9.5l3.5 3.5M14 9.5l-3.5 3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`;
+  const activateIcon = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="5" r="2.25" stroke="currentColor" stroke-width="1.3"/><path d="M2.5 13c0-2.05 1.79-3.5 4-3.5 .53 0 1.03.08 1.5.23" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M10.25 11.5l1.75 1.75 3-3.25" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  if (!data.users.length) {
+    document.getElementById("usersTableBody").innerHTML = `<tr><td colspan="4" class="users-empty">Пользователей пока нет.</td></tr>`;
+    return;
+  }
   document.getElementById("usersTableBody").innerHTML = data.users.map((u) => `
     <tr data-user-id="${escapeHtml(u.id)}">
       <td>${escapeHtml(u.username)}</td>
-      <td>${escapeHtml(u.role)}</td>
-      <td>${u.isActive ? "да" : "нет"}</td>
+      <td class="users-role">${escapeHtml(u.role)}</td>
       <td>
-        <button type="button" data-action="toggle-active">${u.isActive ? "Деактивировать" : "Активировать"}</button>
-        <button type="button" data-action="generate-qr">QR</button>
+        <span class="chip ${u.isActive ? "ok" : "muted"} users-status"><span class="chip-dot"></span>${u.isActive ? "Активен" : "Отключён"}</span>
+      </td>
+      <td>
+        <div class="users-row-actions">
+          <button type="button" data-action="toggle-active" data-next-active="${u.isActive ? "false" : "true"}">${u.isActive ? deactivateIcon : activateIcon}${u.isActive ? "Деактивировать" : "Активировать"}</button>
+          <button type="button" class="secondary users-qr-btn" data-action="generate-qr">${qrIcon} QR</button>
+        </div>
       </td>
     </tr>
   `).join("");

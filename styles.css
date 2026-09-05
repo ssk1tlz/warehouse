@@ -408,7 +408,7 @@ button.teal-btn:hover { background: #0d9488; box-shadow: 0 4px 16px rgba(20,184,
 
 /* ─── SEARCH / INPUTS ────────────────────────────────────────── */
 .search, input[type="text"], input[type="email"], input[type="date"],
-input[type="number"], select, textarea {
+input[type="number"], input[type="password"], select, textarea {
   width: 100%;
   background: var(--bg-3);
   border: 1px solid var(--line);
@@ -752,6 +752,7 @@ tr:hover td { background: var(--surface-2); }
 .chip.danger { background: var(--danger-dim); color: var(--danger); border-color: rgba(244,63,94,0.2); }
 .chip.teal { background: var(--teal-dim); color: var(--teal); border-color: rgba(20,184,166,0.2); }
 .chip.sm { padding: 2px 7px; font-size: 9.5px; }
+.chip.muted { background: var(--surface-2); color: var(--text-3); border-color: var(--line); }
 
 /* ─── EMPLOYEES DASHBOARD (LIGHT & MODERN) ─────────────────────── */
 .emp-page-header {
@@ -1722,6 +1723,106 @@ tr:hover td { background: var(--surface-2); }
 
 .modal-close { background: var(--surface-2); color: var(--text-3); border: 1px solid var(--line); padding: 8px 16px; font-size: 13px; }
 .modal-close:hover { background: var(--surface-3); color: var(--text); transform: none; }
+
+/* Заголовок модалки с иконкой и подписью + компактный крестик вместо
+   текстовой кнопки «Закрыть». Пока используется окном «Пользователи»,
+   но классы нейтральные — их можно надеть на любую .modal-header. */
+.modal-title-group { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.modal-title-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-sm);
+  background: var(--brand-dim);
+  color: var(--brand);
+  flex-shrink: 0;
+}
+.modal-title-text { min-width: 0; }
+.modal-title-text h3 { font-size: 19px; }
+.modal-subtitle { margin-top: 3px; font-size: 12px; color: var(--text-3); }
+
+.modal-close.icon-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+/* ─── ПОЛЬЗОВАТЕЛИ ───────────────────────────────────────────── */
+.users-table { min-width: 560px; }
+.users-table th:last-child, .users-table td:last-child { width: 1%; white-space: nowrap; }
+.users-table td:first-child { font-weight: 600; }
+.users-table td.users-role { font-family: var(--mono); font-size: 12px; color: var(--text-2); }
+
+.users-status { display: inline-flex; align-items: center; gap: 6px; }
+.users-status .chip-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+
+.users-row-actions { display: flex; align-items: center; gap: 8px; }
+.users-row-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  font-size: 12.5px;
+}
+.users-row-actions button svg { flex-shrink: 0; }
+
+/* Кнопка QR — контурная в фирменном цвете: рядом со сплошной
+   «Деактивировать» она читается как второстепенное действие. */
+button.users-qr-btn { background: transparent; color: var(--brand-light); border: 1px solid var(--brand); }
+button.users-qr-btn:hover { background: var(--brand-dim); color: var(--brand-light); transform: none; box-shadow: none; }
+
+.users-create-title { margin-top: 28px; }
+
+.users-form { display: grid; gap: 16px; justify-items: start; max-width: 480px; }
+.users-form .form-field { width: 100%; }
+.users-form input, .users-form select { padding: 12px 14px; font-size: 13.5px; }
+
+/* Поле с иконкой слева (и, для пароля, кнопкой-глазом справа). */
+.input-with-icon { position: relative; display: block; }
+.input-with-icon > svg {
+  position: absolute;
+  left: 13px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-3);
+  pointer-events: none;
+}
+.input-with-icon > input { padding-left: 38px; }
+.input-with-icon > input[type="password"], .input-with-icon > input.has-eye { padding-right: 42px; }
+
+.input-eye {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: transparent;
+  color: var(--text-3);
+  border: 0;
+}
+.input-eye:hover { background: var(--surface-2); color: var(--text-2); transform: translateY(-50%); box-shadow: none; }
+.input-eye.is-on { color: var(--brand-light); }
+
+.users-create-btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 20px; }
+.users-create-btn svg { flex-shrink: 0; }
+
+.users-empty { color: var(--text-3); font-style: italic; }
+
+@media (max-width: 720px) {
+  .users-form { max-width: none; justify-items: stretch; }
+  .users-row-actions { flex-wrap: wrap; }
+}
 
 .operation-items {
   background: var(--bg-3);

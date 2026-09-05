@@ -1131,25 +1131,67 @@
 
   <!-- Users management -->
   <div id="usersOverlay" class="modal-overlay hidden">
-    <div class="operation-modal wide">
+    <div class="operation-modal wide users-modal">
       <div class="modal-header">
-        <h3>Пользователи</h3>
-        <button type="button" class="modal-close" id="closeUsersBtn">Закрыть</button>
+        <div class="modal-title-group">
+          <span class="modal-title-icon">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="7.5" cy="6" r="2.75" stroke="currentColor" stroke-width="1.4"/><path d="M2.5 16c0-2.5 2.24-4.25 5-4.25S12.5 13.5 12.5 16" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.5 4.1a2.75 2.75 0 010 5.3M15 11.9c1.65.55 2.75 1.8 2.75 3.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </span>
+          <div class="modal-title-text">
+            <h3>Пользователи</h3>
+            <p class="modal-subtitle">Управление доступом к системе</p>
+          </div>
+        </div>
+        <button type="button" class="modal-close icon-close" id="closeUsersBtn" title="Закрыть" aria-label="Закрыть">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
       </div>
-      <table class="data-table">
-        <thead><tr><th>Логин</th><th>Роль</th><th>Активен</th><th></th></tr></thead>
-        <tbody id="usersTableBody"></tbody>
-      </table>
-      <h4>Новый пользователь</h4>
-      <form id="createUserForm">
-        <input type="text" id="newUserUsername" placeholder="Логин" required>
-        <input type="password" id="newUserPassword" placeholder="Пароль" required>
-        <select id="newUserRole">
-          <option value="admin">admin</option>
-          <option value="storekeeper" selected>storekeeper</option>
-          <option value="viewer">viewer</option>
-        </select>
-        <button type="submit">Создать</button>
+
+      <div class="form-section-title">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="6" cy="5" r="2.25" stroke="currentColor" stroke-width="1.3"/><path d="M2 13c0-2.05 1.79-3.5 4-3.5s4 1.45 4 3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M11.5 3.4a2.25 2.25 0 010 4.2M12.5 9.7c1.3.45 2 1.5 2 2.9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Список пользователей
+      </div>
+      <div class="table-wrap users-table-wrap">
+        <table class="data-table users-table">
+          <thead><tr><th>Логин</th><th>Роль</th><th>Статус</th><th>Действия</th></tr></thead>
+          <tbody id="usersTableBody"></tbody>
+        </table>
+      </div>
+
+      <div class="form-section-title users-create-title">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="5" r="2.25" stroke="currentColor" stroke-width="1.3"/><path d="M2.5 13c0-2.05 1.79-3.5 4-3.5 .53 0 1.03.08 1.5.23" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M12 8.5v4.5M9.75 10.75h4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Новый пользователь
+      </div>
+      <form id="createUserForm" class="users-form">
+        <label class="form-field">
+          <span class="form-label">Логин</span>
+          <span class="input-with-icon">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5.5" r="2.5" stroke="currentColor" stroke-width="1.3"/><path d="M3 13.5c0-2.3 2.24-4 5-4s5 1.7 5 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+            <input type="text" id="newUserUsername" placeholder="Введите логин" autocomplete="off" required>
+          </span>
+        </label>
+        <label class="form-field">
+          <span class="form-label">Пароль</span>
+          <span class="input-with-icon">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="3" y="7" width="10" height="6.5" rx="1.6" stroke="currentColor" stroke-width="1.3"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+            <input type="password" id="newUserPassword" placeholder="Введите пароль" autocomplete="new-password" required>
+            <button type="button" class="input-eye" id="toggleNewUserPassword" title="Показать пароль" aria-label="Показать пароль">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M1.5 8s2.4-4 6.5-4 6.5 4 6.5 4-2.4 4-6.5 4-6.5-4-6.5-4z" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="1.75" stroke="currentColor" stroke-width="1.3"/></svg>
+            </button>
+          </span>
+        </label>
+        <label class="form-field">
+          <span class="form-label">Роль</span>
+          <select id="newUserRole">
+            <option value="admin">admin</option>
+            <option value="storekeeper" selected>storekeeper</option>
+            <option value="viewer">viewer</option>
+          </select>
+        </label>
+        <button type="submit" class="users-create-btn">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 3.5v9M3.5 8h9" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+          Создать
+        </button>
       </form>
     </div>
   </div>
