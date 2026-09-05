@@ -1,5 +1,8 @@
 # Runtime data / secrets — never commit
 warehouse.db
+# SQLite WAL sidecars — created next to warehouse.db whenever the server runs
+warehouse.db-shm
+warehouse.db-wal
 config.json
 .warehouse_app.lock
 backups/
