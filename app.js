@@ -4664,7 +4664,7 @@ function buildLabelHtml(asset, { showInv = true, showQr = true, showLoc = false,
 
   return `<div style="
     width:${width}mm; height:${height}mm;
-    border:0.5pt solid #d0d0d0; border-radius:4px;
+    border:0.5pt solid #d0d0d0;
     padding:${pad}mm; display:flex; flex-direction:column;
     overflow:hidden; background:#fff; font-family:Arial,Helvetica,sans-serif;
     box-sizing:border-box; page-break-inside:avoid;
@@ -4691,20 +4691,13 @@ function drawLabelOnCanvas(ctx, asset, x0mm, y0mm, wMm, hMm, opts, S) {
   const contentWmm = wMm - PADmm * 2;
   const cw = contentWmm * S;
 
-  // background + rounded border
-  const r = 4 * S * 0.26458; // ~4px radius scaled to mm-ish
-  const rr = (xx, yy, ww, hh, rad) => {
-    ctx.beginPath();
-    ctx.moveTo(xx + rad, yy);
-    ctx.arcTo(xx + ww, yy, xx + ww, yy + hh, rad);
-    ctx.arcTo(xx + ww, yy + hh, xx, yy + hh, rad);
-    ctx.arcTo(xx, yy + hh, xx, yy, rad);
-    ctx.arcTo(xx, yy, xx + ww, yy, rad);
-    ctx.closePath();
-  };
-  rr(x, y, w, h, r);
-  ctx.fillStyle = '#fff'; ctx.fill();
-  ctx.lineWidth = Math.max(1, 0.5 * S * 0.3528); ctx.strokeStyle = '#d0d0d0'; ctx.stroke();
+  // background + square border (без скруглений: рамки соседних этикеток
+  // совпадают по координате и сливаются в одну линию реза)
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(x, y, w, h);
+  ctx.lineWidth = Math.max(1, 0.5 * S * 0.3528);
+  ctx.strokeStyle = '#d0d0d0';
+  ctx.strokeRect(x, y, w, h);
 
   const bcData = (showInv && asset.inventoryNumber)
     ? asset.inventoryNumber
@@ -4780,12 +4773,17 @@ function drawLabelOnCanvas(ctx, asset, x0mm, y0mm, wMm, hMm, opts, S) {
   }
 }
 
+// Лист печати — A4 альбомный: четыре этикетки по 58 мм (232 мм) в книжную
+// ширину 210 мм не помещаются, а в альбомную 297 мм — да.
+const SHEET_W_MM = 297, SHEET_H_MM = 210;
+const PAGE_MARGIN_MIN_MM = 5;   // непечатаемая кромка принтера
+
 // Read current label modal settings (size, columns, toggles) + selected labels,
-// and compute the A4 sheet layout shared by JPG export and preview.
+// and compute the sheet layout shared by print, preview, JPG, PDF and Word.
 function getLabelSheetPlan() {
   const items = getSelectedLabelItems();
   const { w, h } = getLabelSize();
-  const cols = Math.max(1, parseInt(document.getElementById('labelColsInput')?.value || 3));
+  const cols = Math.max(1, parseInt(document.getElementById('labelColsInput')?.value || 4));
   const opts = {
     showInv: document.getElementById('labelInvCheck')?.checked ?? true,
     showQr: document.getElementById('labelQrCheck')?.checked ?? true,
@@ -4794,31 +4792,36 @@ function getLabelSheetPlan() {
   const labels = [];
   items.forEach(({ asset, qty }) => { for (let i = 0; i < qty; i++) labels.push(asset); });
 
-  const A4_W = 210, A4_H = 297, marginMm = 8, cellPadMm = 2;
-  const cellWmm = w + cellPadMm * 2, cellHmm = h + cellPadMm * 2;
-  const colsFit = Math.max(1, Math.floor((A4_W - marginMm * 2) / cellWmm));
+  // Ячейка равна самой этикетке: зазора между ними нет, соседние рамки
+  // ложатся на одну линию и образуют сплошную сетку реза.
+  const colsFit = Math.max(1, Math.floor((SHEET_W_MM - PAGE_MARGIN_MIN_MM * 2) / w));
   const useCols = Math.max(1, Math.min(cols, colsFit));
-  const rowsPerPage = Math.max(1, Math.floor((A4_H - marginMm * 2) / cellHmm));
+  const rowsPerPage = Math.max(1, Math.floor((SHEET_H_MM - PAGE_MARGIN_MIN_MM * 2) / h));
+  // Полный блок сетки центрируется на листе — независимо от того, сколько
+  // этикеток реально попало на последнюю страницу.
+  const offsetXmm = Math.max(0, (SHEET_W_MM - useCols * w) / 2);
+  const offsetYmm = Math.max(0, (SHEET_H_MM - rowsPerPage * h) / 2);
   const perPage = useCols * rowsPerPage;
   const pageCount = Math.max(1, Math.ceil(labels.length / perPage));
 
-  return { labels, w, h, opts, A4_W, A4_H, marginMm, cellPadMm, cellWmm, cellHmm, useCols, perPage, pageCount };
+  return { labels, w, h, opts, sheetW: SHEET_W_MM, sheetH: SHEET_H_MM,
+           offsetXmm, offsetYmm, useCols, rowsPerPage, perPage, pageCount };
 }
 
-// Render one A4 page of labels onto a fresh canvas at the given pixels-per-mm scale.
+// Render one sheet of labels onto a fresh canvas at the given pixels-per-mm scale.
 function renderLabelSheet(plan, pageIndex, S) {
-  const { labels, w, h, opts, A4_W, A4_H, marginMm, cellPadMm, cellWmm, cellHmm, useCols, perPage } = plan;
+  const { labels, w, h, opts, sheetW, sheetH, offsetXmm, offsetYmm, useCols, perPage } = plan;
   const slice = labels.slice(pageIndex * perPage, (pageIndex + 1) * perPage);
   const canvas = document.createElement('canvas');
-  canvas.width = Math.round(A4_W * S);
-  canvas.height = Math.round(A4_H * S);
+  canvas.width = Math.round(sheetW * S);
+  canvas.height = Math.round(sheetH * S);
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   slice.forEach((asset, idx) => {
     const col = idx % useCols, row = Math.floor(idx / useCols);
-    const lx = marginMm + col * cellWmm + cellPadMm;
-    const ly = marginMm + row * cellHmm + cellPadMm;
+    const lx = offsetXmm + col * w;
+    const ly = offsetYmm + row * h;
     drawLabelOnCanvas(ctx, asset, lx, ly, w, h, opts, S);
   });
   return canvas;
@@ -4886,41 +4889,43 @@ function labelPreviewNav(delta) {
 }
 
 function printLabels() {
-  const items = getSelectedLabelItems();
-  if (!items.length) { showToast('Выберите хотя бы одну позицию.', 'warning'); return; }
-  const { w, h } = getLabelSize();
-  const cols = Math.max(1, parseInt(document.getElementById("labelColsInput")?.value || 3));
-  const showInv = document.getElementById("labelInvCheck")?.checked ?? true;
-  const showQr = document.getElementById("labelQrCheck")?.checked ?? true;
-  const showLoc = document.getElementById("labelLocCheck")?.checked ?? false;
+  const plan = getLabelSheetPlan();
+  if (!plan.labels.length) { showToast('Выберите хотя бы одну позицию.', 'warning'); return; }
+  const { labels, w, h, opts, sheetW, sheetH, offsetYmm, useCols, perPage, pageCount } = plan;
 
-  const labels = [];
-  items.forEach(({ asset, qty }) => {
-    for (let i = 0; i < qty; i++) labels.push(asset);
-  });
-
-  let tableHtml = "";
-  for (let i = 0; i < labels.length; i += cols) {
-    const chunk = labels.slice(i, i + cols);
-    tableHtml += "<tr>" + chunk.map(a => `<td style="padding:2mm">${buildLabelHtml(a, {showInv, showQr, showLoc, width:w, height:h})}</td>`).join("") + "</tr>";
+  // Одна .sheet-обёртка на страницу — разрывы страниц ложатся ровно туда же,
+  // где их показывает предпросмотр и куда их ставят экспорты JPG/PDF.
+  let sheetsHtml = "";
+  for (let pg = 0; pg < pageCount; pg++) {
+    const slice = labels.slice(pg * perPage, (pg + 1) * perPage);
+    let rows = "";
+    for (let i = 0; i < slice.length; i += useCols) {
+      rows += "<tr>" + slice.slice(i, i + useCols)
+        .map(a => `<td>${buildLabelHtml(a, { ...opts, width: w, height: h })}</td>`).join("") + "</tr>";
+    }
+    sheetsHtml += `<div class="sheet"><table>${rows}</table></div>`;
   }
 
-  const pw = window.open("", "_blank", "width=1000,height=800");
+  const pw = window.open("", "_blank", "width=1100,height=800");
   if (!pw) return;
   pw.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Этикетки</title>
   <style>
-    @page { margin: 8mm; }
+    @page { size: A4 landscape; margin: 0; }
     * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body { font-family: Arial, sans-serif; background: #fff; margin: 0; }
-    table { border-collapse: collapse; width: 100%; }
-    td { vertical-align: top; }
+    /* Высота листа не задаётся: padding-top + сетка заведомо короче ${sheetH}мм,
+       а лишняя высота выдавила бы пустую страницу после разрыва. */
+    .sheet { width: ${sheetW}mm; padding-top: ${offsetYmm}mm; page-break-after: always; }
+    .sheet:last-child { page-break-after: auto; }
+    table { border-collapse: collapse; table-layout: fixed; width: ${useCols * w}mm; margin: 0 auto; }
+    td { padding: 0; vertical-align: top; }
   </style></head><body>
-  <table>${tableHtml}</table>
+  ${sheetsHtml}
   <script>window.onload = () => { setTimeout(() => { window.print(); }, 800); }<\/script>
   </body></html>`);
   pw.document.close();
 
-  markLabelsPrinted([...new Set(items.map(({ asset }) => asset.id))]);
+  markLabelsPrinted([...new Set(labels.map((a) => a.id))]);
 }
 
 async function markLabelsPrinted(assetIds) {
@@ -5013,23 +5018,14 @@ function exportLabelsExcel() {
 }
 
 function exportLabelsWord() {
-  const items = getSelectedLabelItems();
-  if (!items.length) { showToast('Выберите хотя бы одну позицию.', 'warning'); return; }
-  const { w, h } = getLabelSize();
-  const cols = Math.max(1, parseInt(document.getElementById("labelColsInput")?.value || 3));
-  const showInv = document.getElementById("labelInvCheck")?.checked ?? true;
-  const showQr = document.getElementById("labelQrCheck")?.checked ?? true;
-  const showLoc = document.getElementById("labelLocCheck")?.checked ?? false;
-
-  const labels = [];
-  items.forEach(({ asset, qty }) => {
-    for (let i = 0; i < qty; i++) labels.push(asset);
-  });
+  const plan = getLabelSheetPlan();
+  if (!plan.labels.length) { showToast('Выберите хотя бы одну позицию.', 'warning'); return; }
+  const { labels, w, h, opts, sheetW, sheetH, offsetXmm, offsetYmm, useCols } = plan;
 
   let tableHtml = "";
-  for (let i = 0; i < labels.length; i += cols) {
-    const chunk = labels.slice(i, i + cols);
-    tableHtml += "<tr>" + chunk.map(a => `<td style="padding:3mm;vertical-align:top">${buildLabelHtml(a, {showInv, showQr, showLoc, width:w, height:h})}</td>`).join("") + "</tr>";
+  for (let i = 0; i < labels.length; i += useCols) {
+    const chunk = labels.slice(i, i + useCols);
+    tableHtml += "<tr>" + chunk.map(a => `<td style="padding:0;vertical-align:top">${buildLabelHtml(a, { ...opts, width: w, height: h })}</td>`).join("") + "</tr>";
   }
 
   const html = `<!DOCTYPE html>
@@ -5041,10 +5037,10 @@ function exportLabelsWord() {
 <title>Этикетки</title>
 <!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
 <style>
-  @page { margin: 10mm; size: A4; }
+  @page { size: ${sheetW}mm ${sheetH}mm; margin: ${offsetYmm}mm ${offsetXmm}mm; mso-page-orientation: landscape; }
   body { font-family: Arial, sans-serif; }
-  table { border-collapse: collapse; width: 100%; }
-  td { vertical-align: top; }
+  table { border-collapse: collapse; table-layout: fixed; width: ${useCols * w}mm; }
+  td { padding: 0; vertical-align: top; }
 </style>
 </head>
 <body>
@@ -5126,7 +5122,7 @@ function exportLabelsPdf() {
   // Страницы рендерятся тем же canvas-движком, что JPG и предпросмотр
   // (полная поддержка кириллицы), и вкладываются в PDF как JPEG 300 dpi.
   const S = 300 / 25.4;
-  const PW = 595.28, PH = 841.89; // A4 в pt
+  const PW = 841.89, PH = 595.28; // A4 альбомный, в pt
   const pages = [];
   for (let pg = 0; pg < plan.pageCount; pg++) {
     const canvas = renderLabelSheet(plan, pg, S);
