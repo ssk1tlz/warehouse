@@ -80,22 +80,40 @@
   </section>
 
   <nav class="bottom-nav" aria-label="Основная навигация">
-    <button id="navSearchBtn" class="nav-item" type="button" aria-label="Поиск" title="Поиск">
-      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4.3-4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-    </button>
-    <button id="navQueueBtn" class="nav-item" type="button" aria-label="Очередь" title="Очередь">
-      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-      <span id="queueCount" class="nav-badge hidden">0</span>
-    </button>
+    <div class="nav-group">
+      <button id="navSearchBtn" class="nav-item" type="button" title="Поиск">
+        <span class="nav-icon">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4.3-4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </span>
+        <span class="nav-label">Поиск</span>
+      </button>
+      <button id="navQueueBtn" class="nav-item" type="button" title="Очередь синхронизации">
+        <span class="nav-icon">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="4.5" cy="6" r="1.5" fill="currentColor"/><circle cx="4.5" cy="12" r="1.5" fill="currentColor"/><circle cx="4.5" cy="18" r="1.5" fill="currentColor"/></svg>
+          <span id="queueCount" class="nav-badge hidden">0</span>
+        </span>
+        <span class="nav-label">Очередь</span>
+      </button>
+    </div>
+
     <button id="scanBtn" class="nav-scan" type="button" aria-label="Сканировать QR">
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor"/></svg>
     </button>
-    <button id="navHistoryBtn" class="nav-item" type="button" aria-label="История" title="История">
-      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3.5 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </button>
-    <button id="navSettingsBtn" class="nav-item" type="button" aria-label="Настройки" title="Настройки">
-      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.4-2.3.9a7.7 7.7 0 0 0-1.7-1L15 3h-6l-.4 2.5a7.7 7.7 0 0 0-1.7 1l-2.3-.9-2 3.4L4.6 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.4 2.3-.9a7.7 7.7 0 0 0 1.7 1L9 21h6l.4-2.5a7.7 7.7 0 0 0 1.7-1l2.3.9 2-3.4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-    </button>
+
+    <div class="nav-group">
+      <button id="navHistoryBtn" class="nav-item" type="button" title="История">
+        <span class="nav-icon">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3.5 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        <span class="nav-label">История</span>
+      </button>
+      <button id="navSettingsBtn" class="nav-item" type="button" title="Настройки">
+        <span class="nav-icon">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.4-2.3.9a7.7 7.7 0 0 0-1.7-1L15 3h-6l-.4 2.5a7.7 7.7 0 0 0-1.7 1l-2.3-.9-2 3.4L4.6 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.4 2.3-.9a7.7 7.7 0 0 0 1.7 1L9 21h6l.4-2.5a7.7 7.7 0 0 0 1.7-1l2.3.9 2-3.4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        </span>
+        <span class="nav-label">Настройки</span>
+      </button>
+    </div>
   </nav>
 
   <script src="js/vendor/capacitor-core.js"></script>

@@ -43,7 +43,7 @@ body {
   margin: 0;
   padding: 16px;
   padding-top: 44px;
-  padding-bottom: 100px;
+  padding-bottom: 116px;
   font-size: 15px;
   line-height: 1.5;
   min-height: 100vh;
@@ -167,48 +167,73 @@ li {
 #assetActions { display: flex; flex-wrap: wrap; gap: 8px; }
 #assetActions button { flex: 1 1 calc(50% - 4px); }
 
-/* ─── BOTTOM NAV — floating pill, persistent on every screen ──────── */
-/* A single flex row of 5 items (not 2 side-groups + an absolutely
-   positioned FAB) — true even spacing falls out of flexbox for free this
-   way, instead of needing matched column math on both sides. The scan
-   button is a normal flex child too; it only *looks* elevated via a
-   negative margin-top pulling it above the pill's edge, so its horizontal
-   position is still decided by the same space-around flow as its siblings. */
+/* ─── BOTTOM NAV — two pills split by the raised scan button ─────── */
+/* Раньше это был один сплошной «пилюльный» ряд из 5 кнопок. Теперь ряд
+   разбит на две группы по две кнопки с подписями, а между ними — круглая
+   кнопка сканирования: она не абсолютная, а обычный флекс-ребёнок между
+   группами, поэтому симметрия держится сама, без ручной подгонки колонок.
+   Сама панель прозрачная: фон и тень несут группы, за счёт чего между
+   ними получается «вырез» под кнопку. */
 .bottom-nav {
   position: fixed;
-  left: 16px;
-  right: 16px;
-  bottom: calc(16px + env(safe-area-inset-bottom));
+  left: 12px;
+  right: 12px;
+  bottom: calc(14px + env(safe-area-inset-bottom));
   display: flex;
   align-items: center;
-  justify-content: space-around;
-  padding: 8px 10px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+  gap: 8px;
   z-index: 20;
 }
+
+.nav-group {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  justify-content: space-around;
+  gap: 2px;
+  padding: 8px 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 26px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+}
+
 .nav-item {
   position: relative;
-  background: transparent;
-  border: 0;
-  color: var(--text-3);
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
+  gap: 3px;
+  padding: 5px 1px;
+  background: transparent;
+  border: 0;
+  border-radius: 16px;
+  color: var(--text-3);
+  transition: color .12s ease;
 }
-.nav-item svg { width: 27px; height: 27px; stroke: currentColor; transition: color .12s ease; }
+.nav-icon { position: relative; display: flex; align-items: center; justify-content: center; }
+.nav-item svg { width: 23px; height: 23px; stroke: currentColor; }
+.nav-label {
+  /* Тянется по ширине экрана: на 360px «Настройки» иначе обрезается. */
+  font-size: clamp(9px, 2.55vw, 10px);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
 .nav-item.current { color: var(--brand-light); }
 .nav-item:active { color: var(--brand-light); }
 
 .nav-badge {
   position: absolute;
-  top: 2px;
-  right: 2px;
+  top: -5px;
+  right: -8px;
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
@@ -221,13 +246,16 @@ li {
   display: flex;
   align-items: center;
   justify-content: center;
+  border: 2px solid var(--surface);
 }
 .nav-badge.hidden { display: none; }
 
+/* Кнопка сканирования — крупнее групп и со свечением, поэтому выступает
+   и вверх, и вниз за их края: это главное действие приложения. */
 .nav-scan {
   flex-shrink: 0;
-  width: 56px;
-  height: 56px;
+  width: 58px;
+  height: 58px;
   border-radius: 50%;
   background: var(--brand);
   color: #fff;
@@ -235,12 +263,17 @@ li {
   align-items: center;
   justify-content: center;
   padding: 0;
-  margin-top: -22px;
-  border: 4px solid var(--bg);
-  box-shadow: 0 6px 20px var(--brand-glow), var(--shadow);
+  border: 0;
+  box-shadow: 0 0 0 7px rgba(59,130,246,0.13), 0 10px 26px var(--brand-glow);
 }
-.nav-scan svg { width: 28px; height: 28px; }
-.nav-scan:active { background: var(--brand-2); }
+.nav-scan svg { width: 29px; height: 29px; }
+.nav-scan:active { background: var(--brand-2); box-shadow: 0 0 0 5px rgba(59,130,246,0.18); }
+
+/* Очень узкие экраны: подписи убираем, иначе они начинают обрезаться. */
+@media (max-width: 340px) {
+  .nav-label { display: none; }
+  .nav-item { padding: 11px 2px; }
+}
 
 /* ─── expandable history rows ──────────────────────────────────── */
 #historyList li { padding: 0; display: block; }
