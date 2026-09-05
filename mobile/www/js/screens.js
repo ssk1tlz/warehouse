@@ -64,7 +64,6 @@ const NAV_SCREEN_MAP = {
   navQueueBtn: 'screen-queue',
   navHistoryBtn: 'screen-history',
   navInventoryBtn: 'screen-inventory-start',
-  navAttentionBtn: 'screen-attention',
   navEmployeesBtn: 'screen-employees-search',
   navSettingsBtn: 'screen-settings',
 };
@@ -136,18 +135,64 @@ async function renderAssetPhoto(assetId) {
 
 async function refreshQueueCount() {
   const pending = await Db.listPendingActions();
+  const count = pending.length;
+
   const badge = document.getElementById('queueCount');
-  badge.textContent = pending.length;
-  badge.classList.toggle('hidden', pending.length === 0);
+  badge.textContent = count;
+  badge.classList.toggle('hidden', count === 0);
+
+  // Home-screen counterpart (screen-scan) — same count, same hide-at-zero
+  // convention, just a second, more visible presentation of it.
+  const homeCard = document.getElementById('homeQueueCard');
+  const homeCount = document.getElementById('homeQueueCount');
+  if (homeCard && homeCount) {
+    homeCount.textContent = count;
+    homeCard.classList.toggle('hidden', count === 0);
+  }
 }
 
 async function refreshAttentionBadge() {
   const meta = await Db.getStateMeta();
   const items = meta.attentionItems ? JSON.parse(meta.attentionItems) : [];
-  const badge = document.getElementById('attentionBadge');
   const text = renderAttentionBadgeText(items);
-  badge.textContent = text;
-  badge.classList.toggle('hidden', text === '');
+  const count = items.length;
+
+  // Moved out of the bottom nav into screen-history (a row above the
+  // movement list) — same badge id, just relocated markup.
+  const historyRow = document.getElementById('historyAttentionRow');
+  const historyBadge = document.getElementById('attentionBadge');
+  if (historyRow && historyBadge) {
+    historyBadge.textContent = text;
+    historyRow.classList.toggle('hidden', count === 0);
+  }
+
+  // Home-screen counterpart (screen-scan), so the signal isn't only visible
+  // after opening history.
+  const homeCard = document.getElementById('homeAttentionCard');
+  const homeCount = document.getElementById('homeAttentionCount');
+  if (homeCard && homeCount) {
+    homeCount.textContent = text;
+    homeCard.classList.toggle('hidden', count === 0);
+  }
+}
+
+// Last few movements on the home screen (screen-scan) — quick glance without
+// opening "История выдачи и возврата". Same data source and ordering as that
+// screen (Db.listMovementHistory), just capped to 5 and one line per row.
+async function refreshRecentActivity() {
+  const heading = document.getElementById('homeActivityHeading');
+  const listEl = document.getElementById('homeActivityList');
+  if (!heading || !listEl) return;
+  const history = await Db.listMovementHistory(5);
+  listEl.innerHTML = '';
+  for (const m of history) {
+    const li = document.createElement('li');
+    li.textContent = `${MOVEMENT_LABELS[m.type] || m.type} · ${m.assetName || m.assetId} · ${m.date || '—'}`;
+    li.addEventListener('click', () => openAssetScreen(m.assetId));
+    listEl.appendChild(li);
+  }
+  heading.classList.toggle('hidden', history.length === 0);
+  listEl.classList.toggle('hidden', history.length === 0);
 }
 
 async function openAssetScreen(assetId) {
@@ -332,7 +377,7 @@ async function submitEdit(event) {
   await Db.enqueueAction(payload);
   Toast.show('Действие в очереди', 'info');
   await refreshQueueCount();
-  Sync.run().then((r) => { refreshQueueCount(); refreshAttentionBadge(); ConnStatus.report(r.pulled, r.needsReauth); });
+  Sync.run().then((r) => { refreshQueueCount(); refreshAttentionBadge(); refreshRecentActivity(); ConnStatus.report(r.pulled, r.needsReauth); });
   showScreen('screen-scan');
 }
 
@@ -383,7 +428,7 @@ async function submitAction(event) {
   await Db.enqueueAction(payload);
   Toast.show('Действие в очереди', 'info');
   await refreshQueueCount();
-  Sync.run().then((r) => { refreshQueueCount(); refreshAttentionBadge(); ConnStatus.report(r.pulled, r.needsReauth); }); // fire-and-forget, but still refresh the badges once sync settles
+  Sync.run().then((r) => { refreshQueueCount(); refreshAttentionBadge(); refreshRecentActivity(); ConnStatus.report(r.pulled, r.needsReauth); }); // fire-and-forget, but still refresh the badges once sync settles
   showScreen('screen-scan');
 }
 
@@ -433,7 +478,7 @@ async function openQueueScreen() {
         retryBtn.addEventListener('click', async () => {
           await Db.retryAction(row.client_action_id);
           await openQueueScreen();
-          Sync.run().then((r) => { refreshQueueCount(); refreshAttentionBadge(); ConnStatus.report(r.pulled, r.needsReauth); });
+          Sync.run().then((r) => { refreshQueueCount(); refreshAttentionBadge(); refreshRecentActivity(); ConnStatus.report(r.pulled, r.needsReauth); });
         });
         li.appendChild(retryBtn);
       } else if (row.status === 'conflict') {
@@ -443,7 +488,7 @@ async function openQueueScreen() {
         retryOnTopBtn.addEventListener('click', async () => {
           await Db.retryActionOnTop(row.client_action_id, currentAssetSnapshot.rev);
           await openQueueScreen();
-          Sync.run().then((r) => { refreshQueueCount(); refreshAttentionBadge(); ConnStatus.report(r.pulled, r.needsReauth); });
+          Sync.run().then((r) => { refreshQueueCount(); refreshAttentionBadge(); refreshRecentActivity(); ConnStatus.report(r.pulled, r.needsReauth); });
         });
         const cancelBtn = document.createElement('button');
         cancelBtn.textContent = 'Отменить';
@@ -569,7 +614,7 @@ async function quickReturnFromEmployee(employeeId, assetId, quantity, returnBtn)
   });
   Toast.show('Возврат в очереди', 'info');
   await refreshQueueCount();
-  Sync.run().then((r) => { refreshQueueCount(); refreshAttentionBadge(); ConnStatus.report(r.pulled, r.needsReauth); });
+  Sync.run().then((r) => { refreshQueueCount(); refreshAttentionBadge(); refreshRecentActivity(); ConnStatus.report(r.pulled, r.needsReauth); });
   await openEmployeeDetailScreen(employeeId); // перерисовать список/сводку после постановки в очередь
 }
 
@@ -903,14 +948,15 @@ async function init() {
     showScreen('screen-scan');
     await refreshQueueCount();
     await refreshAttentionBadge();
-    Sync.run().then((r) => { refreshQueueCount(); refreshAttentionBadge(); ConnStatus.report(r.pulled, r.needsReauth); });
+    await refreshRecentActivity();
+    Sync.run().then((r) => { refreshQueueCount(); refreshAttentionBadge(); refreshRecentActivity(); ConnStatus.report(r.pulled, r.needsReauth); });
   }
 
   document.getElementById('settingsSaveBtn').addEventListener('click', async () => {
     const current = await Settings.get();
     await Settings.set({ serverUrl: document.getElementById('settingsUrl').value, token: current.token, deviceSecret: current.deviceSecret, role: current.role });
     showScreen('screen-scan');
-    Sync.run().then((r) => { refreshQueueCount(); refreshAttentionBadge(); ConnStatus.report(r.pulled, r.needsReauth); });
+    Sync.run().then((r) => { refreshQueueCount(); refreshAttentionBadge(); refreshRecentActivity(); ConnStatus.report(r.pulled, r.needsReauth); });
   });
 
   document.getElementById('scanBtn').addEventListener('click', async () => {
@@ -932,7 +978,7 @@ async function init() {
       await applyRoleVisibility();
       document.getElementById('settingsUrl').value = result.serverUrl;
       showScreen('screen-scan');
-      Sync.run().then((r) => { refreshQueueCount(); refreshAttentionBadge(); ConnStatus.report(r.pulled, r.needsReauth); });
+      Sync.run().then((r) => { refreshQueueCount(); refreshAttentionBadge(); refreshRecentActivity(); ConnStatus.report(r.pulled, r.needsReauth); });
     } catch (error) {
       Toast.show(describeScanError(error, 'Не удалось выполнить сканирование.'), 'error');
     }
@@ -942,8 +988,10 @@ async function init() {
   document.getElementById('navQueueBtn').addEventListener('click', openQueueScreen);
   document.getElementById('navHistoryBtn').addEventListener('click', openHistoryScreen);
   document.getElementById('navInventoryBtn')?.addEventListener('click', openInventoryStartScreen);
-  document.getElementById('navAttentionBtn')?.addEventListener('click', openAttentionScreen);
   document.getElementById('navEmployeesBtn')?.addEventListener('click', openEmployeeSearchScreen);
+  document.getElementById('homeAttentionCard')?.addEventListener('click', openAttentionScreen);
+  document.getElementById('homeQueueCard')?.addEventListener('click', openQueueScreen);
+  document.getElementById('historyAttentionRow')?.addEventListener('click', openAttentionScreen);
   document.getElementById('employeeSearchInput')?.addEventListener('input', (e) => runEmployeeSearch(e.target.value));
   document.getElementById('employeeDetailBackBtn')?.addEventListener('click', openEmployeeSearchScreen);
   document.getElementById('inventoryStartBtn')?.addEventListener('click', startInventoryScanning);

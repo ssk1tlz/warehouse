@@ -163,6 +163,7 @@ test('quickReturnFromEmployee ignores a second rapid call on an already-disabled
     getStateMeta: async () => ({}),
     searchEmployees: async () => [{ id: 'emp1', fullName: 'Иванов И.И.', status: 'inactive' }],
     getAllocationsForEmployee: async () => [],
+    listMovementHistory: async () => [],
   };
   global.Toast = { show: () => {} };
   global.Sync = { run: async () => ({ pulled: true, needsReauth: false }) };
@@ -197,6 +198,7 @@ test('quickReturnFromEmployee still enqueues when called without a button (defen
     getStateMeta: async () => ({}),
     searchEmployees: async () => [{ id: 'emp1', fullName: 'Иванов И.И.', status: 'inactive' }],
     getAllocationsForEmployee: async () => [],
+    listMovementHistory: async () => [],
   };
   global.Toast = { show: () => {} };
   global.Sync = { run: async () => ({ pulled: true, needsReauth: false }) };
