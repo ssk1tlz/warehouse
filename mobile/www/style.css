@@ -159,6 +159,14 @@ li {
 .scan-row { display: flex; gap: 8px; }
 .scan-row button { flex: 1; font-size: 13px; padding: 11px 8px; }
 
+/* Кнопки действий в карточке позиции. Без этого они остаются инлайновыми
+   детьми обычного блока: строки переноса разводит line-height (22px), а
+   кнопка выше (44px), поэтому соседние ряды наезжают друг на друга.
+   Гибкая база в половину ширины даёт две кнопки в ряд, а последней в
+   нечётном списке («Редактировать») позволяет растянуться на всю строку. */
+#assetActions { display: flex; flex-wrap: wrap; gap: 8px; }
+#assetActions button { flex: 1 1 calc(50% - 4px); }
+
 /* ─── BOTTOM NAV — floating pill, persistent on every screen ──────── */
 /* A single flex row of 5 items (not 2 side-groups + an absolutely
    positioned FAB) — true even spacing falls out of flexbox for free this
