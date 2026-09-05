@@ -82,6 +82,58 @@ let currentAsset = null;
 let currentActionType = null;
 let currentEmployees = null;
 
+// Holds the object URL for whatever asset photo is currently shown on
+// screen-asset, so it can be revoked before the next one replaces it —
+// same leak-avoidance reasoning as desktop's app.js renderAssetPhotoPreview().
+let assetPhotoObjectUrl = null;
+// Monotonic call counter. openAssetScreen can in practice be reached twice
+// in a row before the first photo fetch resolves — e.g. renderSearchResults'
+// list-item click handler isn't awaited or disabled, so two rapid taps on
+// different search results both call openAssetScreen without waiting for
+// the first to finish. This lets a stale in-flight fetch recognize it has
+// been superseded and bail instead of clobbering the newer asset's
+// already-shown photo/object URL with its own late-arriving one (same
+// reasoning as desktop's assetPhotoRenderToken).
+let assetPhotoRenderToken = 0;
+
+// Displays the given asset's photo on screen-asset, or the placeholder if it
+// has none — mirrors desktop's app.js renderAssetPhotoPreview() (GET the
+// photo through the authenticated fetch wrapper, treat non-ok as "no photo",
+// blob() -> object URL -> <img>.src). Called fire-and-forget from
+// openAssetScreen(), same as desktop calls its counterpart, so the rest of
+// the screen renders immediately without waiting on the network.
+async function renderAssetPhoto(assetId) {
+  const myToken = ++assetPhotoRenderToken;
+  const img = document.getElementById('assetPhotoImg');
+  const placeholder = document.getElementById('assetPhotoPlaceholder');
+  if (!img || !placeholder) return;
+
+  if (assetPhotoObjectUrl) {
+    URL.revokeObjectURL(assetPhotoObjectUrl);
+    assetPhotoObjectUrl = null;
+  }
+  img.classList.add('hidden');
+  img.removeAttribute('src');
+  placeholder.classList.remove('hidden');
+
+  try {
+    const response = await Sync.getPhoto(assetId);
+    const blob = response && response.ok ? await response.blob() : null;
+    // A newer call may have started (and possibly already finished) while
+    // the awaits above were in flight — discard a stale response rather
+    // than let it clobber whatever the newer call has already shown.
+    if (myToken !== assetPhotoRenderToken) return;
+    if (blob) {
+      assetPhotoObjectUrl = URL.createObjectURL(blob);
+      img.src = assetPhotoObjectUrl;
+      img.classList.remove('hidden');
+      placeholder.classList.add('hidden');
+    }
+  } catch (error) {
+    // Офлайн/сервер недоступен — плейсхолдер остаётся как есть, как и на десктопе.
+  }
+}
+
 async function refreshQueueCount() {
   const pending = await Db.listPendingActions();
   const badge = document.getElementById('queueCount');
@@ -155,6 +207,7 @@ async function openAssetScreen(assetId) {
   editBtn.addEventListener('click', openEditScreen);
   actionsEl.appendChild(editBtn);
 
+  renderAssetPhoto(assetId); // fire-and-forget — see renderAssetPhoto() above
   showScreen('screen-asset');
 }
 
@@ -1014,7 +1067,7 @@ function initSwipeBack() {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { describeScanError, describeUpdate, reconcileInventory, renderAttentionBadgeText, summarizeOffboarding, quickReturnFromEmployee };
+  module.exports = { describeScanError, describeUpdate, reconcileInventory, renderAttentionBadgeText, summarizeOffboarding, quickReturnFromEmployee, renderAssetPhoto };
 }
 if (typeof window !== 'undefined') {
   window.App = { init };

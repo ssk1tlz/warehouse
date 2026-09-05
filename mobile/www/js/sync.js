@@ -93,6 +93,21 @@ async function uploadPhoto(assetId, dataUrl) {
   }
 }
 
+// GET counterpart to uploadPhoto() above, for displaying an asset's photo on
+// the asset screen (screens.js's openAssetScreen -> renderAssetPhotoPreview,
+// mirroring desktop's app.js renderAssetPhotoPreview). Uses the text
+// signRequest/signedHeaders (not the bytes variant) since a GET has no body.
+// Returns the raw Response (ok or not) rather than throwing on a non-2xx —
+// the caller checks response.ok itself, same shape as desktop's apiFetch(),
+// so a 404 (genuinely no photo yet) is handled by the caller as "show
+// placeholder" rather than as a thrown error.
+async function getPhoto(assetId) {
+  const settings = await Settings.get();
+  const path = `/api/assets/${assetId}/photo`;
+  const headers = await signedHeaders(settings, 'GET', path, '');
+  return fetch(`${settings.serverUrl}${path}`, { headers });
+}
+
 async function pair(serverUrl, code) {
   const response = await fetch(`${serverUrl}/api/pair`, {
     method: 'POST',
@@ -213,7 +228,7 @@ async function run() {
   return { pulled, flushed, failed, needsReauth: sessionExpired };
 }
 
-const Sync = { run, flushQueue, pullState, pair, signRequest, signedHeaders, signRequestBytes, signedHeadersBytes, dataUrlToBytes, uploadPhoto, retryPendingPhotoUploads };
+const Sync = { run, flushQueue, pullState, pair, signRequest, signedHeaders, signRequestBytes, signedHeadersBytes, dataUrlToBytes, uploadPhoto, retryPendingPhotoUploads, getPhoto };
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = Sync;
 }

@@ -350,3 +350,42 @@ test('retryPendingPhotoUploads surfaces a permanent failure via Toast.show (when
   assert.match(toastCalls[0].message, /404/);
   assert.equal(toastCalls[0].type, 'error');
 });
+
+test('getPhoto sends a signed GET to /api/assets/<id>/photo with a Bearer token', async () => {
+  const nodeCrypto = require('node:crypto');
+  const secretHex = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
+  let seen;
+  global.fetch = async (url, options) => {
+    seen = { url, options };
+    return { ok: true, status: 200, blob: async () => Buffer.from('jpeg-bytes') };
+  };
+  global.Settings = { get: async () => ({ serverUrl: 'http://192.168.0.1:8765', token: 'tok123', deviceSecret: secretHex }) };
+  const response = await Sync.getPhoto('ast_42');
+  assert.equal(seen.url, 'http://192.168.0.1:8765/api/assets/ast_42/photo');
+  assert.equal(seen.options.headers.Authorization, 'Bearer tok123');
+  assert.equal(seen.options.method, undefined, 'GET is fetch\'s default method — no method should be set');
+  const [timestamp, digest] = seen.options.headers['X-Signature'].split('.');
+  // A GET has no body — signed over the empty-string body, same as pullState()'s GET /api/state.
+  const bodyHash = nodeCrypto.createHash('sha256').update('').digest('hex');
+  const message = `GET\n/api/assets/ast_42/photo\n${timestamp}\n${bodyHash}`;
+  const expected = nodeCrypto.createHmac('sha256', Buffer.from(secretHex, 'hex')).update(message).digest('hex');
+  assert.equal(digest, expected);
+  assert.equal(response.ok, true);
+});
+
+test('getPhoto omits X-Signature when there is no deviceSecret (e.g. loopback pairing not yet done)', async () => {
+  let seenHeaders;
+  global.fetch = async (url, options) => { seenHeaders = options.headers; return { ok: true, status: 200 }; };
+  global.Settings = { get: async () => ({ serverUrl: 'http://x', token: 'tok123' }) };
+  await Sync.getPhoto('ast_1');
+  assert.equal(seenHeaders.Authorization, 'Bearer tok123');
+  assert.equal('X-Signature' in seenHeaders, false);
+});
+
+test('getPhoto resolves with the response (not a throw) on a non-ok status, so the caller can treat 404 as "no photo yet"', async () => {
+  global.fetch = async () => ({ ok: false, status: 404 });
+  global.Settings = { get: async () => ({ serverUrl: 'http://x', token: 't' }) };
+  const response = await Sync.getPhoto('ast_missing');
+  assert.equal(response.ok, false);
+  assert.equal(response.status, 404);
+});

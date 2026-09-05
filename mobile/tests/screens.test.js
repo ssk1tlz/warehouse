@@ -212,3 +212,84 @@ test('quickReturnFromEmployee still enqueues when called without a button (defen
     delete global.ConnStatus;
   }
 });
+
+test('renderAssetPhoto shows the photo and hides the placeholder when Sync.getPhoto resolves ok', async () => {
+  const { renderAssetPhoto } = require('../www/js/screens.js');
+  const doc = makeFakeDocument();
+  global.document = doc;
+  global.Sync = { getPhoto: async () => ({ ok: true, blob: async () => 'fake-blob-bytes' }) };
+  const createdFrom = [];
+  global.URL = {
+    createObjectURL: (blob) => { createdFrom.push(blob); return 'blob:fake-1'; },
+    revokeObjectURL: () => {},
+  };
+  try {
+    await renderAssetPhoto('ast_1');
+    const img = doc.getElementById('assetPhotoImg');
+    const placeholder = doc.getElementById('assetPhotoPlaceholder');
+    assert.equal(img.src, 'blob:fake-1');
+    assert.equal(img.classList.contains('hidden'), false);
+    assert.equal(placeholder.classList.contains('hidden'), true);
+    assert.deepEqual(createdFrom, ['fake-blob-bytes']);
+  } finally {
+    delete global.document;
+    delete global.Sync;
+    delete global.URL;
+  }
+});
+
+test('renderAssetPhoto leaves the placeholder shown when Sync.getPhoto resolves non-ok (e.g. 404 — no photo yet)', async () => {
+  const { renderAssetPhoto } = require('../www/js/screens.js');
+  const doc = makeFakeDocument();
+  global.document = doc;
+  global.Sync = { getPhoto: async () => ({ ok: false, status: 404 }) };
+  global.URL = { createObjectURL: () => 'blob:should-not-be-used', revokeObjectURL: () => {} };
+  try {
+    await renderAssetPhoto('ast_missing');
+    const img = doc.getElementById('assetPhotoImg');
+    const placeholder = doc.getElementById('assetPhotoPlaceholder');
+    assert.equal(img.classList.contains('hidden'), true);
+    assert.equal(placeholder.classList.contains('hidden'), false);
+  } finally {
+    delete global.document;
+    delete global.Sync;
+    delete global.URL;
+  }
+});
+
+// Judgment call from the brief: openAssetScreen is reachable twice in a row
+// before the first photo fetch resolves — renderSearchResults' list-item
+// click handler calls it unawaited/undisabled, so two rapid taps on
+// different search results both trigger it. This is the same race desktop's
+// assetPhotoRenderToken guards against, so mobile's renderAssetPhoto carries
+// the same guard; this test proves it actually prevents the stale clobber.
+test('renderAssetPhoto discards a stale response when a newer call has already superseded it', async () => {
+  const { renderAssetPhoto } = require('../www/js/screens.js');
+  const doc = makeFakeDocument();
+  global.document = doc;
+  let resolveFirst;
+  const firstPending = new Promise((resolve) => { resolveFirst = resolve; });
+  let calls = 0;
+  global.Sync = {
+    getPhoto: async () => {
+      calls += 1;
+      if (calls === 1) { await firstPending; return { ok: true, blob: async () => 'stale-photo' }; }
+      return { ok: true, blob: async () => 'fresh-photo' };
+    },
+  };
+  global.URL = { createObjectURL: (blob) => `blob:${blob}`, revokeObjectURL: () => {} };
+  try {
+    const p1 = renderAssetPhoto('ast_A'); // hangs on firstPending — simulates the slower, stale request
+    const p2 = renderAssetPhoto('ast_B'); // started right after, resolves immediately
+    await p2;
+    const img = doc.getElementById('assetPhotoImg');
+    assert.equal(img.src, 'blob:fresh-photo', "the newer call's photo must be shown");
+    resolveFirst();
+    await p1; // let the stale call finish — it must not clobber the newer photo
+    assert.equal(img.src, 'blob:fresh-photo', "the stale call's late-arriving response must not overwrite the newer photo");
+  } finally {
+    delete global.document;
+    delete global.Sync;
+    delete global.URL;
+  }
+});
