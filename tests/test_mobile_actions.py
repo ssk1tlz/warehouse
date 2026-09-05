@@ -556,3 +556,94 @@ def test_apply_action_replay_does_not_double_apply(conn):
         "SELECT quantity FROM asset_allocations WHERE asset_id='ast_1' AND employee_id='emp_1'"
     ).fetchone()
     assert alloc["quantity"] == 1  # still 1, not 2 — the replay did not re-apply
+
+
+# ─── Техника общего пользования ────────────────────────────────────────────
+
+@pytest.fixture
+def shared_conn(conn):
+    """Один ЮПС, которым пользуются двое: quantity = 1, is_shared = 1."""
+    conn.execute(
+        "INSERT INTO employees (id, full_name, department, site, position, email, phone) "
+        "VALUES ('emp_2', 'Петрова Анна', 'IT', '', 'Бухгалтер', '', '')"
+    )
+    conn.execute(
+        "INSERT INTO assets (id, name, category, inventory_number, serial_number, purchase_date, "
+        "status, notes, quantity, repair_quantity, retired_quantity, min_quantity, "
+        "warranty_end, price, repair_date, location, photo_url, is_shared) "
+        "VALUES ('ast_ups', 'ЮПС APC', 'ИБП', 'INV-UPS', 'SN-UPS', '2026-01-01', "
+        "'in_stock', '', 1, 0, 0, 0, '', 0, '', '', '', 1)"
+    )
+    conn.commit()
+    return conn
+
+
+def _allocations(conn, asset_id):
+    return list(conn.execute("SELECT * FROM asset_allocations WHERE asset_id = ?", (asset_id,)))
+
+
+def test_shared_asset_can_be_issued_to_two_employees(shared_conn):
+    for employee_id in ("emp_1", "emp_2"):
+        mobile_actions.apply_issue(
+            shared_conn, {"assetId": "ast_ups", "employeeId": employee_id, "quantity": 1}
+        )
+    holders = _allocations(shared_conn, "ast_ups")
+    assert sorted(row["employee_id"] for row in holders) == ["emp_1", "emp_2"]
+    assert all(row["quantity"] == 1 for row in holders)
+
+
+def test_shared_allocated_quantity_is_the_max_not_the_sum(shared_conn):
+    for employee_id in ("emp_1", "emp_2"):
+        mobile_actions.apply_issue(
+            shared_conn, {"assetId": "ast_ups", "employeeId": employee_id, "quantity": 1}
+        )
+    asset = shared_conn.execute("SELECT * FROM assets WHERE id = 'ast_ups'").fetchone()
+    allocations = _allocations(shared_conn, "ast_ups")
+    assert mobile_actions.get_allocated_quantity(allocations, shared=True) == 1
+    assert mobile_actions.get_allocated_quantity(allocations) == 2  # обычная позиция считала бы 2
+    assert mobile_actions.get_available_quantity(asset, allocations) == 0
+
+
+def test_shared_asset_still_capped_per_holder(shared_conn):
+    mobile_actions.apply_issue(
+        shared_conn, {"assetId": "ast_ups", "employeeId": "emp_1", "quantity": 1}
+    )
+    with pytest.raises(mobile_actions.MobileActionError) as excinfo:
+        mobile_actions.apply_issue(
+            shared_conn, {"assetId": "ast_ups", "employeeId": "emp_1", "quantity": 1}
+        )
+    assert "доступно: 0" in str(excinfo.value)
+
+
+def test_shared_asset_in_repair_cannot_be_issued(shared_conn):
+    shared_conn.execute("UPDATE assets SET repair_quantity = 1 WHERE id = 'ast_ups'")
+    with pytest.raises(mobile_actions.MobileActionError):
+        mobile_actions.apply_issue(
+            shared_conn, {"assetId": "ast_ups", "employeeId": "emp_1", "quantity": 1}
+        )
+
+
+def test_non_shared_asset_still_blocks_the_second_holder(shared_conn):
+    """Контроль: без флага та же выдача двоим упирается в количество."""
+    shared_conn.execute("UPDATE assets SET is_shared = 0 WHERE id = 'ast_ups'")
+    mobile_actions.apply_issue(
+        shared_conn, {"assetId": "ast_ups", "employeeId": "emp_1", "quantity": 1}
+    )
+    with pytest.raises(mobile_actions.MobileActionError):
+        mobile_actions.apply_issue(
+            shared_conn, {"assetId": "ast_ups", "employeeId": "emp_2", "quantity": 1}
+        )
+
+
+def test_shared_asset_return_frees_only_that_holder(shared_conn):
+    for employee_id in ("emp_1", "emp_2"):
+        mobile_actions.apply_issue(
+            shared_conn, {"assetId": "ast_ups", "employeeId": employee_id, "quantity": 1}
+        )
+    mobile_actions.apply_return(
+        shared_conn, {"assetId": "ast_ups", "employeeId": "emp_1", "quantity": 1}
+    )
+    holders = _allocations(shared_conn, "ast_ups")
+    assert [row["employee_id"] for row in holders] == ["emp_2"]
+    asset = shared_conn.execute("SELECT * FROM assets WHERE id = 'ast_ups'").fetchone()
+    assert mobile_actions.get_available_quantity(asset, holders) == 0

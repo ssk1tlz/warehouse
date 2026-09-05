@@ -27,6 +27,7 @@ def _migrate_011(c): _add_column_if_missing(c, "employees", "status", "status TE
 def _migrate_012(c): _add_column_if_missing(c, "movements", "act_number", "act_number INTEGER")
 def _migrate_013(c): _add_column_if_missing(c, "movements", "department", "department TEXT NOT NULL DEFAULT ''")
 def _migrate_014(c): _add_column_if_missing(c, "movements", "site", "site TEXT NOT NULL DEFAULT ''")
+def _migrate_026(c): _add_column_if_missing(c, "assets", "is_shared", "is_shared INTEGER NOT NULL DEFAULT 0")
 
 
 def _migrate_015_asset_allocations_rebuild(connection: sqlite3.Connection) -> None:
@@ -206,6 +207,7 @@ MIGRATIONS: list[Migration] = [
     (23, "pairing_codes table", _migrate_023_pairing_codes_table),
     (24, "audit_log.actor", _migrate_024_audit_log_actor),
     (25, "assets.rev", _migrate_025_assets_rev),
+    (26, "assets.is_shared", _migrate_026),
 ]
 
 

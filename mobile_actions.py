@@ -36,14 +36,42 @@ class EditConflictError(MobileActionError):
         self.current_asset = current_asset
 
 
-def get_allocated_quantity(allocations: list[sqlite3.Row]) -> int:
-    return sum(int(row["quantity"] or 0) for row in allocations)
+def is_shared_asset(asset_row: sqlite3.Row) -> bool:
+    """Техника общего пользования — одну единицу держат несколько сотрудников."""
+    return bool(asset_row["is_shared"])
+
+
+def get_allocated_quantity(allocations: list[sqlite3.Row], *, shared: bool = False) -> int:
+    quantities = [int(row["quantity"] or 0) for row in allocations]
+    if not quantities:
+        return 0
+    # У общей позиции держатели пользуются одними и теми же единицами, поэтому
+    # занято ровно столько, сколько у самого «крупного» держателя, а не сумма.
+    return max(quantities) if shared else sum(quantities)
 
 
 def get_available_quantity(asset_row: sqlite3.Row, allocations: list[sqlite3.Row]) -> int:
-    allocated = get_allocated_quantity(allocations)
+    """Сколько единиц физически свободно (на складе)."""
+    allocated = get_allocated_quantity(allocations, shared=is_shared_asset(asset_row))
     repair = int(asset_row["repair_quantity"] or 0)
     return max(0, int(asset_row["quantity"] or 0) - allocated - repair)
+
+
+def get_issuable_quantity(
+    asset_row: sqlite3.Row,
+    allocations: list[sqlite3.Row],
+    existing: sqlite3.Row | None,
+) -> int:
+    """Сколько ещё можно выдать конкретному получателю.
+
+    Для обычной позиции это свободный остаток. Для общей — весь исправный запас
+    минус то, что за этим получателем уже числится: параллельные держатели друг
+    друга не ограничивают.
+    """
+    if not is_shared_asset(asset_row):
+        return get_available_quantity(asset_row, allocations)
+    capacity = max(0, int(asset_row["quantity"] or 0) - int(asset_row["repair_quantity"] or 0))
+    return max(0, capacity - (int(existing["quantity"] or 0) if existing is not None else 0))
 
 
 def find_employee_allocation(allocations: list[sqlite3.Row], employee_id: str) -> sqlite3.Row | None:
@@ -128,18 +156,18 @@ def apply_issue(connection: sqlite3.Connection, action: dict) -> None:
         raise MobileActionError("Выберите сотрудника, отдел или объект.")
 
     allocations = _load_allocations(connection, asset["id"])
-    available = get_available_quantity(asset, allocations)
-    if quantity > available:
-        raise MobileActionError(
-            f'Нельзя выдать {quantity} шт. По позиции "{asset["name"]}" доступно: {available}.'
-        )
-
     if employee_id:
         existing = find_employee_allocation(allocations, employee_id)
     elif site:
         existing = find_site_allocation(allocations, site)
     else:
         existing = find_department_allocation(allocations, department)
+
+    available = get_issuable_quantity(asset, allocations, existing)
+    if quantity > available:
+        raise MobileActionError(
+            f'Нельзя выдать {quantity} шт. По позиции "{asset["name"]}" доступно: {available}.'
+        )
 
     if existing is not None:
         connection.execute(

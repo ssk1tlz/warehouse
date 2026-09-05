@@ -191,12 +191,17 @@ def validate_state(payload: dict) -> str | None:
         qty = asset.get("quantity", 1)
         if not isinstance(qty, (int, float)) or qty < 0:
             return f"Invalid quantity for asset {asset.get('name')}."
-        allocated = 0
+        alloc_quantities = []
         for alloc in asset.get("allocations") or []:
             alloc_qty = alloc.get("quantity", 0)
             if not isinstance(alloc_qty, (int, float)) or alloc_qty < 0:
                 return f"Некорректное количество в выдаче по позиции «{asset.get('name')}»."
-            allocated += alloc_qty
+            alloc_quantities.append(alloc_qty)
+        # Техника общего пользования (ЮПС, МФУ, принтер на кабинет): одну и ту же
+        # единицу держат несколько сотрудников сразу, поэтому занято не «сумма по
+        # держателям», а максимум по ним — иначе выдача двоим сразу упиралась бы
+        # в общее количество.
+        allocated = (max(alloc_quantities) if asset.get("isShared") else sum(alloc_quantities)) if alloc_quantities else 0
         repair_qty = asset.get("repairQuantity", 0) or 0
         if not isinstance(repair_qty, (int, float)) or repair_qty < 0:
             return f"Некорректное количество в ремонте по позиции «{asset.get('name')}»."
@@ -312,7 +317,7 @@ def export_state() -> dict:
 
         assets = []
         for row in connection.execute(
-            "SELECT id, name, category, inventory_number, serial_number, purchase_date, status, notes, quantity, repair_quantity, retired_quantity, min_quantity, warranty_end, price, repair_date, location, photo_url, rev FROM assets ORDER BY name"
+            "SELECT id, name, category, inventory_number, serial_number, purchase_date, status, notes, quantity, repair_quantity, retired_quantity, min_quantity, warranty_end, price, repair_date, location, photo_url, rev, is_shared FROM assets ORDER BY name"
         ):
             assets.append(
                 {
@@ -334,6 +339,7 @@ def export_state() -> dict:
                     "location": row["location"] or "",
                     "photoUrl": row["photo_url"] or "",
                     "rev": row["rev"],
+                    "isShared": bool(row["is_shared"]),
                     "allocations": allocations_by_asset.get(row["id"], []),
                 }
             )
@@ -441,8 +447,8 @@ def import_state(payload: dict, actor: str) -> dict:
                 new_rev = old[7] + 1
             connection.execute(
                 """
-                INSERT INTO assets (id, name, category, inventory_number, serial_number, purchase_date, status, notes, quantity, repair_quantity, retired_quantity, min_quantity, warranty_end, price, repair_date, location, photo_url, rev)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO assets (id, name, category, inventory_number, serial_number, purchase_date, status, notes, quantity, repair_quantity, retired_quantity, min_quantity, warranty_end, price, repair_date, location, photo_url, rev, is_shared)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     asset.get("id"),
@@ -463,6 +469,7 @@ def import_state(payload: dict, actor: str) -> dict:
                     asset.get("location") or "",
                     asset.get("photoUrl") or "",
                     new_rev,
+                    1 if asset.get("isShared") else 0,
                 ),
             )
             for allocation in asset.get("allocations", []):

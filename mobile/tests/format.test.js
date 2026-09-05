@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { getAssetStatus, STATUS_LABELS, MOVEMENT_LABELS, holderLabel } = require('../www/js/format.js');
+const { getAssetStatus, STATUS_LABELS, MOVEMENT_LABELS, holderLabel, getAllocatedQuantity, getAvailableQuantity, getIssuableQuantity } = require('../www/js/format.js');
 
 test('in_stock when nothing is allocated', () => {
   assert.equal(getAssetStatus({ status: 'in_stock', quantity: 5, retiredQuantity: 0, repairQuantity: 0, allocations: [] }), 'in_stock');
@@ -73,4 +73,41 @@ test('holderLabel uses correct wording for department and site', () => {
 test('holderLabel returns unknown fallback when no employee, site, or department', () => {
   const employeesById = new Map();
   assert.equal(holderLabel({ employeeId: null, department: '', site: '' }, employeesById), 'Неизвестно');
+});
+
+// ─── Техника общего пользования ────────────────────────────────────────────
+
+const sharedUps = () => ({
+  status: 'in_stock', quantity: 1, retiredQuantity: 0, repairQuantity: 0, isShared: true,
+  allocations: [{ employeeId: 'emp_1', quantity: 1 }, { employeeId: 'emp_2', quantity: 1 }],
+});
+
+test('общая позиция: занято считается по максимуму держателя, а не суммой', () => {
+  assert.equal(getAllocatedQuantity(sharedUps()), 1);
+  assert.equal(getAllocatedQuantity({ ...sharedUps(), isShared: false }), 2);
+});
+
+test('общая позиция у двоих: на складе ноль, но выдать ещё одному можно', () => {
+  const asset = sharedUps();
+  assert.equal(getAvailableQuantity(asset), 0);
+  assert.equal(getIssuableQuantity(asset), 1);
+});
+
+test('общая позиция: тому, у кого она уже есть, второй раз не выдать', () => {
+  const asset = sharedUps();
+  assert.equal(getIssuableQuantity(asset, asset.allocations[0]), 0);
+});
+
+test('общая позиция в ремонте не выдаётся', () => {
+  assert.equal(getIssuableQuantity({ ...sharedUps(), repairQuantity: 1 }), 0);
+});
+
+test('обычная позиция: getIssuableQuantity равен свободному остатку', () => {
+  const asset = { status: 'in_stock', quantity: 5, retiredQuantity: 0, repairQuantity: 1, allocations: [{ quantity: 2 }] };
+  assert.equal(getIssuableQuantity(asset), 2);
+  assert.equal(getIssuableQuantity(asset), getAvailableQuantity(asset));
+});
+
+test('общая позиция у двоих числится выданной', () => {
+  assert.equal(getAssetStatus(sharedUps()), 'assigned');
 });

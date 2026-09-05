@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS assets (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT, inventory_number TEXT,
   serial_number TEXT, status TEXT, quantity INTEGER, repair_quantity INTEGER,
   retired_quantity INTEGER, location TEXT, purchase_date TEXT, warranty_end TEXT,
-  rev INTEGER NOT NULL DEFAULT 0
+  rev INTEGER NOT NULL DEFAULT 0, is_shared INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS employees (
   id TEXT PRIMARY KEY, full_name TEXT NOT NULL, department TEXT, site TEXT
@@ -40,6 +40,12 @@ async function open() {
   db = await sqliteConnection.createConnection(DB_NAME, false, 'no-encryption', 1, false);
   await db.open();
   await db.execute(SCHEMA);
+  try {
+    await db.execute('ALTER TABLE assets ADD COLUMN is_shared INTEGER NOT NULL DEFAULT 0');
+  } catch (err) {
+    // Та же история, что и с rev ниже: на свежей установке колонку уже создал
+    // CREATE TABLE, на обновлённой — предыдущий запуск.
+  }
   try {
     await db.execute('ALTER TABLE assets ADD COLUMN rev INTEGER NOT NULL DEFAULT 0');
   } catch (err) {
@@ -74,10 +80,11 @@ async function replaceState(state) {
   for (const a of state.assets) {
     txn.push({
       statement: `INSERT INTO assets (id, name, category, inventory_number, serial_number, status, quantity,
-       repair_quantity, retired_quantity, location, purchase_date, warranty_end, rev)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       repair_quantity, retired_quantity, location, purchase_date, warranty_end, rev, is_shared)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       values: [a.id, a.name, a.category, a.inventoryNumber, a.serialNumber, a.status, a.quantity,
-        a.repairQuantity, a.retiredQuantity, a.location, a.purchaseDate, a.warrantyEnd, a.rev || 0],
+        a.repairQuantity, a.retiredQuantity, a.location, a.purchaseDate, a.warrantyEnd, a.rev || 0,
+        a.isShared ? 1 : 0],
     });
     for (const alloc of a.allocations || []) {
       txn.push({
@@ -155,6 +162,7 @@ async function getAssetById(id) {
     purchaseDate: row.purchase_date,
     warrantyEnd: row.warranty_end,
     rev: row.rev,
+    isShared: Boolean(row.is_shared),
     allocations: allocResult.values.map((alloc) => ({
       employeeId: alloc.employee_id,
       department: alloc.department,
@@ -240,6 +248,7 @@ async function searchAssets(query, limit = 30) {
       quantity: row.quantity,
       repairQuantity: row.repair_quantity,
       retiredQuantity: row.retired_quantity,
+      isShared: Boolean(row.is_shared),
       allocations: allocResult.values.map((alloc) => ({
         employeeId: alloc.employee_id,
         department: alloc.department,

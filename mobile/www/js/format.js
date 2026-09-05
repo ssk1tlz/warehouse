@@ -17,12 +17,32 @@ const MOVEMENT_LABELS = {
   delete: 'Удаление',
 };
 
-function getAllocatedQuantity(asset) {
-  return (asset.allocations || []).reduce((sum, a) => sum + Number(a.quantity || 0), 0);
+// Техника общего пользования (ЮПС, МФУ, принтер на кабинет): одну и ту же
+// единицу одновременно держат несколько сотрудников.
+function isSharedAsset(asset) {
+  return Boolean(asset && asset.isShared);
 }
 
+function getAllocatedQuantity(asset) {
+  const quantities = (asset.allocations || []).map((a) => Number(a.quantity || 0));
+  if (!quantities.length) return 0;
+  // У общей позиции держатели делят одни и те же единицы, поэтому занято
+  // столько, сколько у самого «крупного» держателя, а не сумма по всем.
+  return isSharedAsset(asset) ? Math.max(...quantities) : quantities.reduce((sum, q) => sum + q, 0);
+}
+
+// Сколько единиц физически свободно (лежит на складе).
 function getAvailableQuantity(asset) {
   return Math.max(0, Number(asset.quantity || 0) - getAllocatedQuantity(asset) - Number(asset.repairQuantity || 0));
+}
+
+// Сколько ещё можно выдать конкретному получателю: для обычной позиции это
+// свободный остаток, для общей — весь исправный запас за вычетом того, что за
+// этим получателем уже числится (другие держатели ему не мешают).
+function getIssuableQuantity(asset, holderAllocation) {
+  if (!isSharedAsset(asset)) return getAvailableQuantity(asset);
+  const capacity = Math.max(0, Number(asset.quantity || 0) - Number(asset.repairQuantity || 0));
+  return Math.max(0, capacity - Number((holderAllocation && holderAllocation.quantity) || 0));
 }
 
 function getAssetStatus(asset) {
@@ -46,8 +66,8 @@ function holderLabel(allocation, employeesById) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { getAssetStatus, STATUS_LABELS, MOVEMENT_LABELS, holderLabel, getAvailableQuantity, getAllocatedQuantity };
+  module.exports = { getAssetStatus, STATUS_LABELS, MOVEMENT_LABELS, holderLabel, getAvailableQuantity, getAllocatedQuantity, getIssuableQuantity, isSharedAsset };
 }
 if (typeof window !== 'undefined') {
-  Object.assign(window, { getAssetStatus, STATUS_LABELS, MOVEMENT_LABELS, holderLabel, getAvailableQuantity, getAllocatedQuantity });
+  Object.assign(window, { getAssetStatus, STATUS_LABELS, MOVEMENT_LABELS, holderLabel, getAvailableQuantity, getAllocatedQuantity, getIssuableQuantity, isSharedAsset });
 }

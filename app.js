@@ -296,6 +296,7 @@ function normalizeAsset(asset) {
     repairQuantity: Math.max(0, Number(asset.repairQuantity || 0)),
     retiredQuantity: Math.max(0, Number(asset.retiredQuantity || 0)),
     minQuantity: Math.max(0, Number(asset.minQuantity || 0)),
+    isShared: Boolean(asset.isShared),
     warrantyEnd: asset.warrantyEnd || "",
     price: Math.max(0, Number(asset.price || 0)),
     repairDate: asset.repairDate || "",
@@ -411,12 +412,32 @@ function getEmployeeById(id) { return _employeeMap.get(id) || null; }
 
 function getAssetById(id) { return _assetMap.get(id) || null; }
 
-function getAllocatedQuantity(asset) {
-  return asset.allocations.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
+// Техника общего пользования (ЮПС, МФУ, принтер на кабинет): одну и ту же
+// единицу одновременно держат несколько сотрудников.
+function isSharedAsset(asset) {
+  return Boolean(asset && asset.isShared);
 }
 
+function getAllocatedQuantity(asset) {
+  const quantities = asset.allocations.map((entry) => Number(entry.quantity || 0));
+  if (!quantities.length) return 0;
+  // У общей позиции держатели делят одни и те же единицы, поэтому занято
+  // столько, сколько у самого «крупного» держателя, а не сумма по всем.
+  return isSharedAsset(asset) ? Math.max(...quantities) : quantities.reduce((sum, q) => sum + q, 0);
+}
+
+// Сколько единиц физически свободно (лежит на складе).
 function getAvailableQuantity(asset) {
   return Math.max(0, Number(asset.quantity || 0) - getAllocatedQuantity(asset) - Number(asset.repairQuantity || 0));
+}
+
+// Сколько ещё можно выдать конкретному получателю: для обычной позиции это
+// свободный остаток, для общей — весь исправный запас за вычетом того, что за
+// этим получателем уже числится (другие держатели ему не мешают).
+function getIssuableQuantity(asset, holderAllocation) {
+  if (!isSharedAsset(asset)) return getAvailableQuantity(asset);
+  const capacity = Math.max(0, Number(asset.quantity || 0) - Number(asset.repairQuantity || 0));
+  return Math.max(0, capacity - Number((holderAllocation && holderAllocation.quantity) || 0));
 }
 
 function getEmployeeAllocation(asset, employeeId) {
@@ -772,7 +793,7 @@ function renderAssetsTable() {
     return `<tr${lowStock ? ' class="low-stock-row"' : ''}>
       <td><input type="checkbox" class="asset-bulk-check" data-id="${asset.id}"></td>
       <td>${asset.inventoryNumber || "-"}</td>
-      <td><strong>${asset.name}</strong><div class="muted">${asset.serialNumber || "Без серийного номера"}</div>${asset.price ? `<div class="muted">${Number(asset.price).toLocaleString("uz")} Sum</div>` : ""}</td>
+      <td><strong>${asset.name}</strong>${isSharedAsset(asset) ? ' <span class="chip teal sm" title="Общее пользование: выдаётся нескольким сотрудникам сразу">общая</span>' : ""}<div class="muted">${asset.serialNumber || "Без серийного номера"}</div>${asset.price ? `<div class="muted">${Number(asset.price).toLocaleString("uz")} Sum</div>` : ""}</td>
       <td>${asset.category}</td>
       <td>${statusChip(getAssetStatus(asset))}</td>
       <td>${asset.quantity}${lowStock ? ` <span class="chip danger">мин.${asset.minQuantity}</span>` : ""}</td>
@@ -875,7 +896,7 @@ function renderRegistry() {
       <td class="${ec} reg-name" contenteditable="true" data-field="name" ${t}>${escapeHtml(asset.name || "")}</td>
       <td class="${ec}" contenteditable="true" data-field="category" ${t}>${escapeHtml(asset.category || "")}</td>
       <td class="${ec}" contenteditable="true" data-field="location" ${t}>${escapeHtml(asset.location || "")}</td>
-      <td>${statusChip(status)}</td>
+      <td>${statusChip(status)}${isSharedAsset(asset) ? ' <span class="chip teal sm" title="Общее пользование: выдаётся нескольким сотрудникам сразу">общая</span>' : ""}</td>
       <td class="${ec} reg-num" contenteditable="true" data-field="quantity" ${t}>${asset.quantity}</td>
       <td>${available}</td>
       <td>${allocated}</td>
@@ -1881,7 +1902,7 @@ function renderReports() {
 }
 
 function getIssueAssets() {
-  return state.assets.filter((asset) => getAvailableQuantity(asset) > 0 && asset.status !== "repair" && asset.status !== "retired");
+  return state.assets.filter((asset) => getIssuableQuantity(asset) > 0 && asset.status !== "repair" && asset.status !== "retired");
 }
 
 function getReturnAssets(employeeId) {
@@ -2028,6 +2049,7 @@ function updateManualActAssetOptions() {
         const allocation = getEmployeeAllocation(asset, employeeId);
         return `на руках: ${allocation ? allocation.quantity : 0}`;
       }
+      if (isSharedAsset(asset)) return `общая, у ${asset.allocations.length} чел.`;
       return `остаток: ${getAvailableQuantity(asset)}`;
     }, selected);
   });
@@ -2037,7 +2059,9 @@ function updateIssueAssetOptions() {
   const issueAssets = getIssueAssets();
   dom.issueItems.querySelectorAll(".issue-asset-select").forEach((select) => {
     const selected = select.value;
-    select.innerHTML = makeAssetOptions(issueAssets, (asset) => `остаток: ${getAvailableQuantity(asset)}`, selected);
+    select.innerHTML = makeAssetOptions(issueAssets, (asset) => (isSharedAsset(asset)
+      ? `общая, у ${asset.allocations.length} чел.`
+      : `остаток: ${getAvailableQuantity(asset)}`), selected);
   });
 }
 
@@ -2366,6 +2390,7 @@ function duplicateAsset(assetId) {
   form.elements.status.value = "in_stock";
   form.elements.notes.value = "";
   if (form.elements.minQuantity) form.elements.minQuantity.value = asset.minQuantity || 0;
+  if (form.elements.isShared) form.elements.isShared.checked = Boolean(asset.isShared);
   if (form.elements.warrantyEnd) form.elements.warrantyEnd.value = "";
   if (form.elements.price) form.elements.price.value = asset.price || 0;
   if (form.elements.location) form.elements.location.value = asset.location || "";
@@ -2558,6 +2583,7 @@ function enterAssetEditMode(assetId) {
   dom.assetForm.elements.status.value = asset.status;
   dom.assetForm.elements.notes.value = asset.notes;
   if (dom.assetForm.elements.minQuantity) dom.assetForm.elements.minQuantity.value = asset.minQuantity || 0;
+  if (dom.assetForm.elements.isShared) dom.assetForm.elements.isShared.checked = Boolean(asset.isShared);
   if (dom.assetForm.elements.warrantyEnd) dom.assetForm.elements.warrantyEnd.value = asset.warrantyEnd || "";
   if (dom.assetForm.elements.price) dom.assetForm.elements.price.value = asset.price || 0;
   if (dom.assetForm.elements.location) dom.assetForm.elements.location.value = asset.location || "";
@@ -2688,6 +2714,7 @@ async function handleAssetSubmit(event) {
     asset.purchaseDate = formData.get("purchaseDate") || "";
     asset.status = formData.get("status") || "in_stock";
     asset.notes = String(formData.get("notes") || "").trim();
+    asset.isShared = formData.get("isShared") === "on";
     asset.quantity = Math.max(getAllocatedQuantity(asset), quantity);
     asset.minQuantity = Math.max(0, Number(formData.get("minQuantity") || 0));
     asset.warrantyEnd = formData.get("warrantyEnd") || "";
@@ -2712,6 +2739,7 @@ async function handleAssetSubmit(event) {
       notes: String(formData.get("notes") || "").trim(),
       quantity,
       minQuantity: Math.max(0, Number(formData.get("minQuantity") || 0)),
+      isShared: formData.get("isShared") === "on",
       warrantyEnd: formData.get("warrantyEnd") || "",
       price: Math.max(0, Number(formData.get("price") || 0)),
       location: String(formData.get("location") || "").trim(),
@@ -2819,13 +2847,16 @@ async function handleIssueSubmit(event) {
     showToast('Выберите технику для выдачи.', 'warning');
     return;
   }
+  const findHolderAllocation = (asset) => (employeeId
+    ? getEmployeeAllocation(asset, employeeId)
+    : (target === "site" ? getSiteAllocation(asset, siteName) : getDepartmentAllocation(asset, departmentName)));
   for (const [assetId, quantity] of aggregated.entries()) {
     const asset = getAssetById(assetId);
     if (!asset) {
       showToast('Одна из выбранных позиций не найдена.', 'error');
       return;
     }
-    const available = getAvailableQuantity(asset);
+    const available = getIssuableQuantity(asset, findHolderAllocation(asset));
     if (quantity > available) {
       showToast(`Нельзя выдать ${quantity} шт. По позиции "${asset.name}" доступно: ${available}.`, 'warning');
       return;

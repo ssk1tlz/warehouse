@@ -46,7 +46,8 @@ async function openAssetScreen(assetId) {
   const tone = status === 'assigned' || status === 'partial' ? 'warn' : status === 'repair' || status === 'retired' ? 'danger' : 'ok';
   statusEl.className = `pill ${tone}`;
   document.getElementById('assetMeta').textContent =
-    `${asset.category || '—'} · Инв. № ${asset.inventoryNumber || '—'} · С/н ${asset.serialNumber || '—'} · ${asset.location || '—'}`;
+    `${asset.category || '—'} · Инв. № ${asset.inventoryNumber || '—'} · С/н ${asset.serialNumber || '—'} · ${asset.location || '—'}`
+    + (isSharedAsset(asset) ? ' · Общее пользование' : '');
 
   const holdersEl = document.getElementById('assetHolders');
   holdersEl.innerHTML = '';
@@ -76,7 +77,9 @@ async function openAssetScreen(assetId) {
   const actionsEl = document.getElementById('assetActions');
   actionsEl.innerHTML = '';
   const available = getAvailableQuantity(asset);
-  if (available > 0) addActionButton(actionsEl, 'issue', 'Выдать');
+  // «Выдать» отдельно от available: у общей позиции склад может быть пуст
+  // (единица уже у кого-то), но выдать её ещё одному сотруднику можно.
+  if (getIssuableQuantity(asset) > 0) addActionButton(actionsEl, 'issue', 'Выдать');
   if (asset.allocations.length) addActionButton(actionsEl, 'return', 'Принять возврат');
   if (available > 0) addActionButton(actionsEl, 'repair', 'В ремонт');
   if (asset.repairQuantity > 0) addActionButton(actionsEl, 'repair_return', 'Вернуть из ремонта');
