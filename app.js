@@ -3913,6 +3913,8 @@ function bindEvents() {
   });
   document.getElementById("labelSelectAllBtn")?.addEventListener("click", () => labelSelectAll(true));
   document.getElementById("labelDeselectAllBtn")?.addEventListener("click", () => labelSelectAll(false));
+  document.getElementById("labelSizeSelect")?.addEventListener("change", updateLabelSizeHint);
+  document.getElementById("labelColsInput")?.addEventListener("input", updateLabelSizeHint);
   document.getElementById("labelSearchInput")?.addEventListener("input", debounce(renderLabelGrid));
   document.getElementById("labelFilterCategory")?.addEventListener("change", renderLabelGrid);
   document.getElementById("labelFilterLocation")?.addEventListener("change", renderLabelGrid);
@@ -4162,6 +4164,7 @@ function openLabelsModal() {
   document.getElementById("labelsOverlay").classList.remove("hidden");
   populateLabelFilterDropdowns();
   renderLabelGrid();
+  updateLabelSizeHint();
 }
 
 function closeLabelsModal() {
@@ -4773,17 +4776,20 @@ function drawLabelOnCanvas(ctx, asset, x0mm, y0mm, wMm, hMm, opts, S) {
   }
 }
 
-// Лист печати — A4 альбомный: четыре этикетки по 58 мм (232 мм) в книжную
-// ширину 210 мм не помещаются, а в альбомную 297 мм — да.
-const SHEET_W_MM = 297, SHEET_H_MM = 210;
-const PAGE_MARGIN_MIN_MM = 5;   // непечатаемая кромка принтера
+// Лист печати — A4 книжный. Этикетки лежат вплотную и заполняют лист без
+// остатка: от края бумаги до стикера остаётся SHEET_MARGIN_MM, а вся
+// оставшаяся площадь делится между колонками и рядами нацело. Поэтому
+// размер этикетки здесь — следствие раскладки, а не наоборот: из списка
+// размеров берётся только высота, и то как ориентир для числа рядов.
+const SHEET_W_MM = 210, SHEET_H_MM = 297;
+const SHEET_MARGIN_MM = 4.65;   // поле от края листа до стикера
 
 // Read current label modal settings (size, columns, toggles) + selected labels,
 // and compute the sheet layout shared by print, preview, JPG, PDF and Word.
 function getLabelSheetPlan() {
   const items = getSelectedLabelItems();
-  const { w, h } = getLabelSize();
-  const cols = Math.max(1, parseInt(document.getElementById('labelColsInput')?.value || 4));
+  const nominal = getLabelSize();
+  const cols = Math.max(1, parseInt(document.getElementById('labelColsInput')?.value || 5));
   const opts = {
     showInv: document.getElementById('labelInvCheck')?.checked ?? true,
     showQr: document.getElementById('labelQrCheck')?.checked ?? true,
@@ -4794,18 +4800,29 @@ function getLabelSheetPlan() {
 
   // Ячейка равна самой этикетке: зазора между ними нет, соседние рамки
   // ложатся на одну линию и образуют сплошную сетку реза.
-  const colsFit = Math.max(1, Math.floor((SHEET_W_MM - PAGE_MARGIN_MIN_MM * 2) / w));
-  const useCols = Math.max(1, Math.min(cols, colsFit));
-  const rowsPerPage = Math.max(1, Math.floor((SHEET_H_MM - PAGE_MARGIN_MIN_MM * 2) / h));
-  // Полный блок сетки центрируется на листе — независимо от того, сколько
-  // этикеток реально попало на последнюю страницу.
-  const offsetXmm = Math.max(0, (SHEET_W_MM - useCols * w) / 2);
-  const offsetYmm = Math.max(0, (SHEET_H_MM - rowsPerPage * h) / 2);
+  const areaW = SHEET_W_MM - SHEET_MARGIN_MM * 2;
+  const areaH = SHEET_H_MM - SHEET_MARGIN_MM * 2;
+  const useCols = cols;
+  const w = areaW / useCols;
+  // Рядов столько, сколько ближе всего к номинальной высоте; дальше высота
+  // растягивается, чтобы ряды легли ровно от поля до поля.
+  const rowsPerPage = Math.max(1, Math.round(areaH / nominal.h));
+  const h = areaH / rowsPerPage;
+  const offsetXmm = SHEET_MARGIN_MM, offsetYmm = SHEET_MARGIN_MM;
   const perPage = useCols * rowsPerPage;
   const pageCount = Math.max(1, Math.ceil(labels.length / perPage));
 
   return { labels, w, h, opts, sheetW: SHEET_W_MM, sheetH: SHEET_H_MM,
            offsetXmm, offsetYmm, useCols, rowsPerPage, perPage, pageCount };
+}
+
+// Фактический размер этикетки — производная от раскладки, а не от списка
+// размеров, поэтому показываем его рядом с настройками.
+function updateLabelSizeHint() {
+  const el = document.getElementById('labelSizeHint');
+  if (!el) return;
+  const { w, h, useCols, rowsPerPage, perPage } = getLabelSheetPlan();
+  el.textContent = `Факт. размер: ${w.toFixed(1)} × ${h.toFixed(1)} мм · сетка ${useCols} × ${rowsPerPage} = ${perPage} на листе`;
 }
 
 // Render one sheet of labels onto a fresh canvas at the given pixels-per-mm scale.
@@ -4874,7 +4891,7 @@ function renderLabelPreviewPage() {
   canvas.style.display = 'block';
   holder.innerHTML = '';
   holder.appendChild(canvas);
-  if (info) info.textContent = `Лист ${_labelPreviewPage + 1} из ${plan.pageCount} · ${plan.labels.length} этикеток`;
+  if (info) info.textContent = `Лист ${_labelPreviewPage + 1} из ${plan.pageCount} · ${plan.labels.length} этикеток · ${plan.w.toFixed(1)} × ${plan.h.toFixed(1)} мм`;
   const prev = document.getElementById('labelPreviewPrev');
   const next = document.getElementById('labelPreviewNext');
   if (prev) prev.disabled = _labelPreviewPage <= 0;
@@ -4891,7 +4908,7 @@ function labelPreviewNav(delta) {
 function printLabels() {
   const plan = getLabelSheetPlan();
   if (!plan.labels.length) { showToast('Выберите хотя бы одну позицию.', 'warning'); return; }
-  const { labels, w, h, opts, sheetW, sheetH, offsetYmm, useCols, perPage, pageCount } = plan;
+  const { labels, w, h, opts, sheetW, sheetH, offsetYmm, useCols, rowsPerPage, perPage, pageCount } = plan;
 
   // Одна .sheet-обёртка на страницу — разрывы страниц ложатся ровно туда же,
   // где их показывает предпросмотр и куда их ставят экспорты JPG/PDF.
@@ -4910,11 +4927,11 @@ function printLabels() {
   if (!pw) return;
   pw.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Этикетки</title>
   <style>
-    @page { size: A4 landscape; margin: 0; }
+    @page { size: A4 portrait; margin: 0; }
     * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body { font-family: Arial, sans-serif; background: #fff; margin: 0; }
-    /* Высота листа не задаётся: padding-top + сетка заведомо короче ${sheetH}мм,
-       а лишняя высота выдавила бы пустую страницу после разрыва. */
+    /* Высота .sheet не задаётся: поле сверху + сетка = ${(offsetYmm + rowsPerPage * h).toFixed(2)}мм
+       при ${sheetH}мм страницы, а лишний миллиметр выдавил бы пустую страницу. */
     .sheet { width: ${sheetW}mm; padding-top: ${offsetYmm}mm; page-break-after: always; }
     .sheet:last-child { page-break-after: auto; }
     table { border-collapse: collapse; table-layout: fixed; width: ${useCols * w}mm; margin: 0 auto; }
@@ -5037,7 +5054,7 @@ function exportLabelsWord() {
 <title>Этикетки</title>
 <!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
 <style>
-  @page { size: ${sheetW}mm ${sheetH}mm; margin: ${offsetYmm}mm ${offsetXmm}mm; mso-page-orientation: landscape; }
+  @page { size: ${sheetW}mm ${sheetH}mm; margin: ${offsetYmm}mm ${offsetXmm}mm; }
   body { font-family: Arial, sans-serif; }
   table { border-collapse: collapse; table-layout: fixed; width: ${useCols * w}mm; }
   td { padding: 0; vertical-align: top; }
@@ -5122,7 +5139,7 @@ function exportLabelsPdf() {
   // Страницы рендерятся тем же canvas-движком, что JPG и предпросмотр
   // (полная поддержка кириллицы), и вкладываются в PDF как JPEG 300 dpi.
   const S = 300 / 25.4;
-  const PW = 841.89, PH = 595.28; // A4 альбомный, в pt
+  const PW = 595.28, PH = 841.89; // A4 книжный, в pt
   const pages = [];
   for (let pg = 0; pg < plan.pageCount; pg++) {
     const canvas = renderLabelSheet(plan, pg, S);

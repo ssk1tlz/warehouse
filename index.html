@@ -924,8 +924,8 @@
             <option value="40x30">40×30 мм (малая)</option>
           </select>
         </label>
-        <label>Столбцов на листе (A4 альбомный)
-          <input type="number" id="labelColsInput" value="4" min="1" max="6">
+        <label>Столбцов на листе (A4 книжный)
+          <input type="number" id="labelColsInput" value="5" min="1" max="8">
         </label>
         <label style="gap:6px">Инв. номер
           <input type="checkbox" id="labelInvCheck" checked style="width:15px;height:15px;accent-color:var(--brand)">
@@ -936,6 +936,7 @@
         <label style="gap:6px">Локация
           <input type="checkbox" id="labelLocCheck" style="width:15px;height:15px;accent-color:var(--brand)">
         </label>
+        <span class="label-size-hint" id="labelSizeHint"></span>
       </div>
       <div class="label-select-actions">
         <button type="button" class="secondary" id="labelSelectAllBtn">Выбрать все</button>

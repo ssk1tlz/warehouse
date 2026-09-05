@@ -2042,6 +2042,14 @@ button.users-qr-btn:hover { background: var(--brand-dim); color: var(--brand-lig
   border-radius: var(--r);
 }
 
+.label-size-hint {
+  margin-left: auto;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--text-2);
+  letter-spacing: 0.03em;
+}
+
 .label-controls label {
   display: flex;
   align-items: center;
