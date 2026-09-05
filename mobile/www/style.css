@@ -167,13 +167,12 @@ li {
 #assetActions { display: flex; flex-wrap: wrap; gap: 8px; }
 #assetActions button { flex: 1 1 calc(50% - 4px); }
 
-/* ─── BOTTOM NAV — two pills split by the raised scan button ─────── */
-/* Раньше это был один сплошной «пилюльный» ряд из 5 кнопок. Теперь ряд
-   разбит на две группы по две кнопки с подписями, а между ними — круглая
-   кнопка сканирования: она не абсолютная, а обычный флекс-ребёнок между
-   группами, поэтому симметрия держится сама, без ручной подгонки колонок.
-   Сама панель прозрачная: фон и тень несут группы, за счёт чего между
-   ними получается «вырез» под кнопку. */
+/* ─── BOTTOM NAV — single pill with the scan button over its centre ── */
+/* Панель — одна сплошная «пилюля» на все четыре пункта; кнопка
+   сканирования стоит по её центру обычным флекс-ребёнком между двумя
+   группами по две кнопки. Группы нужны только для раскладки (равная
+   ширина слева и справа от кнопки), своего фона у них нет — иначе панель
+   визуально разрезалась бы надвое. */
 .bottom-nav {
   position: fixed;
   left: 12px;
@@ -181,7 +180,12 @@ li {
   bottom: calc(14px + env(safe-area-inset-bottom));
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  padding: 8px 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 30px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.45);
   z-index: 20;
 }
 
@@ -191,11 +195,6 @@ li {
   display: flex;
   justify-content: space-around;
   gap: 2px;
-  padding: 8px 4px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 26px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.45);
 }
 
 .nav-item {
@@ -254,8 +253,9 @@ li {
    и вверх, и вниз за их края: это главное действие приложения. */
 .nav-scan {
   flex-shrink: 0;
-  width: 58px;
-  height: 58px;
+  width: 60px;
+  height: 60px;
+  margin: 0 2px;
   border-radius: 50%;
   background: var(--brand);
   color: #fff;
@@ -264,10 +264,10 @@ li {
   justify-content: center;
   padding: 0;
   border: 0;
-  box-shadow: 0 0 0 7px rgba(59,130,246,0.13), 0 10px 26px var(--brand-glow);
+  box-shadow: 0 0 0 6px rgba(59,130,246,0.12), 0 8px 22px var(--brand-glow);
 }
 .nav-scan svg { width: 29px; height: 29px; }
-.nav-scan:active { background: var(--brand-2); box-shadow: 0 0 0 5px rgba(59,130,246,0.18); }
+.nav-scan:active { background: var(--brand-2); box-shadow: 0 0 0 4px rgba(59,130,246,0.2); }
 
 /* Очень узкие экраны: подписи убираем, иначе они начинают обрезаться. */
 @media (max-width: 340px) {
