@@ -40,6 +40,7 @@ async function openAssetScreen(assetId) {
   const employees = await Db.listEmployeesById();
   currentEmployees = employees;
   const status = getAssetStatus(asset);
+  document.getElementById('assetName').textContent = asset.name;
   const statusEl = document.getElementById('assetStatus');
   statusEl.textContent = STATUS_LABELS[status] || asset.status;
   const tone = status === 'assigned' || status === 'partial' ? 'warn' : status === 'repair' || status === 'retired' ? 'danger' : 'ok';
