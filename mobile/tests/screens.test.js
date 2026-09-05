@@ -114,3 +114,101 @@ test('summarizeOffboarding reports remaining items when allocations exist', () =
   assert.equal(result.total, 3);
   assert.equal(result.remaining, 3);
 });
+
+// Minimal fake DOM sufficient for quickReturnFromEmployee's re-render path
+// (openEmployeeDetailScreen -> showScreen), without pulling in a real DOM
+// library the project doesn't otherwise depend on.
+function makeFakeDocument() {
+  function makeElement() {
+    const classes = new Set();
+    return {
+      classList: {
+        add: (c) => classes.add(c),
+        remove: (c) => classes.delete(c),
+        toggle: (c, force) => {
+          const want = force === undefined ? !classes.has(c) : Boolean(force);
+          if (want) classes.add(c); else classes.delete(c);
+        },
+        contains: (c) => classes.has(c),
+      },
+      children: [],
+      textContent: '',
+      innerHTML: '',
+      appendChild(child) { this.children.push(child); return child; },
+      append(...items) { this.children.push(...items); },
+      addEventListener() {},
+      removeAttribute() {},
+      setAttribute() {},
+      querySelectorAll: () => [],
+    };
+  }
+  const byId = new Map();
+  return {
+    getElementById(id) {
+      if (!byId.has(id)) byId.set(id, makeElement());
+      return byId.get(id);
+    },
+    createElement: () => makeElement(),
+    querySelectorAll: () => [],
+  };
+}
+
+test('quickReturnFromEmployee ignores a second rapid call on an already-disabled button (double-submission guard)', async () => {
+  const { quickReturnFromEmployee } = require('../www/js/screens.js');
+  const enqueued = [];
+  global.document = makeFakeDocument();
+  global.Db = {
+    enqueueAction: async (payload) => { enqueued.push(payload); },
+    listPendingActions: async () => [],
+    getStateMeta: async () => ({}),
+    searchEmployees: async () => [{ id: 'emp1', fullName: 'Иванов И.И.', status: 'inactive' }],
+    getAllocationsForEmployee: async () => [],
+  };
+  global.Toast = { show: () => {} };
+  global.Sync = { run: async () => ({ pulled: true, needsReauth: false }) };
+  global.ConnStatus = { report: () => {} };
+  try {
+    const returnBtn = { disabled: false };
+    // Two "rapid" calls sharing the same button, as a fast double-tap would
+    // produce: the second call must observe the button already disabled
+    // (set synchronously before the first `await` in quickReturnFromEmployee)
+    // and bail out without enqueueing a second return.
+    const p1 = quickReturnFromEmployee('emp1', 'ast_1', 2, returnBtn);
+    const p2 = quickReturnFromEmployee('emp1', 'ast_1', 2, returnBtn);
+    await Promise.all([p1, p2]);
+    assert.equal(enqueued.length, 1, 'only the first call should enqueue a return');
+    assert.equal(returnBtn.disabled, true);
+  } finally {
+    delete global.document;
+    delete global.Db;
+    delete global.Toast;
+    delete global.Sync;
+    delete global.ConnStatus;
+  }
+});
+
+test('quickReturnFromEmployee still enqueues when called without a button (defensive: no 4th arg)', async () => {
+  const { quickReturnFromEmployee } = require('../www/js/screens.js');
+  const enqueued = [];
+  global.document = makeFakeDocument();
+  global.Db = {
+    enqueueAction: async (payload) => { enqueued.push(payload); },
+    listPendingActions: async () => [],
+    getStateMeta: async () => ({}),
+    searchEmployees: async () => [{ id: 'emp1', fullName: 'Иванов И.И.', status: 'inactive' }],
+    getAllocationsForEmployee: async () => [],
+  };
+  global.Toast = { show: () => {} };
+  global.Sync = { run: async () => ({ pulled: true, needsReauth: false }) };
+  global.ConnStatus = { report: () => {} };
+  try {
+    await quickReturnFromEmployee('emp1', 'ast_1', 2);
+    assert.equal(enqueued.length, 1);
+  } finally {
+    delete global.document;
+    delete global.Db;
+    delete global.Toast;
+    delete global.Sync;
+    delete global.ConnStatus;
+  }
+});

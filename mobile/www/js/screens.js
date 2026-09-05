@@ -479,7 +479,7 @@ async function openEmployeeDetailScreen(employeeId) {
       returnBtn.className = 'employee-return-btn';
       returnBtn.textContent = 'Вернуть';
       returnBtn.addEventListener('click', () => {
-        quickReturnFromEmployee(employeeId, alloc.assetId, alloc.quantity);
+        quickReturnFromEmployee(employeeId, alloc.assetId, alloc.quantity, returnBtn);
       });
       li.append(text, returnBtn);
       listEl.appendChild(li);
@@ -496,7 +496,17 @@ async function openEmployeeDetailScreen(employeeId) {
   showScreen('screen-employee-detail');
 }
 
-async function quickReturnFromEmployee(employeeId, assetId, quantity) {
+async function quickReturnFromEmployee(employeeId, assetId, quantity, returnBtn) {
+  // Double-submission guard: openEmployeeDetailScreen() at the end of this
+  // function re-renders (and thus replaces) returnBtn, but that re-render is
+  // itself async — a fast double-tap on the same button before it completes
+  // would otherwise enqueue the same return twice. Disabling synchronously,
+  // before the first `await`, makes the second click a no-op; the re-render
+  // below then builds a fresh (enabled) button for the next return anyway.
+  if (returnBtn) {
+    if (returnBtn.disabled) return;
+    returnBtn.disabled = true;
+  }
   await Db.enqueueAction({
     type: 'return',
     assetId,
@@ -1004,7 +1014,7 @@ function initSwipeBack() {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { describeScanError, describeUpdate, reconcileInventory, renderAttentionBadgeText, summarizeOffboarding };
+  module.exports = { describeScanError, describeUpdate, reconcileInventory, renderAttentionBadgeText, summarizeOffboarding, quickReturnFromEmployee };
 }
 if (typeof window !== 'undefined') {
   window.App = { init };
