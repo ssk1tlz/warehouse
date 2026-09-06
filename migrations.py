@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import re
 import sqlite3
 from datetime import datetime, timezone
 from typing import Callable
+
+import asset_codes
 
 Migration = tuple[int, str, "Callable[[sqlite3.Connection], None]"]
 
@@ -210,6 +213,112 @@ def _migrate_027_label_printed_at(c):
     _add_column_if_missing(c, "assets", "label_printed_at", "label_printed_at TEXT")
 
 
+_BARE_NUMBER_RE = re.compile(r"^(\d+)$")
+_PREFIXED_NUMBER_RE = re.compile(r"^([A-Za-z]+)-(\d+)$")
+
+
+def _renumber_order_key(row: sqlite3.Row) -> tuple[int, int, str]:
+    """Порядок, в котором активы получают новые номера.
+
+    Сначала голая нумерация (001-181) в порядке возрастания, затем уже
+    префиксные номера, затем всё остальное. Смысл в том, чтобы 175 единиц
+    с привычными номерами сохранили и порядок, и — по возможности — сами
+    числа: голый "008" становится MON-0008, а не уезжает в середину
+    списка. Префиксные проставлены позже и оказываются в конце.
+
+    Третий элемент ключа — id, чтобы порядок был устойчивым у строк без
+    разбираемого номера и результат не зависел от порядка выдачи SQLite.
+    """
+    raw = (row["inventory_number"] or "").strip()
+    bare = _BARE_NUMBER_RE.match(raw)
+    if bare:
+        return (0, int(bare.group(1)), row["id"])
+    prefixed = _PREFIXED_NUMBER_RE.match(raw)
+    if prefixed:
+        return (1, int(prefixed.group(2)), row["id"])
+    return (2, 0, row["id"])
+
+
+def _migrate_028_asset_code_renumber(connection: sqlite3.Connection) -> None:
+    """Сводит инвентарные номера к сквозному виду ПРЕФИКС-NNNN.
+
+    До этой миграции в базе два несовместимых формата: 175 единиц с голой
+    нумерацией 001-181 и 28 с буквенным префиксом 0001-0029. Числовые
+    части пересекаются — голый "001" и "SVR-0001" это одно и то же число
+    у разных единиц, — поэтому просто дописать буквы нельзя, нужна
+    сквозная перенумерация.
+
+    Буквы у уже префиксных строк сохраняются как есть, даже когда
+    расходятся с правилами справочника: RTR-0007 ("Без категории" /
+    "Opical Network Terminal") и UPS-0004 (категория "Периферийные
+    устройства") проставлены вручную осознанно. Меняется только число.
+
+    rev растёт у каждой изменённой строки, иначе мобильное приложение с
+    закэшированной карточкой не увидит новый номер. state_version растёт
+    один раз, чтобы открытый на компьютере интерфейс получил 409 на
+    следующем сохранении и перезагрузил данные вместо записи старых
+    номеров поверх новых.
+    """
+    table = connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='assets'"
+    ).fetchone()
+    if table is None:
+        return
+
+    # Самая старая форма assets — только id, name, quantity. schema.sql её
+    # не чинит (CREATE TABLE IF NOT EXISTS пропускает существующую
+    # таблицу), а category/inventory_number не добавляет ни одна миграция:
+    # они считались всегда существующими. Нумеровать тогда нечего.
+    columns = {row["name"] for row in connection.execute("PRAGMA table_info(assets)")}
+    if "inventory_number" not in columns:
+        return
+    category_column = "category" if "category" in columns else "''"
+
+    rows = list(connection.execute(
+        f"SELECT id, name, {category_column} AS category, inventory_number FROM assets"
+    ))
+    rows.sort(key=_renumber_order_key)
+
+    changed = 0
+    for position, row in enumerate(rows, start=1):
+        raw = (row["inventory_number"] or "").strip()
+        prefixed = _PREFIXED_NUMBER_RE.match(raw)
+        prefix = (
+            prefixed.group(1).upper()
+            if prefixed
+            else asset_codes.guess_prefix(row["category"] or "", row["name"] or "")
+        )
+        new_number = f"{prefix}-{position:04d}"
+        if new_number == raw:
+            continue
+        connection.execute(
+            "UPDATE assets SET inventory_number = ?, rev = rev + 1 WHERE id = ?",
+            (new_number, row["id"]),
+        )
+        changed += 1
+
+    # Ни одна строка не поменялась — база уже в нужном виде. Не трогаем
+    # state_version, иначе повторный прогон заставил бы десктоп зря
+    # перезагружаться.
+    if changed == 0:
+        return
+
+    # app_meta заводит schema.sql, но run_migrations вызывают и на
+    # соединениях, которые его не видели: так мигрируется старая база,
+    # заведённая до появления таблицы. Создаём идемпотентно, как это
+    # делают миграции 017-023 со своими таблицами.
+    connection.execute("CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT)")
+    current = connection.execute(
+        "SELECT value FROM app_meta WHERE key = 'state_version'"
+    ).fetchone()
+    next_version = (int(current["value"]) if current and current["value"] else 0) + 1
+    connection.execute(
+        "INSERT INTO app_meta (key, value) VALUES ('state_version', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (str(next_version),),
+    )
+
+
 MIGRATIONS: list[Migration] = [
     (1, "assets.repair_quantity", _migrate_001),
     (2, "assets.retired_quantity", _migrate_002),
@@ -238,6 +347,7 @@ MIGRATIONS: list[Migration] = [
     (25, "assets.rev", _migrate_025_assets_rev),
     (26, "inventory_sessions + inventory_scans tables", _migrate_026_inventory_tables),
     (27, "assets.label_printed_at", _migrate_027_label_printed_at),
+    (28, "assets.inventory_number: сквозная нумерация ПРЕФИКС-NNNN", _migrate_028_asset_code_renumber),
 ]
 
 

@@ -25,6 +25,7 @@ except Exception as _act_err:  # noqa: BLE001
 else:
     _ACT_IMPORT_ERROR = ""
 
+import asset_codes
 import mobile_actions
 import migrations
 import auth
@@ -598,6 +599,12 @@ def export_state() -> dict:
         "kitTemplates": kits,
         "activeInventorySession": active_inventory_session,
         "attentionItems": attention_items,
+        # Справочник обозначений техники. Поле только на чтение, как
+        # attentionItems и currentVersion: import_state его не разбирает,
+        # так что присланный клиентом список ничего не переопределяет.
+        # Клиенты берут отсюда и подпись для модалки, и ключевые слова,
+        # чтобы подставить префикс в форме той же логикой, что и сервер.
+        "assetCodeTypes": asset_codes.reference(),
     }
 
 

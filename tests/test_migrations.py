@@ -184,7 +184,10 @@ def test_migration_025_adds_assets_rev_column(legacy_conn):
 
 
 def test_migration_025_defaults_existing_rows_to_zero(legacy_conn):
-    migrations.run_migrations(legacy_conn)
+    # Вызываем именно 025, а не run_migrations: более поздняя 028
+    # перенумеровывает активы и намеренно поднимает rev, так что прогон
+    # всей цепочки проверял бы уже не поведение 025.
+    migrations._migrate_025_assets_rev(legacy_conn)
     row = legacy_conn.execute("SELECT rev FROM assets WHERE id='ast_1'").fetchone()
     assert row["rev"] == 0
 
