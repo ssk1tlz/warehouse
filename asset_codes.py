@@ -79,30 +79,42 @@ _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 _NUMBER_RE = re.compile(r"^(?:[A-Za-z]+-)?(\d+)$")
 
 
-def _haystack(category: str, name: str) -> str:
-    """Строка, по которой ищутся ключевые слова.
-
-    Категория и наименование склеиваются, потому что тип техники бывает
-    виден только в одном из них: у ИБП UPS-0004 категория "Периферийные
-    устройства", а "Источник Бесперебойного Питания" — в названии.
+def _haystack(text: str) -> str:
+    """Нормализованная строка, по которой ищутся ключевые слова.
 
     Схлопывание пробелов лечит реальный разнобой в базе: там соседствуют
-    "Принтер / Сканер" и "Принтер  Сканер" с двумя пробелами.
+    "Принтер / Сканер" и "Принтер  Сканер" с двумя пробелами. Ведущий
+    пробел даёт границу слова ключу, стоящему в самом начале строки.
     """
-    combined = f"{category or ''} {name or ''}".lower().replace("ё", "е")
-    return re.sub(r"\s+", " ", combined)
+    return " " + re.sub(r"\s+", " ", (text or "").lower().replace("ё", "е"))
+
+
+def _match(text: str) -> str | None:
+    haystack = _haystack(text)
+    for prefix, pattern in _PATTERNS:
+        if pattern.search(haystack):
+            return prefix
+    return None
 
 
 def guess_prefix(category: str, name: str) -> str:
     """Буквенное обозначение по категории и наименованию техники.
 
+    Категория проверяется первой и целиком, и только если она не дала
+    ответа, разбирается наименование. Склеивать поля в одну строку нельзя:
+    победило бы правило, стоящее раньше в списке, а не то, что в
+    категории, и клавиатура с названием "A4Tech KR-85 для ПК" стала бы
+    системным блоком — PC стоит раньше KEY. Категория заполняется из
+    списка и описывает тип, наименование же свободный текст с моделью и
+    совместимостью.
+
+    Наименование всё равно нужно как запасной вариант: у ИБП UPS-0004
+    категория "Периферийные устройства", а тип виден только в названии
+    "Источник Бесперебойного Питания".
+
     Возвращает FALLBACK_PREFIX, если не сработало ни одно правило.
     """
-    haystack = _haystack(category, name)
-    for prefix, pattern in _PATTERNS:
-        if pattern.search(haystack):
-            return prefix
-    return FALLBACK_PREFIX
+    return _match(category) or _match(name) or FALLBACK_PREFIX
 
 
 def next_number(connection: sqlite3.Connection) -> int:

@@ -140,7 +140,7 @@ python bump_version.py patch     # 1.0.0 -> 1.0.1 (или minor / major)
 
 ```bash
 python -m pytest -q
-node --test mobile/tests/*.test.js
+node --test mobile/tests/*.test.js tests/*.test.js
 ```
 
 **Шаг 3. Закоммитить файлы версии.** Тег в шаге 6 должен указывать на коммит,

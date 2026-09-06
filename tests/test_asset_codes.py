@@ -107,6 +107,23 @@ def test_yo_is_normalised():
     assert asset_codes.guess_prefix("Кулер для воды", "Ugur") == "WC"
 
 
+@pytest.mark.parametrize(
+    "category,name,expected",
+    [
+        ("Проводная клавиатура", "A4Tech KR-85 для ПК", "KEY"),
+        ("Проводная компьютерная мышь", "Мышь для ПК Logitech", "MUS"),
+        ("Сканер", "Сканер к принтеру Canon", "SCN"),
+        ("Монитор", "Монитор к ноутбуку", "MON"),
+    ],
+)
+def test_category_wins_over_words_in_the_name(category, name, expected):
+    # Категория — поле структурированное, наименование — свободный текст с
+    # маркетингом и совместимостью ("для ПК", "к принтеру"). Без приоритета
+    # категории побеждало бы правило, стоящее раньше в списке: PC раньше
+    # KEY, PRN раньше SCN, и клавиатура становилась системным блоком.
+    assert asset_codes.guess_prefix(category, name) == expected
+
+
 def test_type_recognised_from_name_when_category_is_useless():
     # UPS-0004 в базе: категория "Периферийные устройства", тип виден только
     # по названию.

@@ -65,6 +65,7 @@ APP_VERSION = _read_app_version()
 STATIC_ALLOWLIST = frozenset({
     "index.html",
     "app.js",
+    "asset_codes.js",
     "styles.css",
     "chart.umd.min.js",
     "qrcode-lib.js",

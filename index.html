@@ -185,10 +185,12 @@
               </div>
               <div class="form-row">
                 <label class="form-field">
-                  <span class="form-label">Инв. номер</span>
+                  <span class="form-label">Инв. номер
+                    <button type="button" id="assetCodeReferenceBtn" class="link-btn" title="Справочник обозначений">справочник</button>
+                  </span>
                   <div style="display:flex;gap:8px">
-                    <input name="inventoryNumber" id="inventoryNumberInput" placeholder="INV-0001" style="flex:1">
-                    <button type="button" id="autoInventoryBtn" class="secondary" style="padding:6px 10px;font-size:12px" title="Автозаполнить">📋</button>
+                    <input name="inventoryNumber" id="inventoryNumberInput" placeholder="NB-0001" style="flex:1">
+                    <button type="button" id="autoInventoryBtn" class="secondary" style="padding:6px 10px;font-size:12px" title="Подставить номер заново">📋</button>
                   </div>
                   <span id="inventoryNumberHint" style="font-size:10.5px;color:var(--text-3);display:none"></span>
                 </label>
@@ -1281,7 +1283,30 @@
     </div>
   </div>
 
+  <!-- Справочник обозначений: только просмотр. Строки приезжают с сервера
+       полем assetCodeTypes, чтобы правила не расходились с теми, по которым
+       считается префикс при добавлении техники. -->
+  <div id="assetCodeReferenceModal" class="code-ref-overlay hidden">
+    <div class="code-ref-dialog" role="dialog" aria-modal="true" aria-labelledby="assetCodeReferenceTitle">
+      <div class="modal-header">
+        <h3 id="assetCodeReferenceTitle">Справочник обозначений</h3>
+        <button type="button" class="modal-close" id="assetCodeReferenceClose">Закрыть</button>
+      </div>
+      <p class="muted code-ref-note">
+        Буквы подставляются автоматически по категории и наименованию.
+        Цифры — сквозной номер по всей технике, общий для всех типов.
+      </p>
+      <div class="code-ref-scroll">
+        <table class="code-ref-table">
+          <thead><tr><th>Код</th><th>Тип техники</th><th class="num">В базе</th></tr></thead>
+          <tbody id="assetCodeReferenceBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <script src="qrcode-lib.js"></script>
+  <script src="asset_codes.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

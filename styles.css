@@ -1722,6 +1722,82 @@ tr:hover td { background: var(--surface-2); }
 
 .operation-modal.wide { width: min(900px, calc(100vw - 48px)); }
 
+/* ─── справочник обозначений техники ─────────────────────────── */
+/* Собственный оверлей, а не #modalOverlay: справочник открывается из
+   формы техники и не участвует в машинерии операционных модалок
+   (выдача/возврат/ремонт), у которых своя логика выбора позиций. */
+.code-ref-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(4,8,16,0.8);
+  backdrop-filter: blur(14px);
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.code-ref-overlay.hidden { display: none; }
+
+.code-ref-dialog {
+  width: min(520px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-lg);
+  padding: 32px;
+}
+
+.code-ref-dialog .modal-header { margin-bottom: 16px; }
+.code-ref-note { font-size: 12.5px; line-height: 1.5; margin-bottom: 16px; }
+
+/* Список из 28 строк не влезает в невысокое окно — скроллится он, а не
+   диалог целиком, чтобы шапка таблицы оставалась на месте. */
+.code-ref-scroll { overflow-y: auto; min-height: 0; }
+
+/* min-width: 0 снимает глобальное `table { min-width: 700px }` (оно для
+   широких таблиц реестра): без этого таблица распирает диалог шириной
+   520px и колонка "В базе" уезжает за край. */
+.code-ref-table { width: 100%; min-width: 0; border-collapse: collapse; font-size: 13px; }
+.code-ref-table th,
+.code-ref-table td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--line); }
+.code-ref-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-2);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-3);
+}
+.code-ref-table th.num,
+.code-ref-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.code-ref-table td code {
+  font-family: var(--mono);
+  background: var(--surface-2);
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.code-ref-table tr:last-child td { border-bottom: none; }
+
+/* Кнопка-ссылка рядом с подписью поля — не должна выглядеть кнопкой. */
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0 0 0 8px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--brand);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.link-btn:hover { background: none; transform: none; color: var(--text); }
+
 .lan-qr-body { display: flex; flex-direction: column; align-items: center; gap: 16px; text-align: center; padding: 8px 0; }
 .lan-qr-code { background: #fff; padding: 16px; border-radius: var(--r-sm); }
 .lan-qr-body code { font-family: var(--mono); background: var(--surface-2); padding: 1px 6px; border-radius: 4px; }
