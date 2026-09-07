@@ -527,9 +527,130 @@ textarea { resize: vertical; min-height: 72px; line-height: 1.5; }
   letter-spacing: 0.02em;
 }
 
+/* ─── КАРТОЧКИ ФОРМЫ ТЕХНИКИ ─────────────────────────────────── */
+/* Верхний ряд: основная информация широкой карточкой, фото — узкой
+   рядом. align-items:start не даёт короткой карточке фото растягиваться
+   до высоты соседней. */
+.form-grid-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  margin-bottom: 14px;
+}
+.form-grid-top > .form-card { margin-bottom: 0; }
+
+.form-card {
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 18px 20px 20px;
+  margin-bottom: 14px;
+  transition: border-color 0.2s;
+}
+.form-card:hover { border-color: var(--line-2); }
+
+/* Заголовок карточки: иконка в цветном квадрате несёт роль разделителя,
+   поэтому линейки под заголовком больше нет. */
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-bottom: 17px;
+}
+.card-head h4 { font-size: 14.5px; font-weight: 650; color: var(--text); letter-spacing: -0.01em; }
+
+.card-icon {
+  width: 33px;
+  height: 33px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.card-icon.brand { background: var(--brand-dim); color: var(--brand); }
+.card-icon.teal { background: var(--teal-dim); color: var(--teal); }
+
+/* ─── ПОЛЕ С ИКОНКОЙ ─────────────────────────────────────────── */
+/* Иконка позиционируется поверх поля, а не приклеивается сбоку как
+   .input-with-prefix: так поле сохраняет собственную рамку и кольцо
+   фокуса целиком, без склейки радиусов. */
+.field { position: relative; display: block; }
+
+.field-icon {
+  position: absolute;
+  left: 1px;
+  top: 1px;
+  bottom: 1px;
+  width: 35px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  border-right: 1px solid var(--line);
+  border-radius: var(--r-sm) 0 0 var(--r-sm);
+  pointer-events: none;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+/* width обязателен: базовое правило ширины перечисляет типы
+   (input[type="text"] и т.д.), а у наименования, категории, серийника и
+   локации атрибута type нет вовсе — раньше они растягивались как flex-
+   элементы .form-field, а внутри блочной обёртки взяли бы собственный
+   размер. Селектор с .asset-form — чтобы padding не перебивался
+   правилом .asset-form input, идущим ниже с той же специфичностью. */
+.asset-form .field > input,
+.asset-form .field > select {
+  width: 100%;
+  padding-left: 46px;
+}
+
+.field:focus-within .field-icon { color: var(--brand); border-color: var(--brand); }
+
+/* Кнопка сбоку от поля (подстановка инвентарного номера). */
+.field-with-action { display: flex; gap: 8px; align-items: stretch; }
+.field-with-action .field { flex: 1; min-width: 0; }
+
+.icon-action {
+  width: 38px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+}
+.icon-action:hover {
+  color: var(--brand);
+  border-color: var(--brand);
+  background: var(--brand-dim);
+  transform: none;
+}
+
+.req { color: var(--danger); font-weight: 700; }
+.char-count { font-weight: 400; color: var(--text-3); font-family: var(--mono); font-size: 10px; }
+.field-hint { font-size: 10.5px; color: var(--text-3); line-height: 1.4; }
+
+/* Точка статуса вместо иконки — цвет следует за выбранным значением. */
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-3);
+  transition: background 0.15s;
+}
+.status-dot.ok { background: var(--ok); }
+.status-dot.warn { background: var(--warn); }
+.status-dot.danger { background: var(--danger); }
+
+.notes-field { margin-top: 15px; }
+
+/* ─── КАРТОЧКА ФОТО ──────────────────────────────────────────── */
 .asset-photo-preview {
-  width: 120px;
-  height: 120px;
+  width: 100%;
+  height: 168px;
   border: 1px dashed var(--line-2);
   border-radius: var(--r-sm);
   display: flex;
@@ -538,11 +659,57 @@ textarea { resize: vertical; min-height: 72px; line-height: 1.5; }
   overflow: hidden;
   background: var(--surface-2);
   color: var(--text-3);
-  font-size: 11px;
+  font-size: 11.5px;
   text-align: center;
 }
 
-.asset-photo-preview img { max-width: 100%; max-height: 100%; object-fit: cover; }
+.asset-photo-preview img { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+.photo-upload-btn {
+  width: 100%;
+  margin-top: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  color: var(--text-2);
+  font-size: 12.5px;
+  padding: 9px 12px;
+}
+.photo-upload-btn:hover {
+  color: var(--brand);
+  border-color: var(--brand);
+  background: var(--brand-dim);
+  transform: none;
+}
+
+/* ─── ФУТЕР ФОРМЫ ────────────────────────────────────────────── */
+.form-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+/* Отправка всегда справа, даже когда «Отменить» скрыта (режим добавления). */
+.form-footer #assetSubmitBtn { margin-left: auto; padding: 11px 22px; font-size: 13.5px; }
+
+/* ─── ПОЛУЧАТЕЛЬ ВЫДАЧИ ──────────────────────────────────────── */
+.issue-target-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-bottom: 15px;
+}
+.issue-target-label { font-size: 11px; font-weight: 600; color: var(--text-2); letter-spacing: 0.02em; }
+.issue-target-row label { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+
+@media (max-width: 1100px) {
+  .form-grid-top { grid-template-columns: 1fr; }
+}
 
 .form-label svg { color: var(--text-3); flex-shrink: 0; }
 
@@ -1812,13 +1979,13 @@ tr:hover td { background: var(--surface-2); }
    действие, развёрнутая — полноценный набор полей. Поэтому в свёрнутом
    виде padding урезан: с обычным она читалась бы как пустая панель,
    которую забыли заполнить. */
-.form-section.issue-now { padding: 13px 20px; }
-.form-section.issue-now.is-on { padding: 16px 20px 18px; }
+.form-card.issue-now { padding: 13px 20px; }
+.form-card.issue-now.is-on { padding: 16px 20px 20px; }
 
 /* Включённая выдача подсвечивается фирменным тоном — это единственный
    акцент в форме, и он сообщает главное: сохранение не только заведёт
    карточку, но и снимет технику со склада. */
-.form-section.issue-now.is-on {
+.form-card.issue-now.is-on {
   border-color: var(--brand);
   background: var(--brand-dim);
 }

@@ -652,9 +652,24 @@ function appendEmptyState(container) {
   container.appendChild(dom.emptyStateTemplate.content.cloneNode(true));
 }
 
+// Тон статуса: выдано/частично — предупреждение, ремонт/списание —
+// тревога, остальное спокойно. Одно определение на чип в таблице и на
+// точку в форме, чтобы цвета не разъехались.
+function statusTone(status) {
+  if (status === "assigned" || status === "partial") return "warn";
+  if (status === "repair" || status === "retired") return "danger";
+  return "ok";
+}
+
+function syncAssetStatusDot() {
+  const dot = document.getElementById("assetStatusDot");
+  const select = document.getElementById("assetStatusSelect");
+  if (!dot || !select) return;
+  dot.className = `status-dot ${statusTone(select.value)}`;
+}
+
 function statusChip(status) {
-  const tone = status === "assigned" || status === "partial" ? "warn" : status === "repair" || status === "retired" ? "danger" : "ok";
-  return `<span class="chip ${tone}">${statusLabels[status] || status}</span>`;
+  return `<span class="chip ${statusTone(status)}">${statusLabels[status] || status}</span>`;
 }
 
 function setDefaultDates() {
@@ -971,6 +986,7 @@ function resetAssetForm() {
   // ровно тогда, когда поле пустое.
   const purchaseDateInput = document.getElementById("purchaseDateInput");
   if (purchaseDateInput) setUnknownDate(purchaseDateInput, !purchaseDateInput.value);
+  syncAssetStatusDot();
   document.getElementById("assetIssueSection")?.classList.remove("hidden");
   resetAssetIssueBlock();
   renderAssetPhotoPreview({ id: "", photoUrl: "" });
@@ -3068,6 +3084,7 @@ function enterAssetEditMode(assetId) {
   if (dom.assetForm.elements.location) dom.assetForm.elements.location.value = asset.location || "";
   const purchaseDateInput = document.getElementById("purchaseDateInput");
   if (purchaseDateInput) setUnknownDate(purchaseDateInput, !asset.purchaseDate);
+  syncAssetStatusDot();
   // Выдача из формы правки только запутала бы учёт: для этого есть
   // отдельное окно выдачи, где видно текущий остаток.
   document.getElementById("assetIssueSection")?.classList.add("hidden");
@@ -3175,7 +3192,15 @@ async function handleAssetSubmit(event) {
   event.preventDefault();
   const formData = new FormData(event.currentTarget);
   const assetId = String(formData.get("assetId") || "").trim();
-  const name = String(formData.get("name") || "").trim() || "Без названия";
+  // Наименование помечено звёздочкой и действительно обязательно: раньше
+  // пустое поле молча превращалось в «Без названия», и такая позиция
+  // терялась в списке и в поиске.
+  const name = String(formData.get("name") || "").trim();
+  if (!name) {
+    showToast("Укажите наименование техники.", "warning");
+    dom.assetForm.elements.name.focus();
+    return;
+  }
   const category = String(formData.get("category") || "").trim() || "Без категории";
   const serialNumber = String(formData.get("serialNumber") || "").trim() || "Отсутствует";
   const quantity = Math.max(1, Number(formData.get("quantity") || 1));
@@ -3977,6 +4002,7 @@ function bindEvents() {
   // ещё одному полю можно было одной строкой в разметке.
   document.querySelectorAll("[data-unknown-toggle]").forEach(bindUnknownDateToggle);
 
+  document.getElementById("assetStatusSelect")?.addEventListener("change", syncAssetStatusDot);
   document.getElementById("assetIssueNow")?.addEventListener("change", syncAssetIssueFields);
   document.querySelectorAll('input[name="assetIssueTarget"]').forEach((radio) => {
     radio.addEventListener("change", syncAssetIssueFields);

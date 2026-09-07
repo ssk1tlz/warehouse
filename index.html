@@ -166,69 +166,99 @@
           <form id="assetForm" class="asset-form">
             <input type="hidden" name="assetId">
 
-            <div class="form-section">
-              <div class="form-section-title">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4.5A2.5 2.5 0 014.5 2h7A2.5 2.5 0 0114 4.5v7a2.5 2.5 0 01-2.5 2.5h-7A2.5 2.5 0 012 11.5v-7z" stroke="currentColor" stroke-width="1.3"/><path d="M5 6h6M5 8.5h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-                Основная информация
-              </div>
-              <div class="form-row">
-                <label class="form-field">
-                  <span class="form-label">Наименование <span id="nameCharCount" style="font-weight:400;color:var(--text-3);font-family:var(--mono);font-size:10px">0/80</span></span>
-                  <input name="name" id="assetNameInput" maxlength="80" placeholder="Ноутбук Lenovo T14">
-                  <span id="nameCharHint" style="font-size:10.5px;color:var(--text-3);display:none"></span>
-                </label>
-                <label class="form-field">
-                  <span class="form-label">Категория</span>
-                  <input name="category" list="categoryDatalist" placeholder="Ноутбук / Монитор / Принтер">
-                  <datalist id="categoryDatalist"></datalist>
-                </label>
-              </div>
-              <div class="form-row">
-                <label class="form-field">
-                  <span class="form-label">Инв. номер
-                    <button type="button" id="assetCodeReferenceBtn" class="link-btn" title="Справочник обозначений">справочник</button>
-                  </span>
-                  <div style="display:flex;gap:8px">
-                    <input name="inventoryNumber" id="inventoryNumberInput" placeholder="NB-0001" style="flex:1">
-                    <button type="button" id="autoInventoryBtn" class="secondary" style="padding:6px 10px;font-size:12px" title="Подставить номер заново">📋</button>
-                  </div>
-                  <span id="inventoryNumberHint" style="font-size:10.5px;color:var(--text-3);display:none"></span>
-                </label>
-                <label class="form-field">
-                  <span class="form-label">Серийный номер</span>
-                  <div class="input-with-prefix">
-                    <span class="input-prefix">S/N:</span>
-                    <input name="serialNumber" placeholder="введите номер">
-                  </div>
-                </label>
-              </div>
-              <div class="form-row">
+            <div class="form-grid-top">
+              <div class="form-card">
+                <div class="card-head">
+                  <span class="card-icon brand"><svg width="17" height="17" viewBox="0 0 16 16" fill="none"><path d="M3.5 2h5.2L13 6v8a.5.5 0 01-.5.5h-9A.5.5 0 013 14V2.5a.5.5 0 01.5-.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M8.5 2v4h4M5.5 9h5M5.5 11.5h3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>
+                  <h4>Основная информация</h4>
+                </div>
+
+                <div class="form-row">
+                  <label class="form-field">
+                    <span class="form-label">Наименование <span class="req">*</span>
+                      <span id="nameCharCount" class="char-count">0/80</span>
+                    </span>
+                    <span class="field">
+                      <span class="field-icon"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="8" rx="1.2" stroke="currentColor" stroke-width="1.3"/><path d="M6 13.5h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>
+                      <input name="name" id="assetNameInput" maxlength="80" placeholder="Ноутбук Lenovo T14">
+                    </span>
+                    <span id="nameCharHint" class="field-hint" style="display:none"></span>
+                  </label>
+                  <label class="form-field">
+                    <span class="form-label">Категория</span>
+                    <span class="field">
+                      <span class="field-icon"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="8" rx="1.2" stroke="currentColor" stroke-width="1.3"/><path d="M6 13.5h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>
+                      <input name="category" list="categoryDatalist" placeholder="Ноутбук / Монитор / Принтер">
+                    </span>
+                    <datalist id="categoryDatalist"></datalist>
+                  </label>
+                </div>
+
+                <div class="form-row">
+                  <label class="form-field">
+                    <span class="form-label">Инв. номер
+                      <button type="button" id="assetCodeReferenceBtn" class="link-btn" title="Справочник обозначений">справочник</button>
+                    </span>
+                    <span class="field-with-action">
+                      <span class="field">
+                        <span class="field-icon"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M6 2.5L4.5 13.5M11.5 2.5L10 13.5M2.5 6h11M2 10h11" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>
+                        <input name="inventoryNumber" id="inventoryNumberInput" placeholder="NB-0001">
+                      </span>
+                      <button type="button" id="autoInventoryBtn" class="icon-action" title="Подставить номер заново">
+                        <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M13.5 8a5.5 5.5 0 11-1.7-3.97" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.5 2v3h-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                      </button>
+                    </span>
+                    <span id="inventoryNumberHint" class="field-hint" style="display:none"></span>
+                  </label>
+                  <label class="form-field">
+                    <span class="form-label">Серийный номер</span>
+                    <span class="field">
+                      <span class="field-icon"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M2.5 3.5v9M5 3.5v9M7.5 3.5v9M10.5 3.5v9M13.5 3.5v9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>
+                      <input name="serialNumber" placeholder="введите номер">
+                    </span>
+                  </label>
+                </div>
+
                 <label class="form-field">
                   <span class="form-label">Локация</span>
-                  <input name="location" list="locationDatalist" placeholder="Здание 1 / 3 этаж / каб. 305">
+                  <span class="field">
+                    <span class="field-icon"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 14s4.5-4.06 4.5-7a4.5 4.5 0 10-9 0c0 2.94 4.5 7 4.5 7z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><circle cx="8" cy="6.8" r="1.6" stroke="currentColor" stroke-width="1.3"/></svg></span>
+                    <input name="location" list="locationDatalist" placeholder="Здание 1 / 3 этаж / каб. 305">
+                  </span>
                   <datalist id="locationDatalist"></datalist>
                 </label>
-                <label class="form-field">
-                  <span class="form-label">Фото</span>
-                  <div id="assetPhotoPreview" class="asset-photo-preview">
-                    <img id="assetPhotoImg" class="hidden" alt="Фото актива">
-                    <span id="assetPhotoPlaceholder">Нет фото</span>
-                  </div>
-                  <input type="file" id="assetPhotoFileInput" accept="image/*" class="hidden">
-                  <button type="button" id="assetPhotoUploadBtn" class="secondary">Загрузить фото</button>
-                </label>
+              </div>
+
+              <div class="form-card">
+                <div class="card-head">
+                  <span class="card-icon teal"><svg width="17" height="17" viewBox="0 0 16 16" fill="none"><rect x="2" y="3.5" width="12" height="9" rx="1.5" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="2.4" stroke="currentColor" stroke-width="1.3"/><path d="M5.8 3.5l.8-1.3h2.8l.8 1.3" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></span>
+                  <h4>Фото оборудования</h4>
+                </div>
+                <div id="assetPhotoPreview" class="asset-photo-preview">
+                  <img id="assetPhotoImg" class="hidden" alt="Фото актива">
+                  <span id="assetPhotoPlaceholder">Нет фото</span>
+                </div>
+                <input type="file" id="assetPhotoFileInput" accept="image/*" class="hidden">
+                <button type="button" id="assetPhotoUploadBtn" class="photo-upload-btn">
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 11V3M5 6l3-3 3 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 11v1.5A1.5 1.5 0 004 14h8a1.5 1.5 0 001.5-1.5V11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                  Загрузить фото
+                </button>
               </div>
             </div>
 
-            <div class="form-section">
-              <div class="form-section-title">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3.5A1.5 1.5 0 013.5 2h9A1.5 1.5 0 0114 3.5v9a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 12.5v-9z" stroke="currentColor" stroke-width="1.3"/><path d="M5 5v6M8 7v4M11 3.5v7.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-                Параметры
+            <div class="form-card">
+              <div class="card-head">
+                <span class="card-icon brand"><svg width="17" height="17" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2.2" stroke="currentColor" stroke-width="1.3"/><path d="M8 1.8v1.6M8 12.6v1.6M14.2 8h-1.6M3.4 8H1.8M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1M12.4 12.4l-1.1-1.1M4.7 4.7L3.6 3.6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>
+                <h4>Параметры</h4>
               </div>
+
               <div class="form-row form-row-3">
                 <label class="form-field">
                   <span class="form-label">Дата покупки</span>
-                  <input type="date" name="purchaseDate" id="purchaseDateInput" data-unknown-toggle="purchaseDateUnknown">
+                  <span class="field">
+                    <span class="field-icon"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="2" y="3.5" width="12" height="10" rx="1.4" stroke="currentColor" stroke-width="1.3"/><path d="M2 6.5h12M5.5 2v2.6M10.5 2v2.6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>
+                    <input type="date" name="purchaseDate" id="purchaseDateInput" data-unknown-toggle="purchaseDateUnknown">
+                  </span>
                   <label class="date-unknown">
                     <input type="checkbox" id="purchaseDateUnknown">
                     <span>Неизвестно</span>
@@ -236,42 +266,66 @@
                 </label>
                 <label class="form-field">
                   <span class="form-label">Количество</span>
-                  <input type="number" min="1" step="1" name="quantity" value="1">
+                  <span class="field">
+                    <span class="field-icon"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M6 2.5L4.5 13.5M11.5 2.5L10 13.5M2.5 6h11M2 10h11" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>
+                    <input type="number" min="1" step="1" name="quantity" value="1">
+                  </span>
                 </label>
                 <label class="form-field">
                   <span class="form-label">Статус</span>
-                  <select name="status">
-                    <option value="in_stock">На складе</option>
-                    <option value="assigned">Выдано</option>
-                    <option value="repair">В ремонте</option>
-                    <option value="retired">Списано</option>
-                  </select>
+                  <span class="field">
+                    <span class="field-icon"><span id="assetStatusDot" class="status-dot ok"></span></span>
+                    <select name="status" id="assetStatusSelect">
+                      <option value="in_stock">На складе</option>
+                      <option value="assigned">Выдано</option>
+                      <option value="repair">В ремонте</option>
+                      <option value="retired">Списано</option>
+                    </select>
+                  </span>
                 </label>
               </div>
+
               <div class="form-row form-row-3">
                 <label class="form-field">
                   <span class="form-label">Цена (Сум)</span>
-                  <input type="number" min="0" step="0.01" name="price" value="0">
+                  <span class="field">
+                    <span class="field-icon"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M10.5 4.6C10 3.6 9.1 3 8 3 6.6 3 5.5 3.9 5.5 5.2c0 2.8 5 1.8 5 4.6C10.5 11.1 9.4 12 8 12c-1.2 0-2.1-.6-2.6-1.6M8 1.8v12.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>
+                    <input type="number" min="0" step="0.01" name="price" value="0">
+                  </span>
                 </label>
                 <label class="form-field">
                   <span class="form-label">Мин. остаток</span>
-                  <input type="number" min="0" step="1" name="minQuantity" value="0">
+                  <span class="field">
+                    <span class="field-icon"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 2l6 2.8-6 2.8-6-2.8L8 2z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M2 8.4l6 2.8 6-2.8M2 11.8l6 2.8 6-2.8" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></span>
+                    <input type="number" min="0" step="1" name="minQuantity" value="0">
+                  </span>
                 </label>
                 <label class="form-field">
                   <span class="form-label">Гарантия до</span>
-                  <input type="date" name="warrantyEnd">
+                  <span class="field">
+                    <span class="field-icon"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="2" y="3.5" width="12" height="10" rx="1.4" stroke="currentColor" stroke-width="1.3"/><path d="M2 6.5h12M5.5 2v2.6M10.5 2v2.6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>
+                    <input type="date" name="warrantyEnd">
+                  </span>
                 </label>
               </div>
+
+              <label class="form-field notes-field">
+                <span class="form-label">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2.5 4A1.5 1.5 0 014 2.5h8A1.5 1.5 0 0113.5 4v5A1.5 1.5 0 0112 10.5H6.5L3.5 13V10.5A1.5 1.5 0 012.5 9V4z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+                  Комментарий
+                </span>
+                <textarea name="notes" rows="2" placeholder="Примечание…"></textarea>
+              </label>
             </div>
 
             <!-- Выдача прямо из формы добавления. Секция скрыта при
                  редактировании существующей карточки: там для выдачи есть
                  отдельное окно, а повторная выдача из формы правки только
                  запутала бы учёт. -->
-            <div class="form-section issue-now" id="assetIssueSection">
+            <div class="form-card issue-now" id="assetIssueSection">
               <label class="issue-now-head">
                 <input type="checkbox" id="assetIssueNow" class="issue-now-check">
-                <svg class="issue-now-icon" width="17" height="17" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 2v7M5.2 6.4L8 9.2l2.8-2.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 11v1.5A1.5 1.5 0 004 14h8a1.5 1.5 0 001.5-1.5V11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                <span class="card-icon brand"><svg width="17" height="17" viewBox="0 0 16 16" fill="none"><path d="M8 2v7M5.2 6.4L8 9.2l2.8-2.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 11v1.5A1.5 1.5 0 004 14h8a1.5 1.5 0 001.5-1.5V11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
                 <span class="issue-now-text">
                   <span class="issue-now-title">Выдать сразу</span>
                   <span class="issue-now-hint">Техника уйдёт получателю в момент сохранения</span>
@@ -279,38 +333,47 @@
               </label>
 
               <div id="assetIssueFields" class="hidden">
-                <div class="full" style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding:8px 0">
-                  <span style="color:var(--text-3);font-size:12px">Кому выдать:</span>
-                  <label style="display:flex;gap:6px;align-items:center;cursor:pointer">
-                    <input type="radio" name="assetIssueTarget" value="employee" checked> Сотруднику
-                  </label>
-                  <label style="display:flex;gap:6px;align-items:center;cursor:pointer">
-                    <input type="radio" name="assetIssueTarget" value="department"> Отделу
-                  </label>
-                  <label style="display:flex;gap:6px;align-items:center;cursor:pointer">
-                    <input type="radio" name="assetIssueTarget" value="site"> На объект
-                  </label>
+                <div class="issue-target-row">
+                  <span class="issue-target-label">Кому выдать</span>
+                  <label><input type="radio" name="assetIssueTarget" value="employee" checked> Сотруднику</label>
+                  <label><input type="radio" name="assetIssueTarget" value="department"> Отделу</label>
+                  <label><input type="radio" name="assetIssueTarget" value="site"> На объект</label>
                 </div>
                 <div class="form-row form-row-3">
                   <label class="form-field" id="assetIssueEmployeeField">
                     <span class="form-label">Сотрудник</span>
-                    <select id="assetIssueEmployeeSelect"></select>
+                    <span class="field">
+                      <span class="field-icon"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5.5" r="2.6" stroke="currentColor" stroke-width="1.3"/><path d="M2.8 13.6c0-2.7 2.3-4.5 5.2-4.5s5.2 1.8 5.2 4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>
+                      <select id="assetIssueEmployeeSelect"></select>
+                    </span>
                   </label>
                   <label class="form-field hidden" id="assetIssueDepartmentField">
                     <span class="form-label">Отдел</span>
-                    <select id="assetIssueDepartmentSelect"></select>
+                    <span class="field">
+                      <span class="field-icon"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M2.5 13.5V4.2l5-2.2v11.5M7.5 13.5h6V6.5l-6-2.3" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></span>
+                      <select id="assetIssueDepartmentSelect"></select>
+                    </span>
                   </label>
                   <label class="form-field hidden" id="assetIssueSiteField">
                     <span class="form-label">Объект</span>
-                    <select id="assetIssueSiteSelect"></select>
+                    <span class="field">
+                      <span class="field-icon"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 14s4.5-4.06 4.5-7a4.5 4.5 0 10-9 0c0 2.94 4.5 7 4.5 7z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><circle cx="8" cy="6.8" r="1.6" stroke="currentColor" stroke-width="1.3"/></svg></span>
+                      <select id="assetIssueSiteSelect"></select>
+                    </span>
                   </label>
                   <label class="form-field">
                     <span class="form-label">Сколько выдать</span>
-                    <input type="number" min="1" step="1" id="assetIssueQuantity" value="1">
+                    <span class="field">
+                      <span class="field-icon"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M6 2.5L4.5 13.5M11.5 2.5L10 13.5M2.5 6h11M2 10h11" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>
+                      <input type="number" min="1" step="1" id="assetIssueQuantity" value="1">
+                    </span>
                   </label>
                   <label class="form-field">
                     <span class="form-label">Дата выдачи</span>
-                    <input type="date" id="assetIssueDate" data-unknown-toggle="assetIssueDateUnknown">
+                    <span class="field">
+                      <span class="field-icon"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="2" y="3.5" width="12" height="10" rx="1.4" stroke="currentColor" stroke-width="1.3"/><path d="M2 6.5h12M5.5 2v2.6M10.5 2v2.6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>
+                      <input type="date" id="assetIssueDate" data-unknown-toggle="assetIssueDateUnknown">
+                    </span>
                     <label class="date-unknown">
                       <input type="checkbox" id="assetIssueDateUnknown" checked>
                       <span>Неизвестно</span>
@@ -320,22 +383,15 @@
               </div>
             </div>
 
-            <div class="form-section">
-              <label class="form-field">
-                <span class="form-label">
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 3h10v10H3z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M5.5 6.5h5M5.5 9h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
-                  Комментарий
-                </span>
-                <textarea name="notes" rows="2" placeholder="Примечание…"></textarea>
-              </label>
-            </div>
-
-            <div class="form-actions">
+            <div class="form-footer">
+              <button type="button" id="assetCancelBtn" class="secondary hidden">
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M9.5 3.5L5 8l4.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Отменить
+              </button>
               <button type="submit" id="assetSubmitBtn">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3.5 3.5 7-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3.5 2.5h7.3L13.5 5.2v8.3a.5.5 0 01-.5.5H3.5a.5.5 0 01-.5-.5V3a.5.5 0 01.5-.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M5.5 2.5v3.8h5V2.5M5.5 13.8v-3.6h5v3.6" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
                 Сохранить технику
               </button>
-              <button type="button" id="assetCancelBtn" class="secondary hidden">Отменить</button>
             </div>
           </form>
         </div>
