@@ -197,6 +197,7 @@ const VIEW_RENDERERS = {
   employees: () => { renderEmployees(); },
   departments: () => { renderDepartments(); },
   sites: () => { renderSites(); },
+  workplaces: () => { renderWorkplaces(); },
   movements: () => { renderMovementTable(); renderKitTemplates(); },
   reports: () => { renderReports(); },
   registry: () => { renderRegistry(); },
@@ -2392,6 +2393,142 @@ function handleSiteDelete(siteId) {
   }
 }
 
+// ─── РАБОЧИЕ МЕСТА ──────────────────────────────────────────────
+// Техника, числящаяся за столом.
+function getWorkplaceAssets(workplaceId) {
+  return state.assets
+    .map((asset) => ({ asset, allocation: getWorkplaceAllocation(asset, workplaceId) }))
+    .filter((entry) => entry.allocation && entry.allocation.quantity > 0);
+}
+
+function renderWorkplaces() {
+  renderWorkplaceFormSelects();
+  const container = document.getElementById("workplacesList");
+  if (!container) return;
+  if (!state.workplaces.length) {
+    container.innerHTML = `<div class="empty-state"><p>Нет рабочих мест</p></div>`;
+    return;
+  }
+  container.innerHTML = state.workplaces.map((workplace) => {
+    const owner = workplace.employeeId ? getEmployeeById(workplace.employeeId) : null;
+    const items = getWorkplaceAssets(workplace.id);
+    const units = items.reduce((sum, entry) => sum + entry.allocation.quantity, 0);
+    const itemsText = items.length
+      ? items.map(({ asset, allocation }) => `${escapeHtml(asset.inventoryNumber || asset.name)} ×${allocation.quantity}`).join(", ")
+      : "Техники нет";
+    return `<article class="list-item" data-workplace-id="${escapeHtml(workplace.id)}">
+      <div class="title-line">
+        <strong>${escapeHtml(workplace.name)}</strong>
+        <span class="chip ${owner ? "ok" : ""}">${owner ? escapeHtml(owner.fullName) : "Свободно"}</span>
+        <div class="row-actions">
+          <button type="button" class="edit-button" data-action="edit-workplace" data-workplace-id="${escapeHtml(workplace.id)}">Изменить</button>
+          <button type="button" class="danger-button" data-action="delete-workplace" data-workplace-id="${escapeHtml(workplace.id)}">Удалить</button>
+        </div>
+      </div>
+      <p class="muted">${workplace.site ? escapeHtml(workplace.site) + " · " : ""}${units} ед. · ${itemsText}</p>
+    </article>`;
+  }).join("");
+}
+
+function renderWorkplaceFormSelects() {
+  const employeeSelect = document.getElementById("workplaceEmployeeSelect");
+  if (employeeSelect) {
+    const current = employeeSelect.value;
+    employeeSelect.innerHTML = `<option value="">— свободно —</option>`
+      + getActiveEmployees(state.employees).map((employee) =>
+        `<option value="${escapeHtml(employee.id)}">${escapeHtml(employee.fullName)}</option>`).join("");
+    employeeSelect.value = current;
+  }
+  const siteSelect = document.getElementById("workplaceSiteSelect");
+  if (siteSelect) {
+    const current = siteSelect.value;
+    siteSelect.innerHTML = `<option value="">— не указан —</option>`
+      + state.sites.map((site) => `<option value="${escapeHtml(site.name)}">${escapeHtml(site.name)}</option>`).join("");
+    siteSelect.value = current;
+  }
+}
+
+async function handleWorkplaceSubmit(event) {
+  event.preventDefault();
+  const formData = new FormData(event.currentTarget);
+  const workplaceId = String(formData.get("workplaceId") || "").trim();
+  const name = String(formData.get("name") || "").trim();
+  if (!name) { showToast("Введите название рабочего места.", "warning"); return; }
+  const employeeId = String(formData.get("employeeId") || "") || null;
+  const site = String(formData.get("site") || "");
+  const notes = String(formData.get("notes") || "").trim();
+
+  // Один сотрудник — один стол: иначе «его техника» перестаёт быть
+  // однозначной. Прежний стол освобождается.
+  if (employeeId) {
+    state.workplaces.forEach((other) => {
+      if (other.id !== workplaceId && other.employeeId === employeeId) other.employeeId = null;
+    });
+  }
+
+  if (workplaceId) {
+    const workplace = getWorkplaceById(workplaceId);
+    if (!workplace) return;
+    const previousOwner = workplace.employeeId;
+    Object.assign(workplace, { name, employeeId, site, notes });
+    if (previousOwner !== employeeId) {
+      addAuditEntry("workplace", workplace.id, "reassign", {
+        from: previousOwner ? getEmployeeById(previousOwner)?.fullName : "свободно",
+        to: employeeId ? getEmployeeById(employeeId)?.fullName : "свободно",
+      });
+    }
+  } else {
+    const duplicate = state.workplaces.find((w) => w.name.toLowerCase() === name.toLowerCase());
+    if (duplicate) showToast(`Место с названием «${name}» уже есть — создано ещё одно.`, "warning");
+    const workplace = { id: createId("wp"), name, employeeId, site, notes };
+    state.workplaces.push(workplace);
+    addAuditEntry("workplace", workplace.id, "create", { name });
+  }
+  resetWorkplaceForm();
+  await persist();
+  renderWorkplaces();
+}
+
+function resetWorkplaceForm() {
+  const form = document.getElementById("workplaceForm");
+  if (!form) return;
+  form.reset();
+  form.elements.workplaceId.value = "";
+  document.getElementById("workplaceFormTitle").textContent = "Добавить рабочее место";
+  document.getElementById("workplaceSubmitBtn").textContent = "Сохранить место";
+  document.getElementById("workplaceCancelBtn").classList.add("hidden");
+}
+
+function enterWorkplaceEditMode(workplaceId) {
+  const workplace = getWorkplaceById(workplaceId);
+  if (!workplace) return;
+  const form = document.getElementById("workplaceForm");
+  renderWorkplaceFormSelects();
+  form.elements.workplaceId.value = workplace.id;
+  form.elements.name.value = workplace.name;
+  form.elements.employeeId.value = workplace.employeeId || "";
+  form.elements.site.value = workplace.site || "";
+  form.elements.notes.value = workplace.notes || "";
+  document.getElementById("workplaceFormTitle").textContent = "Изменить рабочее место";
+  document.getElementById("workplaceSubmitBtn").textContent = "Сохранить изменения";
+  document.getElementById("workplaceCancelBtn").classList.remove("hidden");
+}
+
+async function deleteWorkplace(workplaceId) {
+  // Удалять место с техникой нельзя: записи о выдаче осиротеют, а
+  // количество останется списанным с доступного остатка.
+  const items = getWorkplaceAssets(workplaceId);
+  if (items.length) {
+    showToast(`На этом месте числится техника (${items.length} поз.). Сначала верните её на склад.`, "warning");
+    return;
+  }
+  const confirmed = await showConfirm("Удалить рабочее место?");
+  if (!confirmed) return;
+  state.workplaces = state.workplaces.filter((w) => w.id !== workplaceId);
+  await persist();
+  renderWorkplaces();
+}
+
 // ─── ПЕРЕМЕЩЕНИЯ: ТАБЛИЦА ────────────────────────────────────────
 function renderMovementTable() {
   if (!state.movements.length) {
@@ -3313,6 +3450,12 @@ async function deleteEmployee(employeeId) {
   if (!confirmed) return;
   addAuditEntry("employee", employeeId, "delete", { name: employee.fullName });
   state.employees = state.employees.filter((entry) => entry.id !== employeeId);
+  // Стол остаётся, освобождается только хозяин: техника на нём не
+  // принадлежала сотруднику и возврата не требует. Личная техника
+  // удалить сотрудника и так не даёт (проверка выше).
+  state.workplaces.forEach((workplace) => {
+    if (workplace.employeeId === employeeId) workplace.employeeId = null;
+  });
   state.movements = state.movements.filter((movement) => movement.employeeId !== employeeId);
   rebuildLookupMaps();
   await persist();
@@ -4220,6 +4363,15 @@ function bindEvents() {
   document.getElementById("departmentCancelBtn")?.addEventListener("click", resetDepartmentForm);
   document.getElementById("siteForm")?.addEventListener("submit", handleSiteSubmit);
   document.getElementById("siteCancelBtn")?.addEventListener("click", resetSiteForm);
+  document.getElementById("workplaceForm")?.addEventListener("submit", handleWorkplaceSubmit);
+  document.getElementById("workplaceCancelBtn")?.addEventListener("click", resetWorkplaceForm);
+  document.getElementById("workplacesList")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-action]");
+    if (!button) return;
+    const id = button.dataset.workplaceId;
+    if (button.dataset.action === "edit-workplace") enterWorkplaceEditMode(id);
+    if (button.dataset.action === "delete-workplace") deleteWorkplace(id);
+  });
   dom.manualActForm?.addEventListener("submit", handleManualActSubmit);
   dom.issueForm.addEventListener("submit", handleIssueSubmit);
   dom.returnForm.addEventListener("submit", handleReturnSubmit);

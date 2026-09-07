@@ -58,6 +58,10 @@
           </svg>
           Объекты
         </button>
+        <button class="menu-link" data-view="workplaces">
+          <svg class="nav-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 6.5h12M3.5 6.5V4a1 1 0 011-1h7a1 1 0 011 1v2.5M4.5 6.5v6M11.5 6.5v6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Рабочие места
+        </button>
         <button class="menu-link" data-view="movements">
           <svg class="nav-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M2 8h12M10 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -697,6 +701,48 @@
             <h3>Объекты</h3>
           </div>
           <div id="sitesList" class="list"></div>
+        </div>
+      </section>
+
+      <!-- ─── WORKPLACES ────────────────────────────────────────── -->
+      <section id="workplaces" class="view">
+        <div class="panel form-panel">
+          <div class="panel-header">
+            <h3 id="workplaceFormTitle">Добавить рабочее место</h3>
+          </div>
+          <form id="workplaceForm" class="asset-form">
+            <input type="hidden" name="workplaceId">
+            <div class="form-row">
+              <label class="form-field">
+                <span class="form-label">Название <span class="req">*</span></span>
+                <input name="name" required placeholder="Стол 2 / Каб. 305, окно">
+              </label>
+              <label class="form-field">
+                <span class="form-label">Сотрудник</span>
+                <select name="employeeId" id="workplaceEmployeeSelect"></select>
+              </label>
+            </div>
+            <div class="form-row">
+              <label class="form-field">
+                <span class="form-label">Объект</span>
+                <select name="site" id="workplaceSiteSelect"></select>
+              </label>
+              <label class="form-field">
+                <span class="form-label">Комментарий</span>
+                <input name="notes" placeholder="Примечание…">
+              </label>
+            </div>
+            <div class="form-actions">
+              <button type="submit" id="workplaceSubmitBtn">Сохранить место</button>
+              <button type="button" id="workplaceCancelBtn" class="secondary hidden">Отменить</button>
+            </div>
+          </form>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Рабочие места</h3>
+          </div>
+          <div id="workplacesList" class="list"></div>
         </div>
       </section>
 
