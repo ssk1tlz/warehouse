@@ -686,7 +686,30 @@ git commit -m "refactor(operations): возврат из ремонта чере
     })),
 ```
 
-- [ ] **Step 2: Добавить справочные функции**
+- [ ] **Step 2: Сохранить workplaceId при нормализации активов**
+
+Без этой правки записи выдач на столы уничтожаются. `normalizeAsset`
+(`app.js:324-332`) пересобирает каждую запись из четырёх полей и
+отфильтровывает те, где не заполнен ни сотрудник, ни отдел, ни объект —
+то есть выбрасывает все записи столов при загрузке, а следующее
+сохранение стирает их в базе.
+
+Заменить блок `allocations:` в `normalizeAsset` на:
+
+```javascript
+    allocations: Array.isArray(asset.allocations)
+      ? asset.allocations
+          .map((entry) => ({
+            employeeId: entry.employeeId || null,
+            department: entry.department || "",
+            site: entry.site || "",
+            workplaceId: entry.workplaceId || "",
+            quantity: Math.max(0, Number(entry.quantity || 0)),
+          }))
+          .filter((entry) => (entry.employeeId || entry.department || entry.site || entry.workplaceId) && entry.quantity > 0)
+```
+
+- [ ] **Step 3: Добавить справочные функции**
 
 Рядом с `getSiteAllocation` добавить:
 
@@ -710,7 +733,7 @@ function getWorkplaceAllocation(asset, workplaceId) {
 }
 ```
 
-- [ ] **Step 3: Научить allocationLabel записям стола**
+- [ ] **Step 4: Научить allocationLabel записям стола**
 
 Заменить `allocationLabel` (`app.js:576`):
 
@@ -733,12 +756,12 @@ function allocationLabel(entry) {
 
 Порядок веток значим: стол проверяется до объекта, потому что у записи стола `site` пуст, но обратный порядок сделал бы код хрупким при появлении новых получателей.
 
-- [ ] **Step 4: Проверить синтаксис**
+- [ ] **Step 5: Проверить синтаксис**
 
 Run: `node --check app.js`
 Expected: без вывода.
 
-- [ ] **Step 5: Коммит**
+- [ ] **Step 6: Коммит**
 
 ```bash
 git add app.js
