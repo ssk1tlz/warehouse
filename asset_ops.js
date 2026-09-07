@@ -12,10 +12,11 @@
 // остальные пустые. Эти же правила зашиты в getEmployeeAllocation /
 // getDepartmentAllocation / getSiteAllocation в app.js; спутай их — и
 // возврат от сотрудника списал бы количество у отдела.
-function matches(entry, employeeId, department, site) {
-  if (employeeId) return entry.employeeId === employeeId && !entry.department && !entry.site;
-  if (department) return !entry.employeeId && !entry.site && entry.department === department;
-  return !entry.employeeId && !entry.department && entry.site === site;
+function matches(entry, employeeId, department, site, workplaceId) {
+  if (employeeId) return entry.employeeId === employeeId && !entry.department && !entry.site && !entry.workplaceId;
+  if (department) return !entry.employeeId && !entry.site && !entry.workplaceId && entry.department === department;
+  if (site) return !entry.employeeId && !entry.department && !entry.workplaceId && entry.site === site;
+  return !entry.employeeId && !entry.department && !entry.site && entry.workplaceId === workplaceId;
 }
 
 /**
@@ -23,17 +24,17 @@ function matches(entry, employeeId, department, site) {
  * запись или заводит новую. Список меняется на месте.
  * Возвращает затронутую запись.
  */
-function mergeAllocation(allocations, { employeeId = null, department = '', site = '', quantity } = {}) {
+function mergeAllocation(allocations, { employeeId = null, department = '', site = '', workplaceId = '', quantity } = {}) {
   // Проверки идут до любых изменений, чтобы отклонённая выдача не
   // оставила список наполовину изменённым.
   if (!Number.isFinite(quantity) || !Number.isInteger(quantity) || quantity < 1) {
     throw new TypeError(`Количество к выдаче должно быть целым числом от 1, получено: ${quantity}`);
   }
-  if (!employeeId && !department && !site) {
-    throw new TypeError('Не указан получатель выдачи: сотрудник, отдел или объект.');
+  if (!employeeId && !department && !site && !workplaceId) {
+    throw new TypeError('Не указан получатель выдачи: сотрудник, отдел, объект или рабочее место.');
   }
 
-  const existing = allocations.find((entry) => matches(entry, employeeId, department, site));
+  const existing = allocations.find((entry) => matches(entry, employeeId, department, site, workplaceId));
   if (existing) {
     existing.quantity += quantity;
     return existing;
@@ -44,6 +45,7 @@ function mergeAllocation(allocations, { employeeId = null, department = '', site
     employeeId: employeeId || null,
     department: employeeId ? '' : department,
     site: employeeId || department ? '' : site,
+    workplaceId: employeeId || department || site ? '' : workplaceId,
     quantity,
   };
   allocations.push(entry);

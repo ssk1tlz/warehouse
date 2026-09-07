@@ -7,7 +7,7 @@ const { mergeAllocation } = require('../asset_ops.js');
 test('первая выдача сотруднику заводит новую запись', () => {
   const allocations = [];
   mergeAllocation(allocations, { employeeId: 'emp_1', quantity: 2 });
-  assert.deepEqual(allocations, [{ employeeId: 'emp_1', department: '', site: '', quantity: 2 }]);
+  assert.deepEqual(allocations, [{ employeeId: 'emp_1', department: '', site: '', workplaceId: '', quantity: 2 }]);
 });
 
 test('повторная выдача тому же сотруднику увеличивает существующую запись', () => {
@@ -30,7 +30,7 @@ test('выдача другому сотруднику не трогает чу�
 test('первая выдача отделу заводит новую запись', () => {
   const allocations = [];
   mergeAllocation(allocations, { department: 'Бухгалтерия', quantity: 4 });
-  assert.deepEqual(allocations, [{ employeeId: null, department: 'Бухгалтерия', site: '', quantity: 4 }]);
+  assert.deepEqual(allocations, [{ employeeId: null, department: 'Бухгалтерия', site: '', workplaceId: '', quantity: 4 }]);
 });
 
 test('повторная выдача тому же отделу увеличивает существующую запись', () => {
@@ -43,7 +43,7 @@ test('повторная выдача тому же отделу увеличи�
 test('первая выдача на объект заводит новую запись', () => {
   const allocations = [];
   mergeAllocation(allocations, { site: 'Склад №2', quantity: 1 });
-  assert.deepEqual(allocations, [{ employeeId: null, department: '', site: 'Склад №2', quantity: 1 }]);
+  assert.deepEqual(allocations, [{ employeeId: null, department: '', site: 'Склад №2', workplaceId: '', quantity: 1 }]);
 });
 
 test('повторная выдача на тот же объект увеличивает существующую запись', () => {
@@ -193,4 +193,73 @@ test('позиция без серийного номера не роняет п
 
 test('порядок исходного списка сохраняется', () => {
   assert.deepEqual(ids(searchAssets(CATALOG, 'mus')), ['a3', 'a4']);
+});
+
+// ─── выдача на рабочее место ─────────────────────────────────────
+
+test('первая выдача на рабочее место заводит новую запись', () => {
+  const allocations = [];
+  mergeAllocation(allocations, { workplaceId: 'w1', quantity: 1 });
+  assert.deepEqual(allocations, [{ employeeId: null, department: '', site: '', workplaceId: 'w1', quantity: 1 }]);
+});
+
+test('повторная выдача на тот же стол увеличивает существующую запись', () => {
+  const allocations = [{ employeeId: null, department: '', site: '', workplaceId: 'w1', quantity: 1 }];
+  mergeAllocation(allocations, { workplaceId: 'w1', quantity: 2 });
+  assert.equal(allocations.length, 1);
+  assert.equal(allocations[0].quantity, 3);
+});
+
+test('разные столы не сливаются', () => {
+  const allocations = [{ employeeId: null, department: '', site: '', workplaceId: 'w1', quantity: 1 }];
+  mergeAllocation(allocations, { workplaceId: 'w2', quantity: 1 });
+  assert.equal(allocations.length, 2);
+});
+
+test('выдача сотруднику не вливается в запись его стола', () => {
+  // Сотрудник и стол, за которым он сидит, — разные получатели: иначе
+  // возврат от человека списал бы количество со стола.
+  const allocations = [{ employeeId: null, department: '', site: '', workplaceId: 'w1', quantity: 1 }];
+  mergeAllocation(allocations, { employeeId: 'emp_1', quantity: 1 });
+  assert.equal(allocations.length, 2);
+  assert.equal(allocations[0].quantity, 1, 'запись стола не должна меняться');
+});
+
+test('выдача на стол не вливается в запись сотрудника', () => {
+  const allocations = [{ employeeId: 'emp_1', department: '', site: '', workplaceId: '', quantity: 2 }];
+  mergeAllocation(allocations, { workplaceId: 'w1', quantity: 1 });
+  assert.equal(allocations.length, 2);
+  assert.equal(allocations[0].quantity, 2);
+});
+
+test('выдача на стол не вливается в запись отдела', () => {
+  const allocations = [{ employeeId: null, department: 'Бухгалтерия', site: '', workplaceId: '', quantity: 4 }];
+  mergeAllocation(allocations, { workplaceId: 'w1', quantity: 1 });
+  assert.equal(allocations.length, 2);
+  assert.equal(allocations[0].quantity, 4);
+});
+
+test('выдача на стол не вливается в запись объекта', () => {
+  const allocations = [{ employeeId: null, department: '', site: 'АБЗ', workplaceId: '', quantity: 3 }];
+  mergeAllocation(allocations, { workplaceId: 'w1', quantity: 1 });
+  assert.equal(allocations.length, 2);
+  assert.equal(allocations[0].quantity, 3);
+});
+
+test('старая запись без поля workplaceId считается записью сотрудника', () => {
+  // Записи, пришедшие из базы до миграции 030, поля не имеют вовсе.
+  const allocations = [{ employeeId: 'emp_1', department: '', site: '', quantity: 2 }];
+  mergeAllocation(allocations, { employeeId: 'emp_1', quantity: 1 });
+  assert.equal(allocations.length, 1);
+  assert.equal(allocations[0].quantity, 3);
+});
+
+test('выдача на стол без указанного стола отклоняется', () => {
+  assert.throws(() => mergeAllocation([], { workplaceId: '', quantity: 1 }), /получател/i);
+});
+
+test('запись сотрудника создаётся с пустым workplaceId', () => {
+  const allocations = [];
+  mergeAllocation(allocations, { employeeId: 'emp_1', quantity: 1 });
+  assert.equal(allocations[0].workplaceId, '');
 });
