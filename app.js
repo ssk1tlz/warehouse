@@ -3142,15 +3142,10 @@ async function issueKitTemplate(kitId) {
   document.querySelectorAll(".operation-modal").forEach((m) => m.classList.add("hidden"));
   issueModal.classList.remove("hidden");
   dom.issueItems.innerHTML = "";
-  kit.items.forEach((item) => {
-    addIssueItemRow();
-    const rows = dom.issueItems.querySelectorAll(".operation-item-row");
-    const lastRow = rows[rows.length - 1];
-    const assetSelect = lastRow.querySelector("select");
-    const qtyInput = lastRow.querySelector("input[type=number]");
-    if (assetSelect) assetSelect.value = item.assetId;
-    if (qtyInput) qtyInput.value = item.quantity;
-  });
+  // Позиция и количество подставляются самим addIssueItemRow: раньше здесь
+  // строка создавалась пустой, а затем в ней искался <select>, которого
+  // после перехода на поле выбора техники больше нет.
+  kit.items.forEach((item) => addIssueItemRow(item.assetId, item.quantity));
   showToast(`Комплект «${kit.name}» загружен в форму выдачи.`, "info");
 }
 
