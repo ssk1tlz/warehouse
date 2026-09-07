@@ -31,3 +31,6 @@ mobile/android/local.properties
 mobile/android/keystore.properties
 *.jks
 *.keystore
+
+# Рабочее пространство subagent-driven development (журнал, брифы, отчёты)
+.superpowers/
