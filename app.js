@@ -1233,6 +1233,10 @@ function getRegistryAssetHolders(asset) {
         const employee = getEmployeeById(entry.employeeId);
         return employee ? `${employee.fullName} (${entry.quantity})` : `(удалён) (${entry.quantity})`;
       }
+      if (entry.workplaceId) {
+        const workplace = getWorkplaceById(entry.workplaceId);
+        return workplace ? `Место: ${workplace.name} (${entry.quantity})` : `Место удалено (${entry.quantity})`;
+      }
       if (entry.site) return `Объект: ${entry.site} (${entry.quantity})`;
       return entry.department ? `Отдел: ${entry.department} (${entry.quantity})` : `(?) (${entry.quantity})`;
     })
@@ -1623,10 +1627,15 @@ function exportMovementsCsv(dateFrom, dateTo) {
   const rows = filtered.map((m) => {
     const asset = getAssetById(m.assetId);
     const employee = getEmployeeById(m.employeeId);
-    // Issue/return movements are mutually exclusive on employee/department/site
-    // (the operation form only lets you pick one target), so unlike the D1
-    // allocation filter there's no ambiguity here — just pick whichever is set.
-    const target = employee ? employee.fullName : (m.department || m.site || "Склад");
+    // Issue/return movements are mutually exclusive on employee/department/site/
+    // workplace (the operation form only lets you pick one target), so unlike
+    // the D1 allocation filter there's no ambiguity here — just pick whichever is set.
+    const workplace = m.workplaceId ? getWorkplaceById(m.workplaceId) : null;
+    const target = employee
+      ? employee.fullName
+      : m.workplaceId
+      ? (workplace ? `Место: ${workplace.name}` : "Место удалено")
+      : (m.department || m.site || "Склад");
     return [m.date, movementLabels[m.type] || m.type, asset ? asset.name : m.assetId, m.quantity, target];
   });
   const escape = (v) => {
@@ -1703,13 +1712,6 @@ function getEmployeeAssetCount(employeeId) {
     const allocation = getEmployeeAllocation(asset, employeeId);
     return count + (allocation ? allocation.quantity || 1 : 0);
   }, 0);
-}
-
-function getEmployeeAllocatedAssets(employeeId) {
-  return state.assets.filter((asset) => {
-    const alloc = getEmployeeAllocation(asset, employeeId);
-    return alloc && alloc.quantity > 0;
-  });
 }
 
 function renderEmployeeStats() {
@@ -4437,6 +4439,7 @@ function bindEvents() {
   dom.returnEmployeeSelect.addEventListener("change", updateReturnAssetOptions);
   document.getElementById("returnDepartmentSelect")?.addEventListener("change", updateReturnAssetOptions);
   document.getElementById("returnSiteSelect")?.addEventListener("change", updateReturnAssetOptions);
+  document.getElementById("returnWorkplaceSelect")?.addEventListener("change", updateReturnAssetOptions);
   document.getElementById("issueEmployeeSelect")?.addEventListener("change", (e) => {
     const emp = getEmployeeById(e.target.value);
     const field = document.getElementById("issueDepartmentField");

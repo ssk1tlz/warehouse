@@ -1813,25 +1813,6 @@ tr:hover td { background: var(--surface-2); }
   color: var(--text);
 }
 
-.emp-profile-assets-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-.emp-profile-assets-table th, .emp-profile-assets-table td {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--line);
-  text-align: left;
-}
-
-.emp-profile-assets-table th {
-  background: var(--bg-3);
-  font-weight: 600;
-  color: var(--text-3);
-  font-size: 12px;
-}
-
 /* ─── OPERATIONS ─────────────────────────────────────────────── */
 .operation-actions {
   display: grid;
