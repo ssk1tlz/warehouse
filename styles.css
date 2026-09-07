@@ -451,6 +451,16 @@ input[type="date"] { font-family: var(--mono); font-size: 12px; }
   flex: 1;
 }
 
+/* Все флажки и переключатели — фирменного цвета. Без этого браузер
+   рисует свой красный, и они выбиваются из синего интерфейса: так было в
+   окнах выдачи и возврата, в фильтрах печати этикеток и в настройках.
+   Правило одно на всё приложение, чтобы следующий добавленный флажок не
+   оказался красным снова. */
+input[type="checkbox"], input[type="radio"] {
+  accent-color: var(--brand);
+  cursor: pointer;
+}
+
 .search:focus, input:focus, select:focus, textarea:focus {
   outline: none;
   border-color: var(--brand);
@@ -2015,10 +2025,6 @@ tr:hover td { background: var(--surface-2); }
    (.form-section-title svg). Состояние несёт подсветка фона, а серая
    иконка читалась бы как «недоступно». */
 .issue-now-icon { color: var(--brand); flex-shrink: 0; }
-
-/* Радиокнопки получателя — тоже фирменные. Без accent-color браузер
-   рисует их красными рядом с синими чекбоксами блока. */
-#assetIssueFields input[type="radio"] { accent-color: var(--brand); cursor: pointer; }
 
 .issue-now-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 
