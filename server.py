@@ -66,6 +66,7 @@ STATIC_ALLOWLIST = frozenset({
     "index.html",
     "app.js",
     "asset_codes.js",
+    "asset_ops.js",
     "styles.css",
     "chart.umd.min.js",
     "qrcode-lib.js",

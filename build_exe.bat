@@ -46,6 +46,7 @@ pyinstaller --onefile ^
     --add-data "server.py;." ^
     --add-data "app.js;." ^
     --add-data "asset_codes.js;." ^
+    --add-data "asset_ops.js;." ^
     --add-data "asset_codes.py;." ^
     --add-data "index.html;." ^
     --add-data "styles.css;." ^

@@ -269,8 +269,18 @@ function today() {
 }
 
 function formatDate(date) {
-  if (!date) return "Не указана";
+  if (!date) return "Неизвестно";
   return new Intl.DateTimeFormat("ru-RU").format(new Date(date));
+}
+
+// Ключ для сортировки по дате. Пустая дата — законное значение
+// ("неизвестно", галочка в форме), а `new Date("")` даёт NaN, из-за
+// которого компаратор возвращает NaN и сортировка молча перестаёт
+// упорядочивать соседние элементы. Записи без даты считаем самыми
+// старыми: при сортировке "новые сверху" они уходят вниз.
+function dateSortKey(date) {
+  const time = date ? new Date(date).getTime() : NaN;
+  return Number.isNaN(time) ? -Infinity : time;
 }
 
 function debounce(fn, ms = 200) {
@@ -726,6 +736,198 @@ function autoFillInventoryNumber() {
   updateInventoryHint();
 }
 
+// ─── ДАТЫ «НЕИЗВЕСТНО» ──────────────────────────────────────────
+// Галочка — двустороннее отражение того, что поле даты пустое:
+// поставили галочку — поле очистилось; начали вводить — галочка снялась.
+// Отдельного признака «точно неизвестно» в базе нет, пустая дата и есть
+// неизвестная, и показывается она как «Неизвестно» (см. formatDate).
+//
+// Поле НЕ блокируется при включённой галочке — иначе в него нельзя было
+// бы начать вводить дату, а именно ввод её и снимает.
+function bindUnknownDateToggle(dateInput) {
+  const checkbox = document.getElementById(dateInput.dataset.unknownToggle);
+  if (!checkbox) return;
+
+  checkbox.addEventListener("change", () => {
+    if (checkbox.checked) dateInput.value = "";
+  });
+
+  // Снимаем галочку по самому событию ввода, а не по появлению значения:
+  // input type="date" держит value пустым, пока дата не введена целиком,
+  // и галочка провисела бы до последней цифры.
+  dateInput.addEventListener("input", () => {
+    if (checkbox.checked) checkbox.checked = false;
+  });
+
+  // Ввод закончен (или поле очищено) — сверяем галочку с фактом.
+  dateInput.addEventListener("change", () => {
+    checkbox.checked = !dateInput.value;
+  });
+}
+
+function setUnknownDate(dateInput, unknown) {
+  const checkbox = document.getElementById(dateInput.dataset.unknownToggle);
+  if (unknown) dateInput.value = "";
+  if (checkbox) checkbox.checked = unknown;
+}
+
+// ─── ВЫДАЧА ПРЯМО ИЗ ФОРМЫ ДОБАВЛЕНИЯ ───────────────────────────
+function getAssetIssueTarget() {
+  return document.querySelector('input[name="assetIssueTarget"]:checked')?.value || "employee";
+}
+
+function isAssetIssueEnabled() {
+  // При редактировании карточки секция скрыта, но галочка могла остаться
+  // включённой с прошлого добавления — проверяем и её, и режим формы.
+  return Boolean(document.getElementById("assetIssueNow")?.checked)
+    && dom.assetForm.elements.assetId.value === "";
+}
+
+// Первым пунктом идёт заглушка с пустым значением, а не первый сотрудник
+// из списка. В окне выдачи браузер выбирает первого сам, но там человек
+// пришёл именно выдавать; здесь же выдача — необязательная галочка сбоку
+// от заведения техники, и молча подставленный первый из 133 сотрудников
+// означал бы выдачу не тому. Пустое значение ловится проверкой в
+// readAssetIssueRequest.
+function fillIssueSelect(select, placeholder, options) {
+  if (!select) return;
+  const current = select.value;
+  select.innerHTML = `<option value="">${placeholder}</option>` + options.join("");
+  select.value = current;
+}
+
+function renderAssetIssueSelects() {
+  fillIssueSelect(
+    document.getElementById("assetIssueEmployeeSelect"),
+    "— выберите сотрудника —",
+    getActiveEmployees(state.employees).map((employee) =>
+      `<option value="${escapeHtml(employee.id)}">${escapeHtml(employee.fullName)}${employee.department ? ` — ${escapeHtml(employee.department)}` : ""}</option>`),
+  );
+  fillIssueSelect(
+    document.getElementById("assetIssueDepartmentSelect"),
+    "— выберите отдел —",
+    state.departments.map((department) =>
+      `<option value="${escapeHtml(department.name)}">${escapeHtml(department.name)}</option>`),
+  );
+  fillIssueSelect(
+    document.getElementById("assetIssueSiteSelect"),
+    "— выберите объект —",
+    state.sites.map((site) => `<option value="${escapeHtml(site.name)}">${escapeHtml(site.name)}</option>`),
+  );
+}
+
+function syncAssetIssueFields() {
+  const enabled = Boolean(document.getElementById("assetIssueNow")?.checked);
+  document.getElementById("assetIssueFields")?.classList.toggle("hidden", !enabled);
+  if (!enabled) return;
+  const target = getAssetIssueTarget();
+  document.getElementById("assetIssueEmployeeField")?.classList.toggle("hidden", target !== "employee");
+  document.getElementById("assetIssueDepartmentField")?.classList.toggle("hidden", target !== "department");
+  document.getElementById("assetIssueSiteField")?.classList.toggle("hidden", target !== "site");
+  renderAssetIssueSelects();
+}
+
+// Количество к выдаче по умолчанию равно всему, что заводится: чаще
+// всего технику заводят и сразу отдают целиком. Подставляем только пока
+// поле не тронули руками — тем же приёмом, что и инвентарный номер.
+function syncAssetIssueQuantity() {
+  const input = document.getElementById("assetIssueQuantity");
+  if (!input) return;
+  if (input.value && input.dataset.autoFilled !== input.value) return;
+  input.value = String(Math.max(1, Number(dom.assetForm.elements.quantity.value || 1)));
+  input.dataset.autoFilled = input.value;
+}
+
+function resetAssetIssueBlock() {
+  const toggle = document.getElementById("assetIssueNow");
+  if (toggle) toggle.checked = false;
+  const employeeRadio = document.querySelector('input[name="assetIssueTarget"][value="employee"]');
+  if (employeeRadio) employeeRadio.checked = true;
+  const quantity = document.getElementById("assetIssueQuantity");
+  if (quantity) {
+    // Оставляем поле ПУСТЫМ и снимаем метку: заполнит его
+    // syncAssetIssueQuantity ниже, она же поставит метку. Если записать
+    // сюда "1" и метку снять, защита от перезаписи ручного ввода примет
+    // единицу за правку пользователя и подстановка перестанет работать.
+    quantity.value = "";
+    delete quantity.dataset.autoFilled;
+  }
+  const dateInput = document.getElementById("assetIssueDate");
+  // Дата выдачи по умолчанию неизвестна: техника нередко заводится
+  // задним числом, когда дату выдачи уже не восстановить.
+  if (dateInput) setUnknownDate(dateInput, true);
+  syncAssetIssueFields();
+  syncAssetIssueQuantity();
+}
+
+/**
+ * Читает блок «Выдать сразу». Возвращает null, если выдача выключена,
+ * или объект с получателем; при ошибке показывает тост и возвращает
+ * строку "invalid", чтобы вызывающий прервал сохранение.
+ */
+function readAssetIssueRequest(addedQuantity) {
+  if (!isAssetIssueEnabled()) return null;
+  const target = getAssetIssueTarget();
+  const employeeId = target === "employee" ? String(document.getElementById("assetIssueEmployeeSelect")?.value || "") : "";
+  const department = target === "department" ? String(document.getElementById("assetIssueDepartmentSelect")?.value || "").trim() : "";
+  const site = target === "site" ? String(document.getElementById("assetIssueSiteSelect")?.value || "").trim() : "";
+  if (target === "employee" && !employeeId) {
+    showToast("Выберите сотрудника для выдачи.", "warning");
+    return "invalid";
+  }
+  if (target === "department" && !department) {
+    showToast("Выберите отдел для выдачи.", "warning");
+    return "invalid";
+  }
+  if (target === "site" && !site) {
+    showToast("Выберите объект для выдачи.", "warning");
+    return "invalid";
+  }
+  const quantity = Math.max(1, Number(document.getElementById("assetIssueQuantity")?.value || 1));
+  if (quantity > addedQuantity) {
+    showToast(`Нельзя выдать ${quantity} шт.: добавляется ${addedQuantity}.`, "warning");
+    return "invalid";
+  }
+  return {
+    employeeId,
+    department,
+    site,
+    quantity,
+    // Пустая дата — законное «неизвестно»: в акте вместо дня, месяца и
+    // года печатаются прочерки, в истории пишется «Неизвестно».
+    date: String(document.getElementById("assetIssueDate")?.value || ""),
+  };
+}
+
+// Те же три эффекта, что и у окна выдачи (см. handleIssueSubmit):
+// запись в allocations, отметка в аудите и движение с номером акта.
+function issueAssetOnCreate(asset, request) {
+  const employee = request.employeeId ? getEmployeeById(request.employeeId) : null;
+  AssetOps.mergeAllocation(asset.allocations, {
+    employeeId: request.employeeId,
+    department: request.department,
+    site: request.site,
+    quantity: request.quantity,
+  });
+  addAuditEntry("asset", asset.id, "issue", {
+    employee: employee?.fullName,
+    department: employee?.department || request.department,
+    site: request.site,
+    quantity: request.quantity,
+  });
+  addMovement({
+    type: "issue",
+    assetId: asset.id,
+    employeeId: request.employeeId || null,
+    department: request.department,
+    site: request.site,
+    actNumber: getNextActNumber(),
+    quantity: request.quantity,
+    date: request.date,
+    notes: "Выдано при добавлении техники",
+  });
+}
+
 function renderAssetCodeReference() {
   const body = document.getElementById("assetCodeReferenceBody");
   if (!body) return;
@@ -761,6 +963,13 @@ function resetAssetForm() {
   // осталось бы помеченным номером с прошлого заполнения.
   delete dom.assetForm.elements.inventoryNumber.dataset.autoGenerated;
   updateInventoryHint();
+  // setDefaultDates() уже подставил сегодняшнюю дату покупки, поэтому
+  // галочка «Неизвестно» у неё снимается — правило одно: галочка стоит
+  // ровно тогда, когда поле пустое.
+  const purchaseDateInput = document.getElementById("purchaseDateInput");
+  if (purchaseDateInput) setUnknownDate(purchaseDateInput, !purchaseDateInput.value);
+  document.getElementById("assetIssueSection")?.classList.remove("hidden");
+  resetAssetIssueBlock();
   renderAssetPhotoPreview({ id: "", photoUrl: "" });
 }
 
@@ -803,7 +1012,7 @@ function renderStats() {
 function renderRecentMovements() {
   const query = normalizeSearchValue(dom.dashboardSearchInput?.value);
   const recent = [...state.movements]
-    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .sort((a, b) => dateSortKey(b.date) - dateSortKey(a.date))
     .filter((movement) => {
       const asset = getAssetById(movement.assetId);
       const employee = getEmployeeById(movement.employeeId);
@@ -1348,7 +1557,7 @@ function exportMovementsCsv(dateFrom, dateTo) {
   const headers = ["Дата", "Тип", "Актив", "Количество", "Сотрудник/Отдел/Объект"];
   const filtered = [...state.movements]
     .filter((m) => (!dateFrom || m.date >= dateFrom) && (!dateTo || m.date <= dateTo))
-    .sort((a, b) => new Date(b.date) - new Date(a.date));
+    .sort((a, b) => dateSortKey(b.date) - dateSortKey(a.date));
   const rows = filtered.map((m) => {
     const asset = getAssetById(m.assetId);
     const employee = getEmployeeById(m.employeeId);
@@ -2139,7 +2348,7 @@ function renderMovementTable() {
   }
   const query = normalizeSearchValue(dom.movementSearchInput?.value);
   const rows = [...state.movements]
-    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .sort((a, b) => dateSortKey(b.date) - dateSortKey(a.date))
     .filter((movement) => {
       const asset = getAssetById(movement.assetId);
       const employee = getEmployeeById(movement.employeeId);
@@ -2498,7 +2707,7 @@ function resolveActNumber(movement) {
   if (movement.actNumber) return movement.actNumber;
   const orderedActs = [...state.movements]
     .filter((entry) => entry.type === "issue" || entry.type === "return")
-    .sort((a, b) => new Date(a.date) - new Date(b.date));
+    .sort((a, b) => dateSortKey(a.date) - dateSortKey(b.date));
   return orderedActs.findIndex((entry) => entry.id === movement.id) + 1;
 }
 
@@ -2854,6 +3063,11 @@ function enterAssetEditMode(assetId) {
   if (dom.assetForm.elements.warrantyEnd) dom.assetForm.elements.warrantyEnd.value = asset.warrantyEnd || "";
   if (dom.assetForm.elements.price) dom.assetForm.elements.price.value = asset.price || 0;
   if (dom.assetForm.elements.location) dom.assetForm.elements.location.value = asset.location || "";
+  const purchaseDateInput = document.getElementById("purchaseDateInput");
+  if (purchaseDateInput) setUnknownDate(purchaseDateInput, !asset.purchaseDate);
+  // Выдача из формы правки только запутала бы учёт: для этого есть
+  // отдельное окно выдачи, где видно текущий остаток.
+  document.getElementById("assetIssueSection")?.classList.add("hidden");
   renderAssetPhotoPreview(asset);
   dom.assetFormTitle.textContent = "Редактировать технику";
   dom.assetSubmitBtn.textContent = "Сохранить изменения";
@@ -2964,6 +3178,13 @@ async function handleAssetSubmit(event) {
   const quantity = Math.max(1, Number(formData.get("quantity") || 1));
   const duplicate = findDuplicateAsset(name, category, serialNumber, assetId);
 
+  // Блок «Выдать сразу» читается ДО любых изменений: при ошибке в нём
+  // сохранение прерывается целиком, а не оставляет технику заведённой,
+  // но не выданной.
+  const issueRequest = readAssetIssueRequest(quantity);
+  if (issueRequest === "invalid") return;
+  let assetToIssue = null;
+
   if (assetId) {
     const asset = getAssetById(assetId);
     if (!asset) return;
@@ -2996,6 +3217,8 @@ async function handleAssetSubmit(event) {
     if (!duplicate.purchaseDate && formData.get("purchaseDate")) duplicate.purchaseDate = formData.get("purchaseDate");
     if (!duplicate.notes && formData.get("notes")) duplicate.notes = String(formData.get("notes") || "").trim();
     addMovement({ type: "purchase", assetId: duplicate.id, quantity, date: formData.get("purchaseDate") || today(), notes: "Приход увеличил существующую позицию" });
+    // Выдаём только вновь пришедшее количество, а не весь остаток позиции.
+    assetToIssue = duplicate;
   } else {
     const asset = normalizeAsset({
       name,
@@ -3018,7 +3241,10 @@ async function handleAssetSubmit(event) {
     state.assets.push(asset);
     addAuditEntry("asset", asset.id, "create", { name });
     addMovement({ type: "purchase", assetId: asset.id, quantity: asset.quantity, date: asset.purchaseDate || today(), notes: asset.notes });
+    assetToIssue = asset;
   }
+
+  if (issueRequest && assetToIssue) issueAssetOnCreate(assetToIssue, issueRequest);
 
   resetAssetForm();
   await persist();
@@ -3132,11 +3358,7 @@ async function handleIssueSubmit(event) {
   const employee = employeeId ? getEmployeeById(employeeId) : null;
   for (const [assetId, quantity] of aggregated.entries()) {
     const asset = getAssetById(assetId);
-    const existing = employeeId
-      ? getEmployeeAllocation(asset, employeeId)
-      : (target === "site" ? getSiteAllocation(asset, siteName) : getDepartmentAllocation(asset, departmentName));
-    if (existing) existing.quantity += quantity;
-    else asset.allocations.push({ employeeId: employeeId || null, department: departmentName, site: siteName, quantity });
+    AssetOps.mergeAllocation(asset.allocations, { employeeId, department: departmentName, site: siteName, quantity });
     addAuditEntry("asset", assetId, "issue", { employee: employee?.fullName, department: employee?.department || departmentName, site: siteName, quantity });
     addMovement({ type: "issue", assetId: asset.id, employeeId: employeeId || null, department: departmentName, site: siteName, actNumber, quantity, date: formData.get("date") || today(), notes: String(formData.get("notes") || "").trim() });
   }
@@ -3543,7 +3765,7 @@ function handleExcelExport() {
   });
 
   const historyRows = [...state.movements]
-    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .sort((a, b) => dateSortKey(b.date) - dateSortKey(a.date))
     .map((movement) => {
       const asset = getAssetById(movement.assetId);
       const employee = getEmployeeById(movement.employeeId);
@@ -3747,6 +3969,20 @@ function bindEvents() {
   // виден только в одном из них.
   dom.assetForm.elements.category?.addEventListener("input", refreshInventoryNumber);
   nameInput?.addEventListener("input", refreshInventoryNumber);
+
+  // Галочки «Неизвестно» у дат — по data-атрибуту, чтобы добавить их к
+  // ещё одному полю можно было одной строкой в разметке.
+  document.querySelectorAll("[data-unknown-toggle]").forEach(bindUnknownDateToggle);
+
+  document.getElementById("assetIssueNow")?.addEventListener("change", syncAssetIssueFields);
+  document.querySelectorAll('input[name="assetIssueTarget"]').forEach((radio) => {
+    radio.addEventListener("change", syncAssetIssueFields);
+  });
+  dom.assetForm.elements.quantity?.addEventListener("input", syncAssetIssueQuantity);
+  document.getElementById("assetIssueQuantity")?.addEventListener("input", (event) => {
+    // Тронули руками — перестаём подставлять общее количество.
+    delete event.target.dataset.autoFilled;
+  });
   dom.employeeForm?.addEventListener("submit", handleEmployeeSubmit);
   const handleEmployeeAsideSync = () => {
     const employeeId = document.getElementById("employeeFormId")?.value;

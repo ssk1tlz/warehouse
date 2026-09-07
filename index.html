@@ -228,7 +228,11 @@
               <div class="form-row form-row-3">
                 <label class="form-field">
                   <span class="form-label">Дата покупки</span>
-                  <input type="date" name="purchaseDate">
+                  <input type="date" name="purchaseDate" id="purchaseDateInput" data-unknown-toggle="purchaseDateUnknown">
+                  <label class="date-unknown">
+                    <input type="checkbox" id="purchaseDateUnknown">
+                    <span>Неизвестно</span>
+                  </label>
                 </label>
                 <label class="form-field">
                   <span class="form-label">Количество</span>
@@ -257,6 +261,61 @@
                   <span class="form-label">Гарантия до</span>
                   <input type="date" name="warrantyEnd">
                 </label>
+              </div>
+            </div>
+
+            <!-- Выдача прямо из формы добавления. Секция скрыта при
+                 редактировании существующей карточки: там для выдачи есть
+                 отдельное окно, а повторная выдача из формы правки только
+                 запутала бы учёт. -->
+            <div class="form-section" id="assetIssueSection">
+              <label class="issue-now-toggle">
+                <input type="checkbox" id="assetIssueNow">
+                <span class="form-section-title" style="margin:0">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v8M5 7l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 11.5v1A1.5 1.5 0 004 14h8a1.5 1.5 0 001.5-1.5v-1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                  Выдать сразу
+                </span>
+              </label>
+
+              <div id="assetIssueFields" class="hidden">
+                <div class="full" style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding:8px 0">
+                  <span style="color:var(--text-3);font-size:12px">Кому выдать:</span>
+                  <label style="display:flex;gap:6px;align-items:center;cursor:pointer">
+                    <input type="radio" name="assetIssueTarget" value="employee" checked> Сотруднику
+                  </label>
+                  <label style="display:flex;gap:6px;align-items:center;cursor:pointer">
+                    <input type="radio" name="assetIssueTarget" value="department"> Отделу
+                  </label>
+                  <label style="display:flex;gap:6px;align-items:center;cursor:pointer">
+                    <input type="radio" name="assetIssueTarget" value="site"> На объект
+                  </label>
+                </div>
+                <div class="form-row form-row-3">
+                  <label class="form-field" id="assetIssueEmployeeField">
+                    <span class="form-label">Сотрудник</span>
+                    <select id="assetIssueEmployeeSelect"></select>
+                  </label>
+                  <label class="form-field hidden" id="assetIssueDepartmentField">
+                    <span class="form-label">Отдел</span>
+                    <select id="assetIssueDepartmentSelect"></select>
+                  </label>
+                  <label class="form-field hidden" id="assetIssueSiteField">
+                    <span class="form-label">Объект</span>
+                    <select id="assetIssueSiteSelect"></select>
+                  </label>
+                  <label class="form-field">
+                    <span class="form-label">Сколько выдать</span>
+                    <input type="number" min="1" step="1" id="assetIssueQuantity" value="1">
+                  </label>
+                  <label class="form-field">
+                    <span class="form-label">Дата выдачи</span>
+                    <input type="date" id="assetIssueDate" data-unknown-toggle="assetIssueDateUnknown">
+                    <label class="date-unknown">
+                      <input type="checkbox" id="assetIssueDateUnknown" checked>
+                      <span>Неизвестно</span>
+                    </label>
+                  </label>
+                </div>
               </div>
             </div>
 
@@ -1310,6 +1369,7 @@
 
   <script src="qrcode-lib.js"></script>
   <script src="asset_codes.js"></script>
+  <script src="asset_ops.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
