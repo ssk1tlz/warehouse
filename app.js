@@ -3687,9 +3687,10 @@ async function handleRepairReturnSubmit(event) {
   asset.repairQuantity = inRepair - quantity;
   if (asset.repairQuantity <= 0) asset.repairDate = "";
   if (target.type === "employee") {
-    const existing = getEmployeeAllocation(asset, target.employeeId);
-    if (existing) existing.quantity += quantity;
-    else asset.allocations.push({ employeeId: target.employeeId, quantity });
+    // Через общую функцию, а не вручную: иначе здесь появляется второе
+    // определение формы записи о выдаче — эта ветка создавала её без
+    // полей department, site и workplaceId.
+    AssetOps.mergeAllocation(asset.allocations, { employeeId: target.employeeId, quantity });
   }
   const targetLabel = getLocationLabel(targetValue);
   const userNotes = String(formData.get("notes") || "").trim();
