@@ -784,7 +784,7 @@ def import_state(payload: dict, actor: str) -> dict:
             connection.execute(
                 "INSERT INTO movements (id, type, asset_id, employee_id, department, site, workplace_id, act_number, quantity, date, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
-                    movement.get("id"), movement.get("type"), movement.get("assetId"),
+                    movement.get("id"), movement.get("type") or "purchase", movement.get("assetId"),
                     movement.get("employeeId") or None, movement.get("department") or "",
                     movement.get("site") or "", movement.get("workplaceId") or "",
                     movement.get("actNumber"), int(movement.get("quantity") or 0),
