@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS asset_allocations (
   employee_id TEXT,
   department TEXT NOT NULL DEFAULT '',
   site TEXT NOT NULL DEFAULT '',
+  workplace_id TEXT NOT NULL DEFAULT '',
   quantity INTEGER NOT NULL DEFAULT 0,
   FOREIGN KEY (asset_id) REFERENCES assets(id)
 );
@@ -61,6 +62,7 @@ CREATE TABLE IF NOT EXISTS movements (
   employee_id TEXT,
   department TEXT NOT NULL DEFAULT '',
   site TEXT NOT NULL DEFAULT '',
+  workplace_id TEXT NOT NULL DEFAULT '',
   act_number INTEGER,
   quantity INTEGER NOT NULL DEFAULT 0,
   date TEXT NOT NULL,
@@ -145,4 +147,12 @@ CREATE TABLE IF NOT EXISTS inventory_scans (
   found_location TEXT NOT NULL DEFAULT '',
   FOREIGN KEY (session_id) REFERENCES inventory_sessions(id),
   FOREIGN KEY (asset_id) REFERENCES assets(id)
+);
+
+CREATE TABLE IF NOT EXISTS workplaces (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  employee_id TEXT REFERENCES employees(id),
+  site TEXT NOT NULL DEFAULT '',
+  notes TEXT NOT NULL DEFAULT ''
 );

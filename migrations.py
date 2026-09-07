@@ -319,6 +319,38 @@ def _migrate_028_asset_code_renumber(connection: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_029_workplaces_table(c):
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS workplaces (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          employee_id TEXT REFERENCES employees(id),
+          site TEXT NOT NULL DEFAULT '',
+          notes TEXT NOT NULL DEFAULT ''
+        )
+        """
+    )
+
+
+def _migrate_030_allocation_workplace(connection: sqlite3.Connection) -> None:
+    # Таблицы выдач может ещё не быть: её создаёт миграция 015 при
+    # переносе старой базы. Проверка та же, что в 015 и 016.
+    table = connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='asset_allocations'"
+    ).fetchone()
+    if table is None:
+        return
+    _add_column_if_missing(
+        connection, "asset_allocations", "workplace_id",
+        "workplace_id TEXT NOT NULL DEFAULT ''",
+    )
+
+
+def _migrate_031_movement_workplace(c):
+    _add_column_if_missing(c, "movements", "workplace_id", "workplace_id TEXT NOT NULL DEFAULT ''")
+
+
 MIGRATIONS: list[Migration] = [
     (1, "assets.repair_quantity", _migrate_001),
     (2, "assets.retired_quantity", _migrate_002),
@@ -348,6 +380,9 @@ MIGRATIONS: list[Migration] = [
     (26, "inventory_sessions + inventory_scans tables", _migrate_026_inventory_tables),
     (27, "assets.label_printed_at", _migrate_027_label_printed_at),
     (28, "assets.inventory_number: сквозная нумерация ПРЕФИКС-NNNN", _migrate_028_asset_code_renumber),
+    (29, "workplaces table", _migrate_029_workplaces_table),
+    (30, "asset_allocations.workplace_id", _migrate_030_allocation_workplace),
+    (31, "movements.workplace_id", _migrate_031_movement_workplace),
 ]
 
 
