@@ -2013,36 +2013,22 @@ function openEmployeeDetailsModal(employeeId) {
     ? `<span class="emp-status-badge inactive">Уволен / Неактивен</span>`
     : `<span class="emp-status-badge active">Активен</span>`;
 
-  const assignedAssets = getEmployeeAllocatedAssets(employee.id);
+  // Техника делится на два списка: то, что стоит на рабочем месте
+  // сотрудника (остаётся столу при увольнении), и то, что числится
+  // лично за ним (при увольнении возвращается на склад).
+  const { personal, workplace, atWorkplace } = getEmployeeHoldings(employee.id);
+  const totalCount = personal.length + atWorkplace.length;
 
-  let assetsHtml = `<div class="empty-state" style="padding:20px"><p>За сотрудником не числится техники</p></div>`;
-  if (assignedAssets.length > 0) {
-    assetsHtml = `<table class="emp-profile-assets-table">
-      <thead>
-        <tr>
-          <th>Наименование</th>
-          <th>Инв. №</th>
-          <th>Серийный №</th>
-          <th>Категория</th>
-          <th>Кол-во</th>
-          <th>Статус</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${assignedAssets.map((asset) => {
-          const alloc = getEmployeeAllocation(asset, employee.id);
-          const qty = alloc ? alloc.quantity : 1;
-          return `<tr>
-            <td><strong>${escapeHtml(asset.name)}</strong></td>
-            <td><code>${escapeHtml(asset.inventoryNumber || "—")}</code></td>
-            <td><code>${escapeHtml(asset.serialNumber || "—")}</code></td>
-            <td>${escapeHtml(asset.category || "—")}</td>
-            <td><strong>${qty} шт.</strong></td>
-            <td>${statusChip(getAssetStatus(asset))}</td>
-          </tr>`;
-        }).join("")}
-      </tbody>
-    </table>`;
+  let assetsHtml = `<div class="empty-state" style="padding:20px"><p>Техники за сотрудником нет</p></div>`;
+  if (totalCount > 0) {
+    assetsHtml =
+      (workplace
+        ? `<div class="held-title">На рабочем месте — ${escapeHtml(workplace.name)}</div>`
+          + (atWorkplace.length ? renderHoldingsList(atWorkplace) : `<div class="held-title empty">Техники на месте нет</div>`)
+        : "")
+      + (personal.length
+        ? `<div class="held-title"${workplace ? ' style="margin-top:14px"' : ""}>Лично на руках</div>` + renderHoldingsList(personal)
+        : "");
   }
 
   body.innerHTML = `
@@ -2083,7 +2069,7 @@ function openEmployeeDetailsModal(employeeId) {
     </div>
 
     <div class="emp-profile-assets-sec">
-      <h4>Выданная техника (${assignedAssets.length} поз.)</h4>
+      <h4>Техника сотрудника (${totalCount} поз.)</h4>
       ${assetsHtml}
     </div>
 
@@ -2408,6 +2394,25 @@ function getWorkplaceAssets(workplaceId) {
   return state.assets
     .map((asset) => ({ asset, allocation: getWorkplaceAllocation(asset, workplaceId) }))
     .filter((entry) => entry.allocation && entry.allocation.quantity > 0);
+}
+
+// Техника сотрудника делится надвое: то, что числится лично за ним, и
+// то, что стоит на его рабочем месте. При увольнении первое возвращается
+// на склад, второе остаётся на месте — поэтому списки разные.
+function getEmployeeHoldings(employeeId) {
+  const personal = state.assets
+    .map((asset) => ({ asset, allocation: getEmployeeAllocation(asset, employeeId) }))
+    .filter((entry) => entry.allocation && entry.allocation.quantity > 0);
+  const workplace = getEmployeeWorkplace(employeeId);
+  return { personal, workplace, atWorkplace: workplace ? getWorkplaceAssets(workplace.id) : [] };
+}
+
+// Общая отрисовка списка «инв.№ / название / кол-во» для обоих мест
+// использования: панель выдачи и карточка сотрудника.
+function renderHoldingsList(entries) {
+  return `<ul class="held-list">` + entries.map(({ asset, allocation }) =>
+    `<li><code>${escapeHtml(asset.inventoryNumber || "—")}</code><span>${escapeHtml(asset.name)}</span><b>${allocation.quantity} шт.</b></li>`
+  ).join("") + `</ul>`;
 }
 
 function renderWorkplaces() {
@@ -2930,16 +2935,15 @@ function renderIssueEmployeeAssets() {
   const employeeId = target === "employee" ? (dom.issueEmployeeSelect?.value || "") : "";
   if (!employeeId) { box.classList.add("hidden"); box.innerHTML = ""; return; }
 
-  const rows = state.assets
-    .map((asset) => ({ asset, allocation: getEmployeeAllocation(asset, employeeId) }))
-    .filter((entry) => entry.allocation && entry.allocation.quantity > 0);
-
+  const { personal, workplace, atWorkplace } = getEmployeeHoldings(employeeId);
   box.classList.remove("hidden");
-  box.innerHTML = rows.length
-    ? `<div class="held-title">Уже на руках · ${rows.length}</div><ul class="held-list">`
-      + rows.map(({ asset, allocation }) => `<li><code>${escapeHtml(asset.inventoryNumber || "—")}</code><span>${escapeHtml(asset.name)}</span><b>${allocation.quantity} шт.</b></li>`).join("")
-      + `</ul>`
-    : `<div class="held-title empty">Техники на руках нет</div>`;
+  if (!personal.length && !atWorkplace.length) {
+    box.innerHTML = `<div class="held-title empty">Техники за сотрудником нет</div>`;
+    return;
+  }
+  box.innerHTML =
+    (atWorkplace.length ? `<div class="held-title">На рабочем месте · ${escapeHtml(workplace.name)}</div>` + renderHoldingsList(atWorkplace) : "")
+    + (personal.length ? `<div class="held-title">Лично на руках · ${personal.length}</div>` + renderHoldingsList(personal) : "");
 }
 
 function updateRepairAssetOptions() {
