@@ -3505,6 +3505,12 @@ async function bulkDeleteEmployees() {
   ids.forEach((id) => addAuditEntry("employee", id, "delete", { name: getEmployeeById(id)?.fullName }));
   state.employees = state.employees.filter((emp) => !ids.includes(emp.id));
   state.movements = state.movements.filter((m) => !ids.includes(m.employeeId));
+  // Стол остаётся, освобождается только хозяин: техника на нём не
+  // принадлежала сотруднику и возврата не требует. Личная техника
+  // удалить сотрудника и так не даёт (проверка выше).
+  state.workplaces.forEach((workplace) => {
+    if (ids.includes(workplace.employeeId)) workplace.employeeId = null;
+  });
 
   rebuildLookupMaps();
   await persist();
