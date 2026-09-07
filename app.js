@@ -3410,8 +3410,8 @@ async function doPersist() {
   }
 }
 
-function addMovement({ type, assetId, employeeId = null, department = "", site = "", quantity = 0, date, notes = "", actNumber = null }) {
-  state.movements.push({ id: createId("mov"), type, assetId, employeeId, department, site, actNumber, quantity, date, notes });
+function addMovement({ type, assetId, employeeId = null, department = "", site = "", workplaceId = "", quantity = 0, date, notes = "", actNumber = null }) {
+  state.movements.push({ id: createId("mov"), type, assetId, employeeId, department, site, workplaceId, actNumber, quantity, date, notes });
 }
 
 function enterAssetEditMode(assetId) {
