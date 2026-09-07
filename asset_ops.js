@@ -6,12 +6,14 @@
 // Файл подключается в index.html до app.js и не трогает DOM, поэтому
 // требуется из node в tests/asset_ops.test.js.
 
-// Выдача адресуется ровно одному получателю: сотруднику, отделу или
-// объекту. Сотрудник из "Бухгалтерии" и сама "Бухгалтерия" — РАЗНЫЕ
-// получатели, поэтому у каждой записи заполнено ровно одно поле, а
+// Выдача адресуется ровно одному получателю: сотруднику, отделу, объекту
+// или рабочему месту. Сотрудник из "Бухгалтерии" и сама "Бухгалтерия" —
+// РАЗНЫЕ получатели; сотрудник и рабочее место (стол), где он сидит, —
+// тоже РАЗНЫЕ, поэтому у каждой записи заполнено ровно одно поле, а
 // остальные пустые. Эти же правила зашиты в getEmployeeAllocation /
-// getDepartmentAllocation / getSiteAllocation в app.js; спутай их — и
-// возврат от сотрудника списал бы количество у отдела.
+// getDepartmentAllocation / getSiteAllocation / getWorkplaceAllocation
+// в app.js; спутай их — и возврат от сотрудника списал бы количество у
+// отдела или у его рабочего места.
 function matches(entry, employeeId, department, site, workplaceId) {
   if (employeeId) return entry.employeeId === employeeId && !entry.department && !entry.site && !entry.workplaceId;
   if (department) return !entry.employeeId && !entry.site && !entry.workplaceId && entry.department === department;
