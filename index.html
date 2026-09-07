@@ -302,9 +302,12 @@
               <option value="">Все категории</option>
             </select>
             <select id="assetSortField" class="filter-select">
+              <!-- По умолчанию список идёт по инвентарному номеру: он сквозной
+                   по всей технике, и сортировка по нему даёт 0001, 0002, 0003…
+                   Префикс в сравнении не участвует, берётся только число. -->
+              <option value="inventoryNumber" selected>По инв. номеру</option>
               <option value="name">По названию</option>
               <option value="category">По категории</option>
-              <option value="inventoryNumber">По инв. номеру</option>
               <option value="purchaseDate">По дате покупки</option>
               <option value="quantity">По количеству</option>
             </select>
@@ -710,9 +713,9 @@
               <option value="">Все локации</option>
             </select>
             <select id="registrySortField" class="filter-select">
+              <option value="inventoryNumber" selected>По инв. номеру</option>
               <option value="name">По названию</option>
               <option value="category">По категории</option>
-              <option value="inventoryNumber">По инв. номеру</option>
               <option value="purchaseDate">По дате покупки</option>
               <option value="quantity">По количеству</option>
               <option value="status">По статусу</option>

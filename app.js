@@ -881,7 +881,7 @@ function getFilteredAssets() {
     query: dom.assetSearchInput.value,
     status: document.getElementById('assetFilterStatus')?.value || '',
     category: document.getElementById('assetFilterCategory')?.value || '',
-    sortField: document.getElementById('assetSortField')?.value || 'name',
+    sortField: document.getElementById('assetSortField')?.value || 'inventoryNumber',
     sortDir: document.getElementById('assetSortDir')?.value || 'asc',
     haystack: (asset) => [asset.name, asset.category, asset.inventoryNumber, asset.serialNumber, getAssetHolderText(asset)],
   });
@@ -974,7 +974,7 @@ function getRegistryFilteredAssets() {
     status: document.getElementById("registryFilterStatus")?.value || "",
     category: document.getElementById("registryFilterCategory")?.value || "",
     location: document.getElementById("registryFilterLocation")?.value || "",
-    sortField: document.getElementById("registrySortField")?.value || "name",
+    sortField: document.getElementById("registrySortField")?.value || "inventoryNumber",
     sortDir: document.getElementById("registrySortDir")?.value || "asc",
     haystack: (asset) => [
       asset.name, asset.category, asset.inventoryNumber, asset.serialNumber,
