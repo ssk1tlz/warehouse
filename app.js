@@ -876,6 +876,7 @@ function syncAssetIssueFields() {
   document.getElementById("assetIssueEmployeeField")?.classList.toggle("hidden", target !== "employee");
   document.getElementById("assetIssueDepartmentField")?.classList.toggle("hidden", target !== "department");
   document.getElementById("assetIssueSiteField")?.classList.toggle("hidden", target !== "site");
+  document.getElementById("assetIssueWorkplaceField")?.classList.toggle("hidden", target !== "workplace");
   renderAssetIssueSelects();
 }
 
@@ -923,6 +924,7 @@ function readAssetIssueRequest(addedQuantity) {
   const employeeId = target === "employee" ? String(document.getElementById("assetIssueEmployeeSelect")?.value || "") : "";
   const department = target === "department" ? String(document.getElementById("assetIssueDepartmentSelect")?.value || "").trim() : "";
   const site = target === "site" ? String(document.getElementById("assetIssueSiteSelect")?.value || "").trim() : "";
+  const workplaceId = target === "workplace" ? String(document.getElementById("assetIssueWorkplaceSelect")?.value || "") : "";
   if (target === "employee" && !employeeId) {
     showToast("Выберите сотрудника для выдачи.", "warning");
     return "invalid";
@@ -935,6 +937,10 @@ function readAssetIssueRequest(addedQuantity) {
     showToast("Выберите объект для выдачи.", "warning");
     return "invalid";
   }
+  if (target === "workplace" && !workplaceId) {
+    showToast("Выберите рабочее место для выдачи.", "warning");
+    return "invalid";
+  }
   const quantity = Math.max(1, Number(document.getElementById("assetIssueQuantity")?.value || 1));
   if (quantity > addedQuantity) {
     showToast(`Нельзя выдать ${quantity} шт.: добавляется ${addedQuantity}.`, "warning");
@@ -944,6 +950,7 @@ function readAssetIssueRequest(addedQuantity) {
     employeeId,
     department,
     site,
+    workplaceId,
     quantity,
     // Пустая дата — законное «неизвестно»: в акте вместо дня, месяца и
     // года печатаются прочерки, в истории пишется «Неизвестно».
@@ -959,6 +966,7 @@ function issueAssetOnCreate(asset, request) {
     employeeId: request.employeeId,
     department: request.department,
     site: request.site,
+    workplaceId: request.workplaceId,
     quantity: request.quantity,
   });
   addAuditEntry("asset", asset.id, "issue", {
@@ -973,6 +981,7 @@ function issueAssetOnCreate(asset, request) {
     employeeId: request.employeeId || null,
     department: request.department,
     site: request.site,
+    workplaceId: request.workplaceId,
     actNumber: getNextActNumber(),
     quantity: request.quantity,
     date: request.date,
@@ -2644,6 +2653,14 @@ function getOperationPool(kind) {
       label: "на объекте",
     };
   }
+  if (target === "workplace") {
+    const workplaceId = document.getElementById("returnWorkplaceSelect")?.value || "";
+    return {
+      assets: state.assets.filter((asset) => (getWorkplaceAllocation(asset, workplaceId)?.quantity || 0) > 0),
+      quantity: (asset) => getWorkplaceAllocation(asset, workplaceId)?.quantity || 0,
+      label: "на месте",
+    };
+  }
   const employeeId = dom.returnEmployeeSelect?.value || "";
   return {
     assets: getReturnAssets(employeeId),
@@ -3008,6 +3025,20 @@ function renderSelects() {
       ? siteList.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("")
       : `<option value="">Нет объектов с техникой</option>`;
   }
+  // Стол показывается вместе с хозяином: «Стол 2 — Цой Марина».
+  const workplaceOptions = `<option value="">— выберите место —</option>`
+    + state.workplaces.map((workplace) => {
+      const owner = workplace.employeeId ? getEmployeeById(workplace.employeeId) : null;
+      const label = owner ? `${workplace.name} — ${owner.fullName}` : workplace.name;
+      return `<option value="${escapeHtml(workplace.id)}">${escapeHtml(label)}</option>`;
+    }).join("");
+  ["issueWorkplaceSelect", "returnWorkplaceSelect", "assetIssueWorkplaceSelect"].forEach((id) => {
+    const select = document.getElementById(id);
+    if (!select) return;
+    const current = select.value;
+    select.innerHTML = workplaceOptions;
+    select.value = current;
+  });
   updateIssueAssetOptions();
   dom.repairSourceSelect.innerHTML = locationOptions;
   dom.repairSourceSelect.value = selectedRepairSource;
@@ -3673,6 +3704,7 @@ async function handleIssueSubmit(event) {
   const employeeId = target === "employee" ? String(formData.get("employeeId") || "") : "";
   const departmentName = target === "department" ? String(formData.get("departmentName") || "").trim() : "";
   const siteName = target === "site" ? String(formData.get("siteName") || "").trim() : "";
+  const workplaceId = target === "workplace" ? String(formData.get("workplaceId") || "") : "";
   if (target === "employee" && !employeeId) {
     showToast('Выберите сотрудника.', 'warning');
     return;
@@ -3683,6 +3715,10 @@ async function handleIssueSubmit(event) {
   }
   if (target === "site" && !siteName) {
     showToast('Выберите объект.', 'warning');
+    return;
+  }
+  if (target === "workplace" && !workplaceId) {
+    showToast('Выберите рабочее место.', 'warning');
     return;
   }
   const rows = Array.from(dom.issueItems.querySelectorAll(".operation-item-row"));
@@ -3724,9 +3760,9 @@ async function handleIssueSubmit(event) {
   const employee = employeeId ? getEmployeeById(employeeId) : null;
   for (const [assetId, quantity] of aggregated.entries()) {
     const asset = getAssetById(assetId);
-    AssetOps.mergeAllocation(asset.allocations, { employeeId, department: departmentName, site: siteName, quantity });
+    AssetOps.mergeAllocation(asset.allocations, { employeeId, department: departmentName, site: siteName, workplaceId, quantity });
     addAuditEntry("asset", assetId, "issue", { employee: employee?.fullName, department: employee?.department || departmentName, site: siteName, quantity });
-    addMovement({ type: "issue", assetId: asset.id, employeeId: employeeId || null, department: departmentName, site: siteName, actNumber, quantity, date: formData.get("date") || today(), notes: String(formData.get("notes") || "").trim() });
+    addMovement({ type: "issue", assetId: asset.id, employeeId: employeeId || null, department: departmentName, site: siteName, workplaceId, actNumber, quantity, date: formData.get("date") || today(), notes: String(formData.get("notes") || "").trim() });
   }
   // Очищаем только позиции: получатель и дата остаются, потому что
   // одному человеку обычно выдают несколько вещей подряд. Панель
@@ -3745,6 +3781,7 @@ async function handleReturnSubmit(event) {
   const employeeId = target === "employee" ? String(formData.get("employeeId") || "") : "";
   const departmentName = target === "department" ? String(formData.get("departmentName") || "").trim() : "";
   const siteName = target === "site" ? String(formData.get("siteName") || "").trim() : "";
+  const workplaceId = target === "workplace" ? String(formData.get("workplaceId") || "") : "";
   if (target === "employee" && !employeeId) {
     showToast('Выберите сотрудника.', 'warning');
     return;
@@ -3757,9 +3794,16 @@ async function handleReturnSubmit(event) {
     showToast('Выберите объект.', 'warning');
     return;
   }
-  const findAlloc = (asset) => employeeId
-    ? getEmployeeAllocation(asset, employeeId)
-    : (target === "site" ? getSiteAllocation(asset, siteName) : getDepartmentAllocation(asset, departmentName));
+  if (target === "workplace" && !workplaceId) {
+    showToast('Выберите рабочее место.', 'warning');
+    return;
+  }
+  const findAlloc = (asset) => {
+    if (employeeId) return getEmployeeAllocation(asset, employeeId);
+    if (workplaceId) return getWorkplaceAllocation(asset, workplaceId);
+    if (siteName) return getSiteAllocation(asset, siteName);
+    return getDepartmentAllocation(asset, departmentName);
+  };
   const rows = Array.from(dom.returnItems.querySelectorAll(".operation-item-row"));
   if (!rows.length) {
     showToast('Добавьте хотя бы одну позицию для возврата.', 'warning');
@@ -3783,7 +3827,9 @@ async function handleReturnSubmit(event) {
       return;
     }
     const allocation = findAlloc(asset);
-    const ownerLabel = employeeId ? "сотрудника" : (target === "site" ? `объекта «${siteName}»` : `отдела «${departmentName}»`);
+    const ownerLabel = employeeId ? "сотрудника"
+      : workplaceId ? `места «${getWorkplaceById(workplaceId)?.name || ""}»`
+      : (target === "site" ? `объекта «${siteName}»` : `отдела «${departmentName}»`);
     if (!allocation) {
       showToast(`У ${ownerLabel} нет позиции "${asset.name}".`, 'warning');
       return;
@@ -3799,7 +3845,7 @@ async function handleReturnSubmit(event) {
     const allocation = findAlloc(asset);
     allocation.quantity -= quantity;
     asset.allocations = asset.allocations.filter((entry) => entry.quantity > 0);
-    addMovement({ type: "return", assetId: asset.id, employeeId: employeeId || null, department: departmentName, site: siteName, actNumber, quantity, date: formData.get("date") || today(), notes: String(formData.get("notes") || "").trim() });
+    addMovement({ type: "return", assetId: asset.id, employeeId: employeeId || null, department: departmentName, site: siteName, workplaceId, actNumber, quantity, date: formData.get("date") || today(), notes: String(formData.get("notes") || "").trim() });
   }
   resetOperationForms();
   await persist();
@@ -4403,6 +4449,7 @@ function bindEvents() {
       show(document.getElementById("issueDepartmentAutoField"), target === "employee");
       show(document.getElementById("issueDepartmentSelectField"), target === "department");
       show(document.getElementById("issueSiteField"), target === "site");
+      show(document.getElementById("issueWorkplaceField"), target === "workplace");
       renderIssueEmployeeAssets();
     });
   });
@@ -4413,6 +4460,7 @@ function bindEvents() {
       show(document.getElementById("returnEmployeeField"), target === "employee");
       show(document.getElementById("returnDepartmentField"), target === "department");
       show(document.getElementById("returnSiteField"), target === "site");
+      show(document.getElementById("returnWorkplaceField"), target === "workplace");
       updateReturnAssetOptions();
     });
   });

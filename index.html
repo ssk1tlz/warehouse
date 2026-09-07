@@ -342,6 +342,7 @@
                   <label><input type="radio" name="assetIssueTarget" value="employee" checked> Сотруднику</label>
                   <label><input type="radio" name="assetIssueTarget" value="department"> Отделу</label>
                   <label><input type="radio" name="assetIssueTarget" value="site"> На объект</label>
+                  <label><input type="radio" name="assetIssueTarget" value="workplace"> На рабочее место</label>
                 </div>
                 <div class="form-row form-row-3">
                   <label class="form-field" id="assetIssueEmployeeField">
@@ -363,6 +364,13 @@
                     <span class="field">
                       <span class="field-icon"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 14s4.5-4.06 4.5-7a4.5 4.5 0 10-9 0c0 2.94 4.5 7 4.5 7z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><circle cx="8" cy="6.8" r="1.6" stroke="currentColor" stroke-width="1.3"/></svg></span>
                       <select id="assetIssueSiteSelect"></select>
+                    </span>
+                  </label>
+                  <label class="form-field hidden" id="assetIssueWorkplaceField">
+                    <span class="form-label">Рабочее место</span>
+                    <span class="field">
+                      <span class="field-icon"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M2 6.5h12M3.5 6.5V4a1 1 0 011-1h7a1 1 0 011 1v2.5M4.5 6.5v6M11.5 6.5v6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                      <select id="assetIssueWorkplaceSelect"></select>
                     </span>
                   </label>
                   <label class="form-field">
@@ -977,10 +985,14 @@
           <label style="display:flex;gap:6px;align-items:center;cursor:pointer">
             <input type="radio" name="issueTarget" value="site"> На объект
           </label>
+          <label style="display:flex;gap:6px;align-items:center;cursor:pointer">
+            <input type="radio" name="issueTarget" value="workplace"> На рабочее место
+          </label>
         </div>
         <label id="issueEmployeeField">Сотрудник<select name="employeeId" id="issueEmployeeSelect"></select></label>
         <label id="issueDepartmentSelectField" style="display:none">Отдел<select name="departmentName" id="issueDepartmentSelect"></select></label>
         <label id="issueSiteField" style="display:none">Объект<select name="siteName" id="issueSiteSelect"></select></label>
+        <label id="issueWorkplaceField" style="display:none">Рабочее место<select name="workplaceId" id="issueWorkplaceSelect"></select></label>
         <label id="issueDepartmentAutoField">Отдел<input type="text" id="issueDepartmentField" readonly placeholder="(выбирается автоматически)"></label>
         <!-- Что уже числится за выбранным сотрудником: видно сразу при
              выборе, чтобы не выдать второй раз то, что у него есть. -->
@@ -1015,10 +1027,14 @@
           <label style="display:flex;gap:6px;align-items:center;cursor:pointer">
             <input type="radio" name="returnTarget" value="site"> С объекта
           </label>
+          <label style="display:flex;gap:6px;align-items:center;cursor:pointer">
+            <input type="radio" name="returnTarget" value="workplace"> С рабочего места
+          </label>
         </div>
         <label id="returnEmployeeField">Сотрудник<select name="employeeId" id="returnEmployeeSelect"></select></label>
         <label id="returnDepartmentField" style="display:none">Отдел<select name="departmentName" id="returnDepartmentSelect"></select></label>
         <label id="returnSiteField" style="display:none">Объект<select name="siteName" id="returnSiteSelect"></select></label>
+        <label id="returnWorkplaceField" style="display:none">Рабочее место<select name="workplaceId" id="returnWorkplaceSelect"></select></label>
         <label>Дата возврата<input type="date" name="date" required></label>
         <div class="full operation-items">
           <div class="operation-items-header">
