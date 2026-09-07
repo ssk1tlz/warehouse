@@ -268,12 +268,13 @@
                  редактировании существующей карточки: там для выдачи есть
                  отдельное окно, а повторная выдача из формы правки только
                  запутала бы учёт. -->
-            <div class="form-section" id="assetIssueSection">
-              <label class="issue-now-toggle">
-                <input type="checkbox" id="assetIssueNow">
-                <span class="form-section-title" style="margin:0">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v8M5 7l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 11.5v1A1.5 1.5 0 004 14h8a1.5 1.5 0 001.5-1.5v-1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-                  Выдать сразу
+            <div class="form-section issue-now" id="assetIssueSection">
+              <label class="issue-now-head">
+                <input type="checkbox" id="assetIssueNow" class="issue-now-check">
+                <svg class="issue-now-icon" width="17" height="17" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 2v7M5.2 6.4L8 9.2l2.8-2.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 11v1.5A1.5 1.5 0 004 14h8a1.5 1.5 0 001.5-1.5V11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                <span class="issue-now-text">
+                  <span class="issue-now-title">Выдать сразу</span>
+                  <span class="issue-now-hint">Техника уйдёт получателю в момент сохранения</span>
                 </span>
               </label>
 

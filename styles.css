@@ -1797,19 +1797,80 @@ tr:hover td { background: var(--surface-2); }
   color: var(--text-3);
   cursor: pointer;
 }
-.date-unknown input { width: 13px; height: 13px; margin: 0; cursor: pointer; }
+/* accent-color обязателен: без него браузер рисует свой красный, и
+   галочка выбивается из синих чекбоксов всего приложения. */
+.date-unknown input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--brand);
+  cursor: pointer;
+}
 
 /* ─── «Выдать сразу» ─────────────────────────────────────────── */
-.issue-now-toggle {
+/* У секции два очень разных состояния: свёрнутая — это одна строка-
+   действие, развёрнутая — полноценный набор полей. Поэтому в свёрнутом
+   виде padding урезан: с обычным она читалась бы как пустая панель,
+   которую забыли заполнить. */
+.form-section.issue-now { padding: 13px 20px; }
+.form-section.issue-now.is-on { padding: 16px 20px 18px; }
+
+/* Включённая выдача подсвечивается фирменным тоном — это единственный
+   акцент в форме, и он сообщает главное: сохранение не только заведёт
+   карточку, но и снимет технику со склада. */
+.form-section.issue-now.is-on {
+  border-color: var(--brand);
+  background: var(--brand-dim);
+}
+
+.issue-now-head {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 11px;
   cursor: pointer;
   user-select: none;
 }
-.issue-now-toggle input { width: 15px; height: 15px; margin: 0; cursor: pointer; }
-.issue-now-toggle .form-section-title { margin: 0; }
-#assetIssueFields { margin-top: 14px; }
+
+/* Нативный чекбокс, крашенный accent-color — тот же приём, что у
+   .emp-checkbox и списка печати этикеток. Своего переключателя в
+   приложении нет, и заводить его здесь ради одной галочки не стоит. */
+.issue-now-check {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border-radius: 4px;
+  accent-color: var(--brand);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* Иконка фирменного цвета, как у заголовков всех остальных секций
+   (.form-section-title svg). Состояние несёт подсветка фона, а серая
+   иконка читалась бы как «недоступно». */
+.issue-now-icon { color: var(--brand); flex-shrink: 0; }
+
+/* Радиокнопки получателя — тоже фирменные. Без accent-color браузер
+   рисует их красными рядом с синими чекбоксами блока. */
+#assetIssueFields input[type="radio"] { accent-color: var(--brand); cursor: pointer; }
+
+.issue-now-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+.issue-now-title { font-size: 13px; font-weight: 600; color: var(--text-2); }
+.is-on .issue-now-title { color: var(--text); }
+
+.issue-now-hint { font-size: 11.5px; color: var(--text-3); line-height: 1.35; }
+
+/* Разделитель появляется только вместе с полями: в свёрнутом виде ему
+   нечего отделять. */
+#assetIssueFields {
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 640px) {
+  .issue-now-hint { display: none; }
+}
 
 /* Кнопка-ссылка рядом с подписью поля — не должна выглядеть кнопкой. */
 .link-btn {

@@ -819,6 +819,9 @@ function renderAssetIssueSelects() {
 function syncAssetIssueFields() {
   const enabled = Boolean(document.getElementById("assetIssueNow")?.checked);
   document.getElementById("assetIssueFields")?.classList.toggle("hidden", !enabled);
+  // Класс, а не CSS :has() — приложение открывают и из встроенного окна
+  // .exe, где движок может оказаться старее поддержки :has().
+  document.getElementById("assetIssueSection")?.classList.toggle("is-on", enabled);
   if (!enabled) return;
   const target = getAssetIssueTarget();
   document.getElementById("assetIssueEmployeeField")?.classList.toggle("hidden", target !== "employee");
