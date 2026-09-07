@@ -530,12 +530,25 @@ def export_state() -> dict:
             "SELECT id, name FROM sites ORDER BY name"
         )]
 
+        workplaces = [
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "employeeId": row["employee_id"],
+                "site": row["site"] or "",
+                "notes": row["notes"] or "",
+            }
+            for row in connection.execute(
+                "SELECT id, name, employee_id, site, notes FROM workplaces ORDER BY name"
+            )
+        ]
+
         allocations_by_asset: dict[str, list[dict]] = {}
         for row in connection.execute(
-            "SELECT asset_id, employee_id, department, site, quantity FROM asset_allocations WHERE quantity > 0 ORDER BY asset_id, employee_id, department, site"
+            "SELECT asset_id, employee_id, department, site, workplace_id, quantity FROM asset_allocations WHERE quantity > 0 ORDER BY asset_id, employee_id, department, site"
         ):
             allocations_by_asset.setdefault(row["asset_id"], []).append(
-                {"employeeId": row["employee_id"], "department": row["department"] or "", "site": row["site"] or "", "quantity": row["quantity"]}
+                {"employeeId": row["employee_id"], "department": row["department"] or "", "site": row["site"] or "", "workplaceId": row["workplace_id"] or "", "quantity": row["quantity"]}
             )
 
         assets = []
@@ -568,7 +581,7 @@ def export_state() -> dict:
             )
 
         movements = [dict(row) for row in connection.execute(
-            "SELECT id, type, asset_id AS assetId, employee_id AS employeeId, department, site, act_number AS actNumber, quantity, date, notes FROM movements ORDER BY date DESC, id DESC"
+            "SELECT id, type, asset_id AS assetId, employee_id AS employeeId, department, site, workplace_id AS workplaceId, act_number AS actNumber, quantity, date, notes FROM movements ORDER BY date DESC, id DESC"
         )]
 
         audit = []
@@ -595,6 +608,7 @@ def export_state() -> dict:
         "employees": employees,
         "departments": departments,
         "sites": sites,
+        "workplaces": workplaces,
         "assets": assets,
         "movements": movements,
         "auditLog": audit,
@@ -623,6 +637,7 @@ def import_state(payload: dict, actor: str) -> dict:
     employees = payload.get("employees", [])
     departments = payload.get("departments", [])
     sites = payload.get("sites", [])
+    workplaces = payload.get("workplaces", [])
     assets = payload.get("assets", [])
     movements = payload.get("movements", [])
     updated_at = (payload.get("meta") or {}).get("updatedAt")
@@ -658,6 +673,7 @@ def import_state(payload: dict, actor: str) -> dict:
         connection.execute("DELETE FROM employees")
         connection.execute("DELETE FROM departments")
         connection.execute("DELETE FROM sites")
+        connection.execute("DELETE FROM workplaces")
 
         for employee in employees:
             connection.execute(
@@ -684,6 +700,18 @@ def import_state(payload: dict, actor: str) -> dict:
             connection.execute(
                 "INSERT INTO sites (id, name) VALUES (?, ?)",
                 (site.get("id"), site.get("name") or ""),
+            )
+
+        for workplace in workplaces:
+            connection.execute(
+                "INSERT INTO workplaces (id, name, employee_id, site, notes) VALUES (?, ?, ?, ?, ?)",
+                (
+                    workplace.get("id"),
+                    workplace.get("name") or "",
+                    workplace.get("employeeId") or None,
+                    workplace.get("site") or "",
+                    workplace.get("notes") or "",
+                ),
             )
 
         for asset in assets:
@@ -748,24 +776,19 @@ def import_state(payload: dict, actor: str) -> dict:
                 if quantity <= 0:
                     continue
                 connection.execute(
-                    "INSERT INTO asset_allocations (asset_id, employee_id, department, site, quantity) VALUES (?, ?, ?, ?, ?)",
-                    (asset.get("id"), allocation.get("employeeId") or None, allocation.get("department") or "", allocation.get("site") or "", quantity),
+                    "INSERT INTO asset_allocations (asset_id, employee_id, department, site, workplace_id, quantity) VALUES (?, ?, ?, ?, ?, ?)",
+                    (asset.get("id"), allocation.get("employeeId") or None, allocation.get("department") or "", allocation.get("site") or "", allocation.get("workplaceId") or "", quantity),
                 )
 
         for movement in movements:
             connection.execute(
-                "INSERT INTO movements (id, type, asset_id, employee_id, department, site, act_number, quantity, date, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO movements (id, type, asset_id, employee_id, department, site, workplace_id, act_number, quantity, date, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
-                    movement.get("id"),
-                    movement.get("type") or "purchase",
-                    movement.get("assetId"),
-                    movement.get("employeeId") or None,
-                    movement.get("department") or "",
-                    movement.get("site") or "",
-                    movement.get("actNumber"),
-                    int(movement.get("quantity") or 0),
-                    movement.get("date") or "",
-                    movement.get("notes") or "",
+                    movement.get("id"), movement.get("type"), movement.get("assetId"),
+                    movement.get("employeeId") or None, movement.get("department") or "",
+                    movement.get("site") or "", movement.get("workplaceId") or "",
+                    movement.get("actNumber"), int(movement.get("quantity") or 0),
+                    movement.get("date") or "", movement.get("notes") or "",
                 ),
             )
 
