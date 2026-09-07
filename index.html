@@ -936,6 +936,9 @@
         <label id="issueDepartmentSelectField" style="display:none">Отдел<select name="departmentName" id="issueDepartmentSelect"></select></label>
         <label id="issueSiteField" style="display:none">Объект<select name="siteName" id="issueSiteSelect"></select></label>
         <label id="issueDepartmentAutoField">Отдел<input type="text" id="issueDepartmentField" readonly placeholder="(выбирается автоматически)"></label>
+        <!-- Что уже числится за выбранным сотрудником: видно сразу при
+             выборе, чтобы не выдать второй раз то, что у него есть. -->
+        <div class="full held-box hidden" id="issueEmployeeAssets"></div>
         <label>Дата выдачи<input type="date" name="date" required></label>
         <div class="full operation-items">
           <div class="operation-items-header">

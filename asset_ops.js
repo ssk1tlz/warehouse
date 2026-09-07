@@ -50,7 +50,34 @@ function mergeAllocation(allocations, { employeeId = null, department = '', site
   return entry;
 }
 
-const AssetOps = { mergeAllocation };
+// Строка, по которой ищется техника. Инвентарный номер, серийник,
+// наименование и категория — всё, чем пользователь может её назвать:
+// тип обычно лежит в категории, а модель в наименовании, поэтому одного
+// поля не хватает.
+function assetHaystack(asset) {
+  return [asset.name, asset.category, asset.inventoryNumber, asset.serialNumber]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+    .replace(/ё/g, 'е');
+}
+
+/**
+ * Отбирает технику по строке поиска. Слова запроса ищутся все и в любом
+ * порядке: «мышь a4tech» находит позицию, у которой тип в категории, а
+ * модель в наименовании. Порядок исходного списка сохраняется.
+ * Пустой запрос возвращает список целиком.
+ */
+function searchAssets(assets, query) {
+  const words = String(query || '').toLowerCase().replace(/ё/g, 'е').split(/\s+/).filter(Boolean);
+  if (!words.length) return [...(assets || [])];
+  return (assets || []).filter((asset) => {
+    const haystack = assetHaystack(asset);
+    return words.every((word) => haystack.includes(word));
+  });
+}
+
+const AssetOps = { mergeAllocation, searchAssets };
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = AssetOps;

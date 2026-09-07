@@ -2213,11 +2213,15 @@ button.users-qr-btn:hover { background: var(--brand-dim); color: var(--brand-lig
 
 .mini-button { padding: 6px 10px; font-size: 12px; }
 
+/* Раньше в строке было четыре ячейки: поле поиска, <select>, количество
+   и кнопка. Поиск и список объединены в один виджет, поэтому колонок
+   три. */
 .operation-item-row {
   display: grid;
-  grid-template-columns: 1fr 1fr 100px auto;
+  grid-template-columns: 1fr 100px auto;
   gap: 12px;
-  align-items: end;
+  align-items: start;
+  margin-bottom: 10px;
 }
 
 .operation-item-row input[type="text"] {
@@ -3068,3 +3072,73 @@ tr.low-stock-row:hover td { background: rgba(245,158,11,0.09); }
   .scanner-card-body { grid-template-columns: 1fr; }
   .scanner-card-col + .scanner-card-col { border-left: none; border-top: 1px solid var(--line); }
 }
+
+/* ─── ВЫБОР ТЕХНИКИ В ОПЕРАЦИЯХ ──────────────────────────────── */
+/* Список выпадает поверх формы, поэтому обёртка позиционируется, а сам
+   список абсолютный: иначе он раздвигал бы строки под собой. */
+.asset-picker { position: relative; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.asset-picker-input { width: 100%; }
+
+/* Выбранная позиция подсвечивается: сразу видно, что строка заполнена,
+   а не осталась с набранным, но не выбранным текстом. */
+.asset-picker.chosen .asset-picker-input { border-color: var(--brand); }
+.asset-picker-note { font-size: 11px; color: var(--text-3); font-family: var(--mono); }
+
+.asset-picker-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  margin-top: 4px;
+  max-height: 264px;
+  overflow-y: auto;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-lg);
+}
+.asset-picker-list.hidden { display: none; }
+
+.asset-picker-option {
+  display: grid;
+  grid-template-columns: 92px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 8px 11px;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  text-align: left;
+  font-size: 12.5px;
+  color: var(--text);
+}
+.asset-picker-option:hover,
+.asset-picker-option.active { background: var(--brand-dim); transform: none; }
+
+.asset-picker-code { font-family: var(--mono); font-size: 11.5px; color: var(--brand); }
+.asset-picker-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asset-picker-qty { font-family: var(--mono); font-size: 11px; color: var(--text-3); white-space: nowrap; }
+
+.asset-picker-empty { padding: 10px 12px; font-size: 12px; color: var(--text-3); }
+
+/* ─── ТЕХНИКА НА РУКАХ У ПОЛУЧАТЕЛЯ ──────────────────────────── */
+.held-box {
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  max-height: 148px;
+  overflow-y: auto;
+}
+.held-box.hidden { display: none; }
+
+.held-title { font-size: 11px; font-weight: 600; color: var(--text-2); letter-spacing: 0.02em; }
+.held-title.empty { color: var(--text-3); font-weight: 400; }
+
+.held-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.held-list li { display: grid; grid-template-columns: 92px 1fr auto; gap: 10px; align-items: center; font-size: 12.5px; }
+.held-list code { font-family: var(--mono); font-size: 11.5px; color: var(--brand); }
+.held-list span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.held-list b { font-family: var(--mono); font-size: 11.5px; font-weight: 600; color: var(--text-3); }

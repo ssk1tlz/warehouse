@@ -125,3 +125,72 @@ test('возвращает затронутую запись', () => {
   const entry = mergeAllocation(allocations, { employeeId: 'emp_1', quantity: 2 });
   assert.equal(entry, allocations[0]);
 });
+
+// ─── поиск техники ───────────────────────────────────────────────
+
+const { searchAssets } = require('../asset_ops.js');
+
+const CATALOG = [
+  { id: 'a1', name: 'Samsung / S27E332H', category: 'Монитор', inventoryNumber: 'MON-0008', serialNumber: '08LPH9YN800154T' },
+  { id: 'a2', name: 'HP / HP Laptop 15-fd0xxx', category: 'Ноутбук', inventoryNumber: 'NB-0005', serialNumber: 'Отсутствует' },
+  { id: 'a3', name: 'A4Tech / OP-6200', category: 'Проводная компьютерная мышь', inventoryNumber: 'MUS-0011', serialNumber: '' },
+  { id: 'a4', name: '3D Optical mouse', category: 'Проводная компьютерная мышь', inventoryNumber: 'MUS-0180' },
+];
+
+const ids = (rows) => rows.map((r) => r.id);
+
+test('пустой запрос возвращает весь список', () => {
+  assert.deepEqual(ids(searchAssets(CATALOG, '')), ['a1', 'a2', 'a3', 'a4']);
+});
+
+test('запрос из одних пробелов возвращает весь список', () => {
+  assert.deepEqual(ids(searchAssets(CATALOG, '   ')), ['a1', 'a2', 'a3', 'a4']);
+});
+
+test('находит по наименованию без учёта регистра', () => {
+  assert.deepEqual(ids(searchAssets(CATALOG, 'samsung')), ['a1']);
+});
+
+test('находит по категории', () => {
+  // Ровно то, что было сломано: поиск по слову вообще не работал.
+  assert.deepEqual(ids(searchAssets(CATALOG, 'монитор')), ['a1']);
+});
+
+test('находит по инвентарному номеру целиком', () => {
+  assert.deepEqual(ids(searchAssets(CATALOG, 'MON-0008')), ['a1']);
+});
+
+test('находит по числовой части инвентарного номера', () => {
+  // Старый поиск умел только цифры — новый обязан не растерять это.
+  assert.deepEqual(ids(searchAssets(CATALOG, '0005')), ['a2']);
+});
+
+test('находит по серийному номеру', () => {
+  assert.deepEqual(ids(searchAssets(CATALOG, '08LPH9YN800154T')), ['a1']);
+});
+
+test('несколько слов ищутся вместе, в любом порядке', () => {
+  // Тип лежит в категории, модель — в наименовании; порознь не найти.
+  assert.deepEqual(ids(searchAssets(CATALOG, 'мышь a4tech')), ['a3']);
+  assert.deepEqual(ids(searchAssets(CATALOG, 'a4tech мышь')), ['a3']);
+});
+
+test('слова, не совпавшие вместе, ничего не дают', () => {
+  assert.deepEqual(ids(searchAssets(CATALOG, 'мышь samsung')), []);
+});
+
+test('несуществующий запрос даёт пустой список', () => {
+  assert.deepEqual(ids(searchAssets(CATALOG, 'кофемашина')), []);
+});
+
+test('ё приводится к е', () => {
+  assert.deepEqual(ids(searchAssets(CATALOG, 'отсутствует')), ['a2']);
+});
+
+test('позиция без серийного номера не роняет поиск', () => {
+  assert.deepEqual(ids(searchAssets(CATALOG, 'optical')), ['a4']);
+});
+
+test('порядок исходного списка сохраняется', () => {
+  assert.deepEqual(ids(searchAssets(CATALOG, 'mus')), ['a3', 'a4']);
+});

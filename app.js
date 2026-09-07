@@ -2446,28 +2446,184 @@ function makeAssetOptions(assets, qtyLabel, selectedAssetId = "") {
 }
 
 // ─── ФОРМЫ ОПЕРАЦИЙ (выдача / возврат / ремонт / списание) ──────
+
+// Откуда берутся позиции и как подписывается доступное количество.
+// Возврат зависит от выбранного получателя, выдача — всегда склад.
+function getOperationPool(kind) {
+  if (kind === "issue") {
+    return {
+      assets: getIssueAssets(),
+      quantity: (asset) => getAvailableQuantity(asset),
+      label: "остаток",
+    };
+  }
+  const target = document.querySelector('input[name="returnTarget"]:checked')?.value || "employee";
+  if (target === "department") {
+    const dept = document.getElementById("returnDepartmentSelect")?.value || "";
+    return {
+      assets: getDepartmentReturnAssets(dept),
+      quantity: (asset) => getDepartmentAllocation(asset, dept)?.quantity || 0,
+      label: "в отделе",
+    };
+  }
+  if (target === "site") {
+    const site = document.getElementById("returnSiteSelect")?.value || "";
+    return {
+      assets: getSiteReturnAssets(site),
+      quantity: (asset) => getSiteAllocation(asset, site)?.quantity || 0,
+      label: "на объекте",
+    };
+  }
+  const employeeId = dom.returnEmployeeSelect?.value || "";
+  return {
+    assets: getReturnAssets(employeeId),
+    quantity: (asset) => getEmployeeAllocation(asset, employeeId)?.quantity || 0,
+    label: "на руках",
+  };
+}
+
+const ASSET_PICKER_LIMIT = 40;
+
+/**
+ * Поле выбора техники: печатаешь — под полем появляются подходящие
+ * позиции, щёлкаешь нужную.
+ *
+ * Раньше здесь были отдельные поле поиска и <select>. Поиск прятал
+ * <option> и умел сравнивать запрос только с первой группой цифр, то
+ * есть не работал почти никогда, а главное — не трогал выбранное
+ * значение: после неудачного поиска в списке оставалась первая позиция,
+ * и в выдачу уходила именно она. Здесь выбранного по умолчанию нет
+ * вовсе, поэтому выдать не то, что искал, нельзя по построению.
+ */
+function createAssetPicker(kind) {
+  const wrap = document.createElement("div");
+  wrap.className = "asset-picker";
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "asset-picker-input";
+  input.placeholder = "Название, инв. номер или серийник";
+  input.autocomplete = "off";
+
+  // Скрытое поле хранит id выбранной позиции. Класс тот же, что был у
+  // <select>, поэтому обработчики отправки читают его без изменений.
+  const value = document.createElement("input");
+  value.type = "hidden";
+  value.className = kind === "issue" ? "issue-asset-select" : "return-asset-select";
+
+  const list = document.createElement("div");
+  list.className = "asset-picker-list hidden";
+
+  wrap.append(input, value, list);
+
+  let matches = [];
+  let active = -1;
+
+  const close = () => { list.classList.add("hidden"); active = -1; };
+
+  const choose = (asset) => {
+    const { quantity, label } = getOperationPool(kind);
+    value.value = asset.id;
+    input.value = `${asset.inventoryNumber ? asset.inventoryNumber + " · " : ""}${assetShortLabel(asset)}`;
+    wrap.dataset.available = String(quantity(asset));
+    wrap.classList.add("chosen");
+    const qtyInput = wrap.parentElement?.querySelector("input[type=number]");
+    if (qtyInput) {
+      qtyInput.max = String(quantity(asset));
+      qtyInput.value = String(Math.min(Number(qtyInput.value || 1) || 1, quantity(asset)));
+    }
+    wrap.querySelector(".asset-picker-note")?.remove();
+    const note = document.createElement("span");
+    note.className = "asset-picker-note";
+    note.textContent = `${label}: ${quantity(asset)}`;
+    wrap.appendChild(note);
+    close();
+  };
+
+  const render = () => {
+    const pool = getOperationPool(kind);
+    matches = AssetOps.searchAssets(pool.assets, input.value);
+    if (!pool.assets.length) {
+      list.innerHTML = `<div class="asset-picker-empty">Нет доступной техники</div>`;
+    } else if (!matches.length) {
+      list.innerHTML = `<div class="asset-picker-empty">Ничего не найдено</div>`;
+    } else {
+      const shown = matches.slice(0, ASSET_PICKER_LIMIT);
+      list.innerHTML = shown.map((asset, index) => `
+        <button type="button" class="asset-picker-option${index === active ? " active" : ""}" data-id="${escapeHtml(asset.id)}">
+          <span class="asset-picker-code">${escapeHtml(asset.inventoryNumber || "—")}</span>
+          <span class="asset-picker-name">${escapeHtml(assetShortLabel(asset))}</span>
+          <span class="asset-picker-qty">${pool.label}: ${pool.quantity(asset)}</span>
+        </button>`).join("")
+        + (matches.length > shown.length
+          ? `<div class="asset-picker-empty">Показаны первые ${ASSET_PICKER_LIMIT} из ${matches.length} — уточните запрос</div>`
+          : "");
+    }
+    list.classList.remove("hidden");
+  };
+
+  input.addEventListener("input", () => {
+    // Правка текста снимает выбор: иначе в поле осталась бы одна
+    // позиция, а отправилась другая — ровно та ошибка, что была.
+    value.value = "";
+    wrap.classList.remove("chosen");
+    wrap.querySelector(".asset-picker-note")?.remove();
+    active = -1;
+    render();
+  });
+  input.addEventListener("focus", render);
+
+  input.addEventListener("keydown", (event) => {
+    const shown = Math.min(matches.length, ASSET_PICKER_LIMIT);
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (!shown) return;
+      event.preventDefault();
+      active = event.key === "ArrowDown"
+        ? (active + 1) % shown
+        : (active <= 0 ? shown - 1 : active - 1);
+      render();
+      list.querySelectorAll(".asset-picker-option")[active]?.scrollIntoView({ block: "nearest" });
+    } else if (event.key === "Enter") {
+      if (active >= 0 && matches[active]) { event.preventDefault(); choose(matches[active]); }
+    } else if (event.key === "Escape") {
+      close();
+    }
+  });
+
+  list.addEventListener("mousedown", (event) => {
+    // mousedown, а не click: blur успел бы закрыть список раньше клика.
+    const option = event.target.closest(".asset-picker-option");
+    if (!option) return;
+    event.preventDefault();
+    const asset = getAssetById(option.dataset.id);
+    if (asset) choose(asset);
+  });
+
+  input.addEventListener("blur", () => setTimeout(close, 0));
+
+  // Пересобрать подпись остатка и снять выбор, если позиция выбыла из
+  // доступных (её выдали из другого окна, отправили в ремонт и т.п.).
+  wrap.refresh = () => {
+    if (!value.value) return;
+    const pool = getOperationPool(kind);
+    const asset = pool.assets.find((item) => String(item.id) === String(value.value));
+    if (!asset) {
+      value.value = "";
+      input.value = "";
+      wrap.classList.remove("chosen");
+      wrap.querySelector(".asset-picker-note")?.remove();
+      return;
+    }
+    choose(asset);
+  };
+
+  return wrap;
+}
+
 function createOperationItemRow(kind) {
   const row = document.createElement("div");
   row.className = "operation-item-row";
-  const select = document.createElement("select");
-  select.required = true;
-  select.className = kind === "issue" ? "issue-asset-select" : "return-asset-select";
-  const searchInput = document.createElement("input");
-  searchInput.type = "text";
-  searchInput.placeholder = "Поиск техники";
-  searchInput.className = kind === "issue" ? "issue-asset-search" : "return-asset-search";
-  searchInput.style.flex = "1";
-  searchInput.addEventListener("input", (e) => {
-    const query = e.target.value.toLowerCase();
-    const options = select.querySelectorAll("option");
-    options.forEach(opt => {
-      const text = opt.textContent.toLowerCase();
-      // Filter by numeric part of inventory number
-      const match = text.match(/(\d+)/);
-      const numPart = match ? match[1] : text;
-      opt.style.display = numPart.includes(query) ? "" : "none";
-    });
-  });
+  const picker = createAssetPicker(kind);
   const qty = document.createElement("input");
   qty.type = "number";
   qty.min = "1";
@@ -2487,28 +2643,34 @@ function createOperationItemRow(kind) {
       else addReturnItemRow();
     }
   });
-  row.append(searchInput, select, qty, removeBtn);
+  row.append(picker, qty, removeBtn);
   return row;
+}
+
+// Предвыбранная позиция приходит из комплектов и из кнопки «Выдать» в
+// строке техники — подставляем её так же, как это сделал бы человек.
+function presetPickerAsset(row, assetId) {
+  if (!assetId) return;
+  const picker = row.querySelector(".asset-picker");
+  const asset = getAssetById(assetId);
+  if (picker && asset) {
+    picker.querySelector("input[type=hidden]").value = String(assetId);
+    picker.refresh();
+  }
 }
 
 function addIssueItemRow(selectedAssetId = "", quantity = 1) {
   const row = createOperationItemRow("issue");
-  const select = row.querySelector(".issue-asset-select");
-  const qty = row.querySelector(".issue-quantity-input");
-  qty.value = Math.max(1, Number(quantity || 1));
+  row.querySelector(".issue-quantity-input").value = Math.max(1, Number(quantity || 1));
   dom.issueItems.appendChild(row);
-  updateIssueAssetOptions();
-  if (selectedAssetId) select.value = String(selectedAssetId);
+  presetPickerAsset(row, selectedAssetId);
 }
 
 function addReturnItemRow(selectedAssetId = "", quantity = 1) {
   const row = createOperationItemRow("return");
-  const select = row.querySelector(".return-asset-select");
-  const qty = row.querySelector(".return-quantity-input");
-  qty.value = Math.max(1, Number(quantity || 1));
+  row.querySelector(".return-quantity-input").value = Math.max(1, Number(quantity || 1));
   dom.returnItems.appendChild(row);
-  updateReturnAssetOptions();
-  if (selectedAssetId) select.value = String(selectedAssetId);
+  presetPickerAsset(row, selectedAssetId);
 }
 
 function getManualActAssets() {
@@ -2561,44 +2723,36 @@ function updateManualActAssetOptions() {
   });
 }
 
+// Позиции больше не перерисовываются списком опций — каждое поле выбора
+// само пересобирает подпись остатка и снимает выбор, если позиция выбыла
+// из доступных.
 function updateIssueAssetOptions() {
-  const issueAssets = getIssueAssets();
-  dom.issueItems.querySelectorAll(".issue-asset-select").forEach((select) => {
-    const selected = select.value;
-    select.innerHTML = makeAssetOptions(issueAssets, (asset) => `остаток: ${getAvailableQuantity(asset)}`, selected);
-  });
+  dom.issueItems.querySelectorAll(".asset-picker").forEach((picker) => picker.refresh());
 }
 
 function updateReturnAssetOptions() {
-  const target = document.querySelector('input[name="returnTarget"]:checked')?.value || "employee";
-  let assetsList = [];
-  let qtyFn;
-  if (target === "department") {
-    const dept = document.getElementById("returnDepartmentSelect")?.value || "";
-    assetsList = getDepartmentReturnAssets(dept);
-    qtyFn = (asset) => {
-      const allocation = getDepartmentAllocation(asset, dept);
-      return `в отделе: ${allocation ? allocation.quantity : 0}`;
-    };
-  } else if (target === "site") {
-    const site = document.getElementById("returnSiteSelect")?.value || "";
-    assetsList = getSiteReturnAssets(site);
-    qtyFn = (asset) => {
-      const allocation = getSiteAllocation(asset, site);
-      return `на объекте: ${allocation ? allocation.quantity : 0}`;
-    };
-  } else {
-    const employeeId = dom.returnEmployeeSelect.value;
-    assetsList = getReturnAssets(employeeId);
-    qtyFn = (asset) => {
-      const allocation = getEmployeeAllocation(asset, employeeId);
-      return `на руках: ${allocation ? allocation.quantity : 0}`;
-    };
-  }
-  dom.returnItems.querySelectorAll(".return-asset-select").forEach((select) => {
-    const selected = select.value;
-    select.innerHTML = makeAssetOptions(assetsList, qtyFn, selected);
-  });
+  dom.returnItems.querySelectorAll(".asset-picker").forEach((picker) => picker.refresh());
+}
+
+// Что уже числится за выбранным получателем выдачи. Видно сразу при
+// выборе сотрудника — чтобы не выдать вторую мышь тому, у кого она есть.
+function renderIssueEmployeeAssets() {
+  const box = document.getElementById("issueEmployeeAssets");
+  if (!box) return;
+  const target = document.querySelector('input[name="issueTarget"]:checked')?.value || "employee";
+  const employeeId = target === "employee" ? (dom.issueEmployeeSelect?.value || "") : "";
+  if (!employeeId) { box.classList.add("hidden"); box.innerHTML = ""; return; }
+
+  const rows = state.assets
+    .map((asset) => ({ asset, allocation: getEmployeeAllocation(asset, employeeId) }))
+    .filter((entry) => entry.allocation && entry.allocation.quantity > 0);
+
+  box.classList.remove("hidden");
+  box.innerHTML = rows.length
+    ? `<div class="held-title">Уже на руках · ${rows.length}</div><ul class="held-list">`
+      + rows.map(({ asset, allocation }) => `<li><code>${escapeHtml(asset.inventoryNumber || "—")}</code><span>${escapeHtml(asset.name)}</span><b>${allocation.quantity} шт.</b></li>`).join("")
+      + `</ul>`
+    : `<div class="held-title empty">Техники на руках нет</div>`;
 }
 
 function updateRepairAssetOptions() {
@@ -3360,14 +3514,21 @@ async function handleIssueSubmit(event) {
     return;
   }
   const aggregated = new Map();
-  rows.forEach((row) => {
+  for (const row of rows) {
     const assetId = row.querySelector(".issue-asset-select")?.value;
     const quantity = Math.max(1, Number(row.querySelector(".issue-quantity-input")?.value || 1));
-    if (!assetId) return;
+    // Незаполненная строка раньше молча пропускалась: можно было
+    // напечатать в поиске несуществующее и всё равно оформить выдачу —
+    // только другой позиции. Теперь это ошибка.
+    if (!assetId) {
+      showToast('В одной из строк техника не выбрана — выберите позицию из списка.', 'warning');
+      row.querySelector(".asset-picker-input")?.focus();
+      return;
+    }
     aggregated.set(assetId, (aggregated.get(assetId) || 0) + quantity);
-  });
+  }
   if (!aggregated.size) {
-    showToast('Выберите технику для выдачи.', 'warning');
+    showToast('Добавьте хотя бы одну позицию для выдачи.', 'warning');
     return;
   }
   for (const [assetId, quantity] of aggregated.entries()) {
@@ -3390,7 +3551,13 @@ async function handleIssueSubmit(event) {
     addAuditEntry("asset", assetId, "issue", { employee: employee?.fullName, department: employee?.department || departmentName, site: siteName, quantity });
     addMovement({ type: "issue", assetId: asset.id, employeeId: employeeId || null, department: departmentName, site: siteName, actNumber, quantity, date: formData.get("date") || today(), notes: String(formData.get("notes") || "").trim() });
   }
-  resetOperationForms();
+  // Очищаем только позиции: получатель и дата остаются, потому что
+  // одному человеку обычно выдают несколько вещей подряд. Панель
+  // «уже на руках» тут же показывает, что выдача прошла.
+  dom.issueItems.innerHTML = "";
+  addIssueItemRow();
+  renderIssueEmployeeAssets();
+  showToast(`Выдано позиций: ${aggregated.size}. Акт №${actNumber}.`, 'success');
   await persist();
 }
 
@@ -4037,6 +4204,7 @@ function bindEvents() {
     const emp = getEmployeeById(e.target.value);
     const field = document.getElementById("issueDepartmentField");
     if (field) field.value = emp?.department || "";
+    renderIssueEmployeeAssets();
   });
 
   // Toggle issue target between employee / department / site
@@ -4048,6 +4216,7 @@ function bindEvents() {
       show(document.getElementById("issueDepartmentAutoField"), target === "employee");
       show(document.getElementById("issueDepartmentSelectField"), target === "department");
       show(document.getElementById("issueSiteField"), target === "site");
+      renderIssueEmployeeAssets();
     });
   });
   // Toggle return target between employee / department / site
