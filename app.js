@@ -3,6 +3,7 @@ const EMPTY_STATE = {
   employees: [],
   departments: [],
   sites: [],
+  workplaces: [],
   assets: [],
   movements: [],
   auditLog: [],
@@ -327,9 +328,10 @@ function normalizeAsset(asset) {
             employeeId: entry.employeeId || null,
             department: entry.department || "",
             site: entry.site || "",
+            workplaceId: entry.workplaceId || "",
             quantity: Math.max(0, Number(entry.quantity || 0)),
           }))
-          .filter((entry) => (entry.employeeId || entry.department || entry.site) && entry.quantity > 0)
+          .filter((entry) => (entry.employeeId || entry.department || entry.site || entry.workplaceId) && entry.quantity > 0)
       : [],
   };
 }
@@ -359,6 +361,13 @@ function hydrateState(parsed) {
     sites: (parsed.sites || []).map((entry) => ({
       id: entry.id,
       name: entry.name || "",
+    })),
+    workplaces: (parsed.workplaces || []).map((entry) => ({
+      id: entry.id,
+      name: entry.name || "",
+      employeeId: entry.employeeId || null,
+      site: entry.site || "",
+      notes: entry.notes || "",
     })),
     assets: Array.isArray(parsed.assets) ? parsed.assets.map(normalizeAsset) : [],
     movements: Array.isArray(parsed.movements) ? parsed.movements : [],
@@ -573,10 +582,34 @@ function getSiteAllocation(asset, site) {
   return asset.allocations.find((entry) => !entry.employeeId && !entry.department && entry.site === site) || null;
 }
 
+function getWorkplaceById(workplaceId) {
+  return state.workplaces.find((workplace) => workplace.id === workplaceId) || null;
+}
+
+// Стол, за которым закреплён сотрудник. У стола один хозяин, поэтому
+// первое совпадение и есть ответ.
+function getEmployeeWorkplace(employeeId) {
+  if (!employeeId) return null;
+  return state.workplaces.find((workplace) => workplace.employeeId === employeeId) || null;
+}
+
+function getWorkplaceAllocation(asset, workplaceId) {
+  if (!workplaceId) return null;
+  return asset.allocations.find(
+    (entry) => !entry.employeeId && !entry.department && !entry.site && entry.workplaceId === workplaceId
+  ) || null;
+}
+
 function allocationLabel(entry) {
   if (entry.employeeId) {
     const employee = getEmployeeById(entry.employeeId);
     return employee ? employee.fullName : "Неизвестный сотрудник";
+  }
+  if (entry.workplaceId) {
+    const workplace = getWorkplaceById(entry.workplaceId);
+    if (!workplace) return "Место удалено";
+    const owner = workplace.employeeId ? getEmployeeById(workplace.employeeId) : null;
+    return owner ? `Место: ${workplace.name} · ${owner.fullName}` : `Место: ${workplace.name}`;
   }
   if (entry.site) return `Объект: ${entry.site}`;
   return entry.department ? `Отдел: ${entry.department}` : "Неизвестно";
