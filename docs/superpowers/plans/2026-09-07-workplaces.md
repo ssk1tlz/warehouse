@@ -187,7 +187,7 @@ def _migrate_031_movement_workplace(c):
 - [ ] **Step 4: Запустить тесты и убедиться, что проходят**
 
 Run: `python -m pytest tests/test_migration_workplaces.py -q`
-Expected: PASS, 9 passed
+Expected: PASS, 8 passed
 
 - [ ] **Step 5: Обновить `schema.sql`**
 
