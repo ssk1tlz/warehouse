@@ -3262,22 +3262,31 @@ function renderAttentionPanel() {
       <span class="attention-label">${ATTENTION_LABELS[item.type] || item.type}</span>
       <span class="attention-name">${escapeHtml(item.assetName)}</span>
       <span class="attention-detail">${escapeHtml(item.detail)}</span>
-      ${item.type === "warranty" ? `<button type="button" class="secondary attention-action" data-action="extend-warranty" data-asset-id="${item.assetId}">Продлить</button>` : ""}
+      ${item.type === "warranty" ? `
+      <button type="button" class="secondary attention-action" data-action="extend-warranty" data-asset-id="${item.assetId}">Продлить</button>
+      <button type="button" class="secondary attention-action" data-action="renew-warranty" data-asset-id="${item.assetId}">Обновить</button>
+      ` : ""}
     </li>
   `).join("");
   list.querySelectorAll(".attention-item").forEach((el) => {
     el.addEventListener("click", (event) => {
-      // Кнопка «Продлить» открывает своё окно и не должна ещё и уводить
-      // на полную форму редактирования — тот же клик не должен делать
-      // два разных действия сразу.
-      if (event.target.closest('[data-action="extend-warranty"]')) return;
+      // Кнопки «Продлить»/«Обновить» открывают своё окно и не должны ещё
+      // и уводить на полную форму редактирования — тот же клик не должен
+      // делать два разных действия сразу.
+      if (event.target.closest('[data-action="extend-warranty"], [data-action="renew-warranty"]')) return;
       enterAssetEditMode(el.dataset.assetId);
     });
   });
   list.querySelectorAll('[data-action="extend-warranty"]').forEach((btn) => {
     btn.addEventListener("click", (event) => {
       event.stopPropagation();
-      openWarrantyExtendModal(btn.dataset.assetId);
+      openWarrantyExtendModal(btn.dataset.assetId, "extend");
+    });
+  });
+  list.querySelectorAll('[data-action="renew-warranty"]').forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openWarrantyExtendModal(btn.dataset.assetId, "renew");
     });
   });
 }
@@ -3289,18 +3298,24 @@ function renderAttentionPanel() {
 // тому же полю прямо из панели «Требует внимания», в момент, когда
 // пользователь и так смотрит на просроченную/истекающую гарантию, без
 // похода в полную форму редактирования техники.
-function openWarrantyExtendModal(assetId) {
+// mode "extend" (кнопка «Продлить») — год вперёд от ТЕКУЩЕГО окончания
+// гарантии: обычный случай, когда её просто пролонгировали на тот же
+// срок. mode "renew" (кнопка «Обновить») — год вперёд от СЕГОДНЯ: старая
+// дата окончания не ориентир, например когда гарантия по сути началась
+// заново (после ремонта, замены по гарантии) или истекла настолько
+// давно, что отсчитывать продление от неё бессмысленно. Оба режима —
+// подсказка в одном и том же поле даты, а не разные способы её хранить;
+// пользователь может тут же вписать любую другую дату.
+function openWarrantyExtendModal(assetId, mode = "extend") {
   const asset = getAssetById(assetId);
   if (!asset) return;
   document.getElementById("warrantyExtendAssetId").value = assetId;
   document.getElementById("warrantyExtendAssetName").textContent = asset.name || "";
+  const titleEl = document.getElementById("warrantyExtendTitle");
+  if (titleEl) titleEl.textContent = mode === "renew" ? "Обновить гарантию" : "Продлить гарантию";
   const dateInput = document.getElementById("warrantyExtendDateInput");
   if (dateInput) {
-    // Подсказка по умолчанию — год вперёд от текущего окончания (если
-    // оно есть) или от сегодня: «продлить» обычно означает «на
-    // стандартный срок от того, что было», а не дату с нуля. Пользователь
-    // может тут же вписать любую другую.
-    const base = asset.warrantyEnd ? new Date(asset.warrantyEnd) : new Date();
+    const base = mode === "renew" ? new Date() : (asset.warrantyEnd ? new Date(asset.warrantyEnd) : new Date());
     const suggested = new Date(base);
     suggested.setFullYear(suggested.getFullYear() + 1);
     dateInput.value = suggested.toISOString().slice(0, 10);
