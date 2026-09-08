@@ -116,7 +116,7 @@ function movementSortValue(movement) {
 // некого, возвращаем null, и строка ФИО на этикетке не появляется.
 function singleEmployeeId(allocations) {
   const employeeIds = (allocations || [])
-    .filter((entry) => entry.employeeId)
+    .filter((entry) => entry.employeeId && !entry.department && !entry.site && !entry.workplaceId)
     .map((entry) => entry.employeeId);
   const unique = [...new Set(employeeIds)];
   return unique.length === 1 ? unique[0] : null;

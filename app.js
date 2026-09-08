@@ -4900,19 +4900,9 @@ function bindEvents() {
 function quickPrintLabel(assetId) {
   const asset = getAssetById(assetId);
   if (!asset) return;
-  // Open labels modal with this asset pre-selected
+  // Открываем окно этикеток с этой позицией предвыбранной и ничем другим.
+  labelSelection = new Map([[assetId, "1"]]);
   openLabelsModal();
-  setTimeout(() => {
-    const grid = document.getElementById("labelGrid");
-    if (!grid) return;
-    grid.querySelectorAll(".label-item").forEach(item => {
-      const cb = item.querySelector("input[type=checkbox]");
-      const selected = item.dataset.id === assetId;
-      cb.checked = selected;
-      item.classList.toggle("selected", selected);
-    });
-    updateLabelCount();
-  }, 100);
 }
 
 
@@ -5169,11 +5159,22 @@ function populateLabelEmployeeSelect() {
   const select = document.getElementById("labelEmployeeSelect");
   if (!select) return;
   const current = select.value;
+  // Все сотрудники, а не только активные — как в окне возврата
+  // (returnEmployeeSelect): уволенный может всё ещё числить на себе
+  // технику, которую нужно промаркировать при передаче.
+  const employees = [...state.employees].sort((a, b) => a.fullName.localeCompare(b.fullName, "ru"));
   select.innerHTML = `<option value="">— сотрудник —</option>`
-    + getActiveEmployees(state.employees).map((employee) =>
+    + employees.map((employee) =>
       `<option value="${escapeHtml(employee.id)}">${escapeHtml(employee.fullName)}</option>`).join("");
   select.value = current;
 }
+
+// Выбор в сетке этикеток хранится не в DOM, а здесь: DOM пересоздаётся при
+// каждой смене фильтра, и позиция, переставшая проходить фильтр, раньше
+// пропадала бы из выбора без возврата — даже после того, как фильтр снова
+// сбрасывали, потому что следующая отрисовка опять читала только то, что
+// сейчас в DOM. assetId -> количество этикеток (строка, как в поле ввода).
+let labelSelection = new Map();
 
 function renderLabelGrid() {
   const grid = document.getElementById("labelGrid");
@@ -5184,21 +5185,10 @@ function renderLabelGrid() {
     updateLabelCount();
     return;
   }
-  
-  // Сохраняем текущее состояние выбора
-  const selectedIds = new Set();
-  const quantities = new Map();
-  grid.querySelectorAll(".label-item.selected").forEach(item => {
-    selectedIds.add(item.dataset.id);
-    const qtyInput = item.querySelector(".label-qty-input");
-    if (qtyInput) {
-      quantities.set(item.dataset.id, qtyInput.value);
-    }
-  });
-  
+
   grid.innerHTML = assets.map(asset => {
-    const isSelected = selectedIds.has(asset.id);
-    const qty = quantities.get(asset.id) || "1";
+    const isSelected = labelSelection.has(asset.id);
+    const qty = labelSelection.get(asset.id) || "1";
     return `<div class="label-item${isSelected ? " selected" : ""}" data-id="${asset.id}">
       <input type="checkbox" ${isSelected ? "checked" : ""} data-asset-id="${asset.id}">
       <div class="label-item-info">
@@ -5210,6 +5200,7 @@ function renderLabelGrid() {
   }).join("");
 
   grid.querySelectorAll(".label-item").forEach(item => {
+    const assetId = item.dataset.id;
     // Клик по всему элементу (кроме input полей)
     item.addEventListener("click", (e) => {
       // Игнорируем клики по input элементам
@@ -5217,21 +5208,28 @@ function renderLabelGrid() {
       const cb = item.querySelector("input[type=checkbox]");
       cb.checked = !cb.checked;
       item.classList.toggle("selected", cb.checked);
+      if (cb.checked) labelSelection.set(assetId, item.querySelector(".label-qty-input").value);
+      else labelSelection.delete(assetId);
       updateLabelCount();
     });
-    
+
     // Обработка изменения чекбокса
     const cb = item.querySelector("input[type=checkbox]");
     cb.addEventListener("change", (e) => {
       e.stopPropagation();
       item.classList.toggle("selected", cb.checked);
+      if (cb.checked) labelSelection.set(assetId, item.querySelector(".label-qty-input").value);
+      else labelSelection.delete(assetId);
       updateLabelCount();
     });
-    
+
     // Обработка клика по полю количества
     const qtyInput = item.querySelector(".label-qty-input");
     qtyInput.addEventListener("click", e => e.stopPropagation());
     qtyInput.addEventListener("focus", e => e.stopPropagation());
+    qtyInput.addEventListener("input", () => {
+      if (labelSelection.has(assetId)) labelSelection.set(assetId, qtyInput.value);
+    });
   });
   updateLabelCount();
 }
@@ -5239,20 +5237,27 @@ function renderLabelGrid() {
 function labelSelectAll(checked) {
   document.getElementById("labelGrid").querySelectorAll(".label-item").forEach(item => {
     item.classList.toggle("selected", checked);
-    item.querySelector("input[type=checkbox]").checked = checked;
+    const cb = item.querySelector("input[type=checkbox]");
+    cb.checked = checked;
+    const assetId = item.dataset.id;
+    if (checked) labelSelection.set(assetId, item.querySelector(".label-qty-input")?.value || "1");
+    else labelSelection.delete(assetId);
   });
   updateLabelCount();
 }
 
-// «Добавить технику сотрудника»: находит всю технику, закреплённую за
-// выбранным сотрудником, и довыбирает её в сетке — не заменяя, а
-// дополняя то, что уже отмечено вручную (§5 ТЗ: «уже выбранные вручную
-// этикетки не должны удаляться»). Сбрасываем фильтры перед перерисовкой:
-// техника сотрудника обязана попасть в список независимо от того, что
-// было выбрано в поиске/категории/локации до этого — иначе часть его
-// вещей могла бы оказаться отфильтрована и недоступна для отметки.
-// Повторная отметка чекбокса, который уже стоит — no-op, поэтому
-// отдельная защита от дублей не нужна: строка одна на asset.id.
+// «Добавить технику сотрудника»: находит всю технику сотрудника — и
+// закреплённую лично, и стоящую на его рабочем месте (см.
+// getEmployeeHoldings — то же самое сотрудник видит на своей карточке;
+// без рабочего места здесь техника с целого стола просто не находилась
+// бы) — и довыбирает её, дополняя то, что уже отмечено вручную (§5 ТЗ:
+// «уже выбранные вручную этикетки не должны удаляться»). Выбор хранится
+// в labelSelection, а не в DOM (см. renderLabelGrid), поэтому добавление
+// не зависит от того, что сейчас проходит фильтр — сбрасываем фильтры
+// только чтобы пользователь увидел добавленное, а не потому что иначе
+// нельзя было бы отметить чекбокс. Повторное добавление уже выбранной
+// позиции — no-op, отдельная защита от дублей не нужна: одна запись в
+// Map на asset.id.
 function addEmployeeAssetsToLabelSelection() {
   const select = document.getElementById("labelEmployeeSelect");
   const employeeId = select?.value || "";
@@ -5260,11 +5265,18 @@ function addEmployeeAssetsToLabelSelection() {
     showToast("Выберите сотрудника.", "warning");
     return;
   }
-  const employeeAssets = getReturnAssets(employeeId);
-  if (!employeeAssets.length) {
-    showToast("За этим сотрудником не закреплена техника.", "warning");
+  const { personal, atWorkplace } = getEmployeeHoldings(employeeId);
+  const employeeAssetIds = new Set([...personal, ...atWorkplace].map((entry) => entry.asset.id));
+  if (!employeeAssetIds.size) {
+    showToast("За этим сотрудником не закреплена техника — ни лично, ни на рабочем месте.", "warning");
     return;
   }
+
+  let added = 0;
+  employeeAssetIds.forEach((assetId) => {
+    if (!labelSelection.has(assetId)) added += 1;
+    labelSelection.set(assetId, labelSelection.get(assetId) || "1");
+  });
 
   const searchInput = document.getElementById("labelSearchInput");
   const categorySelect = document.getElementById("labelFilterCategory");
@@ -5276,33 +5288,20 @@ function addEmployeeAssetsToLabelSelection() {
   if (unprintedCheck) unprintedCheck.checked = false;
   renderLabelGrid();
 
-  const grid = document.getElementById("labelGrid");
-  const employeeAssetIds = new Set(employeeAssets.map((asset) => asset.id));
-  let added = 0;
-  grid.querySelectorAll(".label-item").forEach((item) => {
-    if (!employeeAssetIds.has(item.dataset.id)) return;
-    const checkbox = item.querySelector("input[type=checkbox]");
-    if (!checkbox.checked) added += 1;
-    checkbox.checked = true;
-    item.classList.add("selected");
-  });
-  updateLabelCount();
-  showToast(`Добавлено позиций: ${added} (найдено за сотрудником: ${employeeAssets.length}).`, "success");
+  showToast(`Добавлено позиций: ${added} (найдено за сотрудником: ${employeeAssetIds.size}).`, "success");
 }
 
 function updateLabelCount() {
-  const count = document.getElementById("labelGrid").querySelectorAll(".label-item.selected").length;
   const el = document.getElementById("labelCountSpan");
-  if (el) el.textContent = `${count} выбрано`;
+  if (el) el.textContent = `${labelSelection.size} выбрано`;
 }
 
 function getSelectedLabelItems() {
   const items = [];
-  document.getElementById("labelGrid").querySelectorAll(".label-item.selected").forEach(item => {
-    const assetId = item.dataset.id;
-    const qty = Math.max(1, parseInt(item.querySelector(".label-qty-input")?.value || 1));
+  labelSelection.forEach((qtyValue, assetId) => {
     const asset = getAssetById(assetId);
-    if (asset) items.push({ asset, qty });
+    if (!asset) return;
+    items.push({ asset, qty: Math.max(1, parseInt(qtyValue || 1)) });
   });
   return items;
 }

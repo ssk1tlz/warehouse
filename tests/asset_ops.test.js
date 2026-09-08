@@ -364,3 +364,13 @@ test('singleEmployeeId схлопывает две записи одного с�
   ];
   assert.equal(singleEmployeeId(allocations), 'emp_1');
 });
+
+test('singleEmployeeId игнорирует гибридную запись (сотрудник + другой получатель одновременно)', () => {
+  // Не должно возникать в норме — mergeAllocation и все известные писатели
+  // всегда очищают остальные поля получателя — но правило "заполнено
+  // ровно одно поле" защищает всю адресацию выдачи (см. matches() выше и
+  // getEmployeeAllocation в app.js), и singleEmployeeId обязан держаться
+  // того же инварианта, а не своего отдельного, более слабого.
+  const allocations = [{ employeeId: 'emp_1', department: 'Бухгалтерия', site: '', workplaceId: '', quantity: 1 }];
+  assert.equal(singleEmployeeId(allocations), null);
+});
