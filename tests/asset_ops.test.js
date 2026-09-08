@@ -374,3 +374,49 @@ test('singleEmployeeId игнорирует гибридную запись (с�
   const allocations = [{ employeeId: 'emp_1', department: 'Бухгалтерия', site: '', workplaceId: '', quantity: 1 }];
   assert.equal(singleEmployeeId(allocations), null);
 });
+
+// ─── похожие сотрудники (защита от дублей ФИО) ────────────────────
+
+const { normalizeFullName, findSimilarEmployees } = require('../asset_ops.js');
+
+test('normalizeFullName схлопывает регистр, пробелы и ё/е', () => {
+  assert.equal(normalizeFullName('  Ивлёв   Пётр  Ильич '), 'ивлев петр ильич');
+});
+
+test('findSimilarEmployees находит точное совпадение после нормализации', () => {
+  const employees = [{ id: 'emp_1', fullName: 'Иванов Иван Иванович' }];
+  const similar = findSimilarEmployees(employees, 'иванов   иван иванович');
+  assert.deepEqual(similar.map((e) => e.id), ['emp_1']);
+});
+
+test('findSimilarEmployees находит ФИО без отчества как похожее на полное', () => {
+  const employees = [{ id: 'emp_1', fullName: 'Иванов Иван Иванович' }];
+  const similar = findSimilarEmployees(employees, 'Иванов Иван');
+  assert.deepEqual(similar.map((e) => e.id), ['emp_1']);
+});
+
+test('findSimilarEmployees не считает похожими просто однофамильцев', () => {
+  // Одно общее слово из двух — недостаточно: это разные люди, а не
+  // разное написание одного и того же.
+  const employees = [{ id: 'emp_1', fullName: 'Иванов Пётр Петрович' }];
+  const similar = findSimilarEmployees(employees, 'Иванов Иван Иванович');
+  assert.deepEqual(similar, []);
+});
+
+test('findSimilarEmployees исключает excludeId (для режима редактирования)', () => {
+  const employees = [{ id: 'emp_1', fullName: 'Иванов Иван Иванович' }];
+  const similar = findSimilarEmployees(employees, 'Иванов Иван Иванович', 'emp_1');
+  assert.deepEqual(similar, []);
+});
+
+test('findSimilarEmployees возвращает пустой список для пустого ФИО', () => {
+  const employees = [{ id: 'emp_1', fullName: 'Иванов Иван Иванович' }];
+  assert.deepEqual(findSimilarEmployees(employees, ''), []);
+  assert.deepEqual(findSimilarEmployees(employees, '   '), []);
+});
+
+test('findSimilarEmployees пропускает сотрудников с пустым ФИО в базе', () => {
+  const employees = [{ id: 'emp_1', fullName: '' }, { id: 'emp_2', fullName: 'Иванов Иван Иванович' }];
+  const similar = findSimilarEmployees(employees, 'Иванов Иван Иванович');
+  assert.deepEqual(similar.map((e) => e.id), ['emp_2']);
+});

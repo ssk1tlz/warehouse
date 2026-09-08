@@ -122,7 +122,48 @@ function singleEmployeeId(allocations) {
   return unique.length === 1 ? unique[0] : null;
 }
 
-const AssetOps = { mergeAllocation, searchAssets, movementSortValue, movementCreatedAt, singleEmployeeId };
+// Нормализация ФИО для сравнения: убираем разницу в регистре, лишние
+// пробелы и написание «ё»/«е» — самые частые причины, по которым один
+// и тот же человек заводится в базе дважды (§1 ТЗ, «различия в
+// написании ФИО»). Тот же приём, что searchAssets использует для
+// техники.
+function normalizeFullName(fullName) {
+  return String(fullName || '')
+    .trim()
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+    .replace(/\s+/g, ' ');
+}
+
+/**
+ * Ищет сотрудников с похожим ФИО — для предупреждения о возможном
+ * дубле при добавлении нового (§1 ТЗ: предупреждать, не запрещать).
+ * «Похожий» — совпадает после нормализации целиком, либо слова более
+ * короткого ФИО целиком содержатся в более длинном (напр. без
+ * отчества). Из двух общих слов при разных остальных — недостаточно:
+ * это, скорее всего, разные люди с общей фамилией или именем, а не
+ * разное написание одного. excludeId исключает самого редактируемого
+ * сотрудника — иначе он всегда «похож сам на себя».
+ */
+function findSimilarEmployees(employees, fullName, excludeId = '') {
+  const normalized = normalizeFullName(fullName);
+  if (!normalized) return [];
+  const words = normalized.split(' ').filter(Boolean);
+  const wordSet = new Set(words);
+  return (employees || []).filter((employee) => {
+    if (employee.id === excludeId) return false;
+    const otherNormalized = normalizeFullName(employee.fullName);
+    if (!otherNormalized) return false;
+    if (otherNormalized === normalized) return true;
+    const otherWords = otherNormalized.split(' ').filter(Boolean);
+    const otherWordSet = new Set(otherWords);
+    if (wordSet.size < 2 || otherWordSet.size < 2) return false;
+    const overlap = words.filter((w) => otherWordSet.has(w));
+    return overlap.length >= Math.min(wordSet.size, otherWordSet.size);
+  });
+}
+
+const AssetOps = { mergeAllocation, searchAssets, movementSortValue, movementCreatedAt, singleEmployeeId, normalizeFullName, findSimilarEmployees };
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = AssetOps;
