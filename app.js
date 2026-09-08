@@ -3262,12 +3262,12 @@ function renderAttentionPanel() {
       <span class="attention-label">${ATTENTION_LABELS[item.type] || item.type}</span>
       <span class="attention-name">${escapeHtml(item.assetName)}</span>
       <span class="attention-detail">${escapeHtml(item.detail)}</span>
-      ${item.type === "warranty" ? `<button type="button" class="secondary attention-action" data-action="extend-warranty" data-asset-id="${item.assetId}">Продлить</button>` : ""}
+      ${item.type === "warranty" ? `<button type="button" class="secondary attention-action" data-action="extend-warranty" data-asset-id="${item.assetId}">Гарантия</button>` : ""}
     </li>
   `).join("");
   list.querySelectorAll(".attention-item").forEach((el) => {
     el.addEventListener("click", (event) => {
-      // Кнопка «Продлить» открывает своё окно и не должна ещё и уводить
+      // Кнопка «Гарантия» открывает своё окно и не должна ещё и уводить
       // на полную форму редактирования — тот же клик не должен делать
       // два разных действия сразу.
       if (event.target.closest('[data-action="extend-warranty"]')) return;
@@ -3311,8 +3311,9 @@ function syncWarrantyExtendDate() {
   const asset = getAssetById(assetId);
   if (!asset) return;
   const renewed = Boolean(document.getElementById("warrantyRenewCheckbox")?.checked);
-  const titleEl = document.getElementById("warrantyExtendTitle");
-  if (titleEl) titleEl.textContent = renewed ? "Обновить гарантию" : "Продлить гарантию";
+  // Заголовок больше не меняется: в окне теперь три исхода — продлить,
+  // отсчитать заново и обнулить, — и подстраивать его под один из них
+  // значит врать про два остальных.
   const dateInput = document.getElementById("warrantyExtendDateInput");
   if (dateInput) dateInput.value = warrantyExtendSuggestedDate(asset, renewed);
 }
@@ -3353,6 +3354,27 @@ async function handleWarrantyExtendSubmit(event) {
   closeWarrantyExtendModal();
   await persist();
   showToast(`Гарантия продлена до ${formatDate(newDate)}.`, "success");
+}
+
+// Обнуление — не «ещё один способ поставить дату», а отказ от неё: у
+// старых серверов и ИБП гарантии больше не будет, и напоминание в панели
+// «Требует внимания» только мешает. Пустая дата показывается как
+// «Неизвестно» и из панели уходит навсегда.
+//
+// Подтверждения нет намеренно: обнулять приходится пачками, а прежняя
+// дата не теряется — она уходит в журнал изменений той же записью, что и
+// обычное сохранение, так что ошибочный клик виден и обратим.
+async function handleWarrantyClear() {
+  const assetId = String(document.getElementById("warrantyExtendAssetId")?.value || "");
+  const asset = getAssetById(assetId);
+  if (!asset) { closeWarrantyExtendModal(); return; }
+  const oldDate = asset.warrantyEnd || "";
+  if (!oldDate) { closeWarrantyExtendModal(); return; }
+  asset.warrantyEnd = "";
+  addAuditEntry("asset", assetId, "edit", { warrantyEnd: { from: oldDate, to: "" } });
+  closeWarrantyExtendModal();
+  await persist();
+  showToast(`Гарантия обнулена: ${asset.name}. Прежняя дата — ${formatDate(oldDate)} — осталась в истории.`, "success");
 }
 
 // ─── CHARTS ──────────────────────────────────────────────────────
@@ -4955,6 +4977,7 @@ function bindEvents() {
   // Продление гарантии (панель «Требует внимания»)
   document.getElementById("warrantyExtendForm")?.addEventListener("submit", handleWarrantyExtendSubmit);
   document.getElementById("warrantyRenewCheckbox")?.addEventListener("change", syncWarrantyExtendDate);
+  document.getElementById("warrantyClearBtn")?.addEventListener("click", handleWarrantyClear);
   document.getElementById("warrantyExtendCancelBtn")?.addEventListener("click", closeWarrantyExtendModal);
   document.getElementById("closeWarrantyExtendBtn")?.addEventListener("click", closeWarrantyExtendModal);
   document.getElementById("warrantyExtendOverlay")?.addEventListener("click", (e) => {

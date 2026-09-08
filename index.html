@@ -1352,7 +1352,7 @@
   <div id="warrantyExtendOverlay" class="modal-overlay hidden">
     <div class="operation-modal">
       <div class="modal-header">
-        <h3 id="warrantyExtendTitle">Продлить гарантию</h3>
+        <h3 id="warrantyExtendTitle">Гарантия</h3>
         <button type="button" class="modal-close" id="closeWarrantyExtendBtn">Закрыть</button>
       </div>
       <form id="warrantyExtendForm" class="asset-form">
@@ -1368,6 +1368,9 @@
         </label>
         <div class="form-actions">
           <button type="submit">Сохранить</button>
+          <!-- Отказ от гарантии, а не ещё одна дата: техника уходит из
+               панели «Требует внимания» насовсем. -->
+          <button type="button" class="danger-button" id="warrantyClearBtn">Обнулить гарантию</button>
           <button type="button" class="secondary" id="warrantyExtendCancelBtn">Отмена</button>
         </div>
       </form>
