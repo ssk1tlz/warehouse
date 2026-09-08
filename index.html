@@ -1362,6 +1362,10 @@
           <span class="form-label">Новая дата окончания гарантии</span>
           <input type="date" name="warrantyEnd" id="warrantyExtendDateInput" required>
         </label>
+        <label style="display:flex;align-items:center;gap:8px;margin:4px 0 10px">
+          <input type="checkbox" id="warrantyRenewCheckbox" style="width:15px;height:15px;accent-color:var(--brand)">
+          <span>Гарантия обновлена — отсчитать год от сегодня, а не от старого окончания</span>
+        </label>
         <div class="form-actions">
           <button type="submit">Сохранить</button>
           <button type="button" class="secondary" id="warrantyExtendCancelBtn">Отмена</button>

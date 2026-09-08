@@ -3262,31 +3262,22 @@ function renderAttentionPanel() {
       <span class="attention-label">${ATTENTION_LABELS[item.type] || item.type}</span>
       <span class="attention-name">${escapeHtml(item.assetName)}</span>
       <span class="attention-detail">${escapeHtml(item.detail)}</span>
-      ${item.type === "warranty" ? `
-      <button type="button" class="secondary attention-action" data-action="extend-warranty" data-asset-id="${item.assetId}">Продлить</button>
-      <button type="button" class="secondary attention-action" data-action="renew-warranty" data-asset-id="${item.assetId}">Обновить</button>
-      ` : ""}
+      ${item.type === "warranty" ? `<button type="button" class="secondary attention-action" data-action="extend-warranty" data-asset-id="${item.assetId}">Продлить</button>` : ""}
     </li>
   `).join("");
   list.querySelectorAll(".attention-item").forEach((el) => {
     el.addEventListener("click", (event) => {
-      // Кнопки «Продлить»/«Обновить» открывают своё окно и не должны ещё
-      // и уводить на полную форму редактирования — тот же клик не должен
-      // делать два разных действия сразу.
-      if (event.target.closest('[data-action="extend-warranty"], [data-action="renew-warranty"]')) return;
+      // Кнопка «Продлить» открывает своё окно и не должна ещё и уводить
+      // на полную форму редактирования — тот же клик не должен делать
+      // два разных действия сразу.
+      if (event.target.closest('[data-action="extend-warranty"]')) return;
       enterAssetEditMode(el.dataset.assetId);
     });
   });
   list.querySelectorAll('[data-action="extend-warranty"]').forEach((btn) => {
     btn.addEventListener("click", (event) => {
       event.stopPropagation();
-      openWarrantyExtendModal(btn.dataset.assetId, "extend");
-    });
-  });
-  list.querySelectorAll('[data-action="renew-warranty"]').forEach((btn) => {
-    btn.addEventListener("click", (event) => {
-      event.stopPropagation();
-      openWarrantyExtendModal(btn.dataset.assetId, "renew");
+      openWarrantyExtendModal(btn.dataset.assetId);
     });
   });
 }
@@ -3298,28 +3289,42 @@ function renderAttentionPanel() {
 // тому же полю прямо из панели «Требует внимания», в момент, когда
 // пользователь и так смотрит на просроченную/истекающую гарантию, без
 // похода в полную форму редактирования техники.
-// mode "extend" (кнопка «Продлить») — год вперёд от ТЕКУЩЕГО окончания
-// гарантии: обычный случай, когда её просто пролонгировали на тот же
-// срок. mode "renew" (кнопка «Обновить») — год вперёд от СЕГОДНЯ: старая
-// дата окончания не ориентир, например когда гарантия по сути началась
-// заново (после ремонта, замены по гарантии) или истекла настолько
-// давно, что отсчитывать продление от неё бессмысленно. Оба режима —
-// подсказка в одном и том же поле даты, а не разные способы её хранить;
-// пользователь может тут же вписать любую другую дату.
-function openWarrantyExtendModal(assetId, mode = "extend") {
+//
+// Раньше здесь было две кнопки («Продлить» и «Обновить») с разной
+// подсказкой даты — по сути одно и то же действие с двумя вариантами
+// расчёта, что путало. Теперь кнопка одна, а выбор расчёта — галочка
+// внутри окна: снята — год вперёд от ТЕКУЩЕГО окончания (обычная
+// пролонгация на тот же срок), отмечена — год вперёд от СЕГОДНЯ
+// (гарантия по сути началась заново: ремонт, замена по гарантии, либо
+// старая дата истекла настолько давно, что отсчитывать от неё
+// бессмысленно). В обоих случаях это подсказка в одном и том же поле
+// даты — пользователь может тут же вписать любую другую.
+function warrantyExtendSuggestedDate(asset, renewed) {
+  const base = renewed ? new Date() : (asset.warrantyEnd ? new Date(asset.warrantyEnd) : new Date());
+  const suggested = new Date(base);
+  suggested.setFullYear(suggested.getFullYear() + 1);
+  return suggested.toISOString().slice(0, 10);
+}
+
+function syncWarrantyExtendDate() {
+  const assetId = document.getElementById("warrantyExtendAssetId")?.value || "";
+  const asset = getAssetById(assetId);
+  if (!asset) return;
+  const renewed = Boolean(document.getElementById("warrantyRenewCheckbox")?.checked);
+  const titleEl = document.getElementById("warrantyExtendTitle");
+  if (titleEl) titleEl.textContent = renewed ? "Обновить гарантию" : "Продлить гарантию";
+  const dateInput = document.getElementById("warrantyExtendDateInput");
+  if (dateInput) dateInput.value = warrantyExtendSuggestedDate(asset, renewed);
+}
+
+function openWarrantyExtendModal(assetId) {
   const asset = getAssetById(assetId);
   if (!asset) return;
   document.getElementById("warrantyExtendAssetId").value = assetId;
   document.getElementById("warrantyExtendAssetName").textContent = asset.name || "";
-  const titleEl = document.getElementById("warrantyExtendTitle");
-  if (titleEl) titleEl.textContent = mode === "renew" ? "Обновить гарантию" : "Продлить гарантию";
-  const dateInput = document.getElementById("warrantyExtendDateInput");
-  if (dateInput) {
-    const base = mode === "renew" ? new Date() : (asset.warrantyEnd ? new Date(asset.warrantyEnd) : new Date());
-    const suggested = new Date(base);
-    suggested.setFullYear(suggested.getFullYear() + 1);
-    dateInput.value = suggested.toISOString().slice(0, 10);
-  }
+  const checkbox = document.getElementById("warrantyRenewCheckbox");
+  if (checkbox) checkbox.checked = false;
+  syncWarrantyExtendDate();
   document.getElementById("warrantyExtendOverlay")?.classList.remove("hidden");
 }
 
@@ -4949,6 +4954,7 @@ function bindEvents() {
 
   // Продление гарантии (панель «Требует внимания»)
   document.getElementById("warrantyExtendForm")?.addEventListener("submit", handleWarrantyExtendSubmit);
+  document.getElementById("warrantyRenewCheckbox")?.addEventListener("change", syncWarrantyExtendDate);
   document.getElementById("warrantyExtendCancelBtn")?.addEventListener("click", closeWarrantyExtendModal);
   document.getElementById("closeWarrantyExtendBtn")?.addEventListener("click", closeWarrantyExtendModal);
   document.getElementById("warrantyExtendOverlay")?.addEventListener("click", (e) => {
