@@ -316,3 +316,51 @@ test('два движения без даты и без разбираемого
   const b = { id: 'b', date: '' };
   assert.equal(Number.isNaN(movementSortValue(b) - movementSortValue(a)), false);
 });
+
+// ─── единственный сотрудник для этикетки ─────────────────────────
+
+const { singleEmployeeId } = require('../asset_ops.js');
+
+test('singleEmployeeId возвращает id единственного сотрудника', () => {
+  const allocations = [{ employeeId: 'emp_1', department: '', site: '', workplaceId: '', quantity: 2 }];
+  assert.equal(singleEmployeeId(allocations), 'emp_1');
+});
+
+test('singleEmployeeId возвращает null, если техника не закреплена за сотрудником', () => {
+  const allocations = [{ employeeId: null, department: 'Бухгалтерия', site: '', workplaceId: '', quantity: 4 }];
+  assert.equal(singleEmployeeId(allocations), null);
+});
+
+test('singleEmployeeId возвращает null для пустого списка выдач', () => {
+  assert.equal(singleEmployeeId([]), null);
+});
+
+test('singleEmployeeId возвращает null, если техника закреплена за разными сотрудниками', () => {
+  // Например, часть тиража расходников выдана одному, часть — другому:
+  // на этикетке одно имя было бы неоднозначным, поэтому не печатаем ни одно.
+  const allocations = [
+    { employeeId: 'emp_1', department: '', site: '', workplaceId: '', quantity: 1 },
+    { employeeId: 'emp_2', department: '', site: '', workplaceId: '', quantity: 1 },
+  ];
+  assert.equal(singleEmployeeId(allocations), null);
+});
+
+test('singleEmployeeId игнорирует не-сотрудника рядом с сотрудником', () => {
+  // Смешанная выдача (сотруднику и отделу одновременно) — получатель
+  // всё равно один сотрудник, имя печатаем.
+  const allocations = [
+    { employeeId: 'emp_1', department: '', site: '', workplaceId: '', quantity: 1 },
+    { employeeId: null, department: 'Бухгалтерия', site: '', workplaceId: '', quantity: 1 },
+  ];
+  assert.equal(singleEmployeeId(allocations), 'emp_1');
+});
+
+test('singleEmployeeId схлопывает две записи одного сотрудника в одно значение', () => {
+  // Не должно возникать в норме (mergeAllocation сливает такие записи),
+  // но функция не должна принять задвоенную запись за двух получателей.
+  const allocations = [
+    { employeeId: 'emp_1', department: '', site: '', workplaceId: '', quantity: 1 },
+    { employeeId: 'emp_1', department: '', site: '', workplaceId: '', quantity: 2 },
+  ];
+  assert.equal(singleEmployeeId(allocations), 'emp_1');
+});

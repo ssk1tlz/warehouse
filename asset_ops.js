@@ -110,7 +110,19 @@ function movementSortValue(movement) {
   return createdAt === null ? Number.MIN_SAFE_INTEGER : createdAt;
 }
 
-const AssetOps = { mergeAllocation, searchAssets, movementSortValue, movementCreatedAt };
+// Единственный сотрудник, за которым закреплена техника — для этикетки
+// (§6 ТЗ): печатаем ФИО, только если получатель однозначен. Несколько
+// разных сотрудников или получатель не сотрудник вовсе — печатать
+// некого, возвращаем null, и строка ФИО на этикетке не появляется.
+function singleEmployeeId(allocations) {
+  const employeeIds = (allocations || [])
+    .filter((entry) => entry.employeeId)
+    .map((entry) => entry.employeeId);
+  const unique = [...new Set(employeeIds)];
+  return unique.length === 1 ? unique[0] : null;
+}
+
+const AssetOps = { mergeAllocation, searchAssets, movementSortValue, movementCreatedAt, singleEmployeeId };
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = AssetOps;
