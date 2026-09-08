@@ -3135,3 +3135,4 @@ tr.low-stock-row:hover td { background: rgba(245,158,11,0.09); }
 .held-list code { font-family: var(--mono); font-size: 11.5px; color: var(--brand); }
 .held-list span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
 .held-list b { font-family: var(--mono); font-size: 11.5px; font-weight: 600; color: var(--text-3); }
+.held-item-meta { grid-column: 1 / -1; font-size: 11px; color: var(--text-3); margin-top: 2px; }

@@ -2082,10 +2082,10 @@ function openEmployeeDetailsModal(employeeId) {
     assetsHtml =
       (workplace
         ? `<div class="held-title">На рабочем месте — ${escapeHtml(workplace.name)}</div>`
-          + (atWorkplace.length ? renderHoldingsList(atWorkplace) : `<div class="held-title empty">Техники на месте нет</div>`)
+          + (atWorkplace.length ? renderHoldingsListDetailed(atWorkplace, { workplaceId: workplace.id }) : `<div class="held-title empty">Техники на месте нет</div>`)
         : "")
       + (personal.length
-        ? `<div class="held-title"${workplace ? ' style="margin-top:14px"' : ""}>Лично на руках</div>` + renderHoldingsList(personal)
+        ? `<div class="held-title"${workplace ? ' style="margin-top:14px"' : ""}>Лично на руках</div>` + renderHoldingsListDetailed(personal, { employeeId: employee.id })
         : "");
   }
 
@@ -2471,6 +2471,44 @@ function renderHoldingsList(entries) {
   return `<ul class="held-list">` + entries.map(({ asset, allocation }) =>
     `<li><code>${escapeHtml(asset.inventoryNumber || "—")}</code><span>${escapeHtml(asset.name)}</span><b>${allocation.quantity} шт.</b></li>`
   ).join("") + `</ul>`;
+}
+
+// Последняя по свежести операция «Выдача» этой техники этому
+// получателю — сотруднику лично или его рабочему месту (§2 ТЗ: для
+// каждой единицы техники нужна дата выдачи, операция и комментарий, а
+// у allocation этих данных нет — только в журнале движений).
+// AssetOps.movementSortValue — тот же порядок, что чинит видимость
+// выдач в «Операциях» (часть 1): запись без даты не считается «самой
+// старой», а сортируется по моменту создания.
+function findLatestIssueMovement(assetId, { employeeId = null, workplaceId = null } = {}) {
+  const candidates = state.movements.filter((m) =>
+    m.type === "issue" && m.assetId === assetId &&
+    (employeeId ? m.employeeId === employeeId : Boolean(workplaceId) && m.workplaceId === workplaceId)
+  );
+  if (!candidates.length) return null;
+  return [...candidates].sort((a, b) => AssetOps.movementSortValue(b) - AssetOps.movementSortValue(a))[0];
+}
+
+// Подробный список техники для карточки сотрудника (§2 ТЗ): дата
+// выдачи, текущий статус и операция, в результате которой техника
+// оказалась у получателя, плюс комментарий, если он был указан.
+// В отличие от renderHoldingsList (используется ещё и в панели
+// «уже на руках» при выдаче — там нужен краткий список, не подробный
+// аудит), эта функция используется только на карточке сотрудника.
+function renderHoldingsListDetailed(entries, recipient) {
+  return `<ul class="held-list">` + entries.map(({ asset, allocation }) => {
+    const movement = findLatestIssueMovement(asset.id, recipient);
+    const dateText = movement ? movementDateLabel(movement) : "Неизвестно";
+    const opText = movement
+      ? `${movementLabels[movement.type] || movement.type}${movement.actNumber ? ` · Акт №${movement.actNumber}` : ""}`
+      : "—";
+    const statusText = statusLabels[getAssetStatus(asset)] || asset.status;
+    const noteText = movement?.notes ? ` · ${escapeHtml(movement.notes)}` : "";
+    return `<li>
+      <code>${escapeHtml(asset.inventoryNumber || "—")}</code><span>${escapeHtml(asset.name)}</span><b>${allocation.quantity} шт.</b>
+      <div class="held-item-meta">Выдано: ${escapeHtml(dateText)} · ${escapeHtml(opText)} · Статус: ${escapeHtml(statusText)}${noteText}</div>
+    </li>`;
+  }).join("") + `</ul>`;
 }
 
 function renderWorkplaces() {
