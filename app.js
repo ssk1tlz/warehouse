@@ -467,6 +467,15 @@ async function reloadFromServer() {
 // ─── ГЕТТЕРЫ И РАСЧЁТ ОСТАТКОВ ──────────────────────────────────
 function getEmployeeById(id) { return _employeeMap.get(id) || null; }
 
+// ФИО сотрудника для этикетки (§6 ТЗ). null, если техника не закреплена
+// ровно за одним сотрудником — тогда строка на этикетке не печатается.
+function getAssetEmployeeName(asset) {
+  const employeeId = AssetOps.singleEmployeeId(asset.allocations);
+  if (!employeeId) return null;
+  const employee = getEmployeeById(employeeId);
+  return employee ? employee.fullName : null;
+}
+
 function getAssetById(id) { return _assetMap.get(id) || null; }
 
 function getAllocatedQuantity(asset) {
@@ -5448,6 +5457,9 @@ function buildLabelHtml(asset, { showInv = true, showQr = true, showLoc = false,
     ? `<div style="font-size:${f.small}pt;color:#2563eb;line-height:${SMALL_LINE_H};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Локация: ${escapeHtml(asset.location)}</div>` : '';
   const invLine = (showInv && asset.inventoryNumber && !showQr)
     ? `<div style="font-size:${f.small}pt;color:#555;line-height:${SMALL_LINE_H}">Инв: ${escapeHtml(asset.inventoryNumber)}</div>` : '';
+  const empName = getAssetEmployeeName(asset);
+  const empLine = empName
+    ? `<div style="font-size:${f.small}pt;color:#000;font-weight:600;line-height:${SMALL_LINE_H};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(empName)}</div>` : '';
 
   let bottom = '';
   let bcBlockMm = 0;
@@ -5465,7 +5477,7 @@ function buildLabelHtml(asset, { showInv = true, showQr = true, showLoc = false,
   // Auto-fit the product name: shrink the font and wrap until it fits the
   // space left after the small lines and the QR block.
   const smallLineMm = f.small * SMALL_LINE_H * (25.4 / 72);
-  const smallLinesCount = (catLine ? 1 : 0) + (snLine ? 1 : 0) + (locLine ? 1 : 0) + (invLine ? 1 : 0);
+  const smallLinesCount = (catLine ? 1 : 0) + (snLine ? 1 : 0) + (locLine ? 1 : 0) + (invLine ? 1 : 0) + (empLine ? 1 : 0);
   const availNameMm = Math.max(smallLineMm, height - pad * 2 - bcBlockMm - smallLinesCount * smallLineMm - 0.5);
   const fit = fitNameFont(asset.name || '', contentW * MM2PX, availNameMm * MM2PX, f.name, 4);
 
@@ -5482,6 +5494,7 @@ function buildLabelHtml(asset, { showInv = true, showQr = true, showLoc = false,
       ${snLine}
       ${locLine}
       ${invLine}
+      ${empLine}
     </div>
     ${bottom}
   </div>`;
@@ -5515,6 +5528,8 @@ function drawLabelOnCanvas(ctx, asset, x0mm, y0mm, wMm, hMm, opts, S) {
   const hasSn = !!(asset.serialNumber && asset.serialNumber !== 'Отсутствует');
   const hasLoc = !!(showLoc && asset.location);
   const hasInv = !!(showInv && asset.inventoryNumber && !showQr);
+  const empName = getAssetEmployeeName(asset);
+  const hasEmp = !!empName;
 
   const codePx = ptToPx(f.code);
   const stripHmm = Math.max(6, hMm * 0.34);
@@ -5522,7 +5537,7 @@ function drawLabelOnCanvas(ctx, asset, x0mm, y0mm, wMm, hMm, opts, S) {
   const bcBlockMm = showQr && bcData ? qrSizeMm + (5 + f.code * 1.2 + 1.5) * (25.4 / 72) : 0;
   const slh = ptToPx(f.small) * SMALL_LINE_H;
   const smallMm = f.small * SMALL_LINE_H * (25.4 / 72);
-  const smallCount = (hasCat ? 1 : 0) + (hasSn ? 1 : 0) + (hasLoc ? 1 : 0) + (hasInv ? 1 : 0);
+  const smallCount = (hasCat ? 1 : 0) + (hasSn ? 1 : 0) + (hasLoc ? 1 : 0) + (hasInv ? 1 : 0) + (hasEmp ? 1 : 0);
   const availNameMm = Math.max(smallMm, hMm - PADmm * 2 - bcBlockMm - smallCount * smallMm - 0.5);
 
   // auto-fit name (in output px units)
@@ -5552,6 +5567,14 @@ function drawLabelOnCanvas(ctx, asset, x0mm, y0mm, wMm, hMm, opts, S) {
   if (hasSn) small('S/N: ' + asset.serialNumber, '#808080');
   if (hasLoc) small('Локация: ' + asset.location, '#2563eb');
   if (hasInv) small('Инв: ' + asset.inventoryNumber, '#555');
+  if (hasEmp) {
+    // buildLabelHtml печатает ФИО жирным (font-weight:600) — то же здесь,
+    // временно переключив шрифт контекста и вернув его обратно, чтобы не
+    // задеть последующую отрисовку (штрихкод/подпись ниже этого блока).
+    ctx.font = `700 ${ptToPx(f.small)}px Arial, Helvetica, sans-serif`;
+    small(empName, '#000');
+    ctx.font = `${ptToPx(f.small)}px Arial, Helvetica, sans-serif`;
+  }
 
   if (showQr && bcData) {
     const codeTop = y + h - pad - codePx;
