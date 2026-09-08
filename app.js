@@ -1074,7 +1074,7 @@ function renderStats() {
 function renderRecentMovements() {
   const query = normalizeSearchValue(dom.dashboardSearchInput?.value);
   const recent = [...state.movements]
-    .sort((a, b) => dateSortKey(b.date) - dateSortKey(a.date))
+    .sort((a, b) => AssetOps.movementSortValue(b) - AssetOps.movementSortValue(a))
     .filter((movement) => {
       const asset = getAssetById(movement.assetId);
       const employee = getEmployeeById(movement.employeeId);
@@ -2553,7 +2553,7 @@ function renderMovementTable() {
   }
   const query = normalizeSearchValue(dom.movementSearchInput?.value);
   const rows = [...state.movements]
-    .sort((a, b) => dateSortKey(b.date) - dateSortKey(a.date))
+    .sort((a, b) => AssetOps.movementSortValue(b) - AssetOps.movementSortValue(a))
     .filter((movement) => {
       const asset = getAssetById(movement.assetId);
       const employee = getEmployeeById(movement.employeeId);
