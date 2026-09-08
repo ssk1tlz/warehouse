@@ -909,6 +909,8 @@ function resetAssetIssueBlock() {
   // Дата выдачи по умолчанию неизвестна: техника нередко заводится
   // задним числом, когда дату выдачи уже не восстановить.
   if (dateInput) setUnknownDate(dateInput, true);
+  const notesInput = document.getElementById("assetIssueNotes");
+  if (notesInput) notesInput.value = "";
   syncAssetIssueFields();
   syncAssetIssueQuantity();
 }
