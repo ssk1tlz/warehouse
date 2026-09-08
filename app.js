@@ -4665,6 +4665,7 @@ function bindEvents() {
   document.getElementById("labelFilterCategory")?.addEventListener("change", renderLabelGrid);
   document.getElementById("labelFilterLocation")?.addEventListener("change", renderLabelGrid);
   document.getElementById("labelUnprintedCheck")?.addEventListener("change", renderLabelGrid);
+  document.getElementById("labelAddEmployeeAssetsBtn")?.addEventListener("click", addEmployeeAssetsToLabelSelection);
   document.getElementById("printLabelsPrintBtn")?.addEventListener("click", printLabels);
   document.getElementById("exportLabelsExcelBtn")?.addEventListener("click", exportLabelsExcel);
   document.getElementById("exportLabelsWordBtn")?.addEventListener("click", exportLabelsWord);
@@ -4909,6 +4910,7 @@ function quickPrintLabel(assetId) {
 function openLabelsModal() {
   document.getElementById("labelsOverlay").classList.remove("hidden");
   populateLabelFilterDropdowns();
+  populateLabelEmployeeSelect();
   renderLabelGrid();
   updateLabelSizeHint();
 }
@@ -5154,6 +5156,16 @@ function populateLabelFilterDropdowns() {
   }
 }
 
+function populateLabelEmployeeSelect() {
+  const select = document.getElementById("labelEmployeeSelect");
+  if (!select) return;
+  const current = select.value;
+  select.innerHTML = `<option value="">— сотрудник —</option>`
+    + getActiveEmployees(state.employees).map((employee) =>
+      `<option value="${escapeHtml(employee.id)}">${escapeHtml(employee.fullName)}</option>`).join("");
+  select.value = current;
+}
+
 function renderLabelGrid() {
   const grid = document.getElementById("labelGrid");
   if (!grid) return;
@@ -5221,6 +5233,52 @@ function labelSelectAll(checked) {
     item.querySelector("input[type=checkbox]").checked = checked;
   });
   updateLabelCount();
+}
+
+// «Добавить технику сотрудника»: находит всю технику, закреплённую за
+// выбранным сотрудником, и довыбирает её в сетке — не заменяя, а
+// дополняя то, что уже отмечено вручную (§5 ТЗ: «уже выбранные вручную
+// этикетки не должны удаляться»). Сбрасываем фильтры перед перерисовкой:
+// техника сотрудника обязана попасть в список независимо от того, что
+// было выбрано в поиске/категории/локации до этого — иначе часть его
+// вещей могла бы оказаться отфильтрована и недоступна для отметки.
+// Повторная отметка чекбокса, который уже стоит — no-op, поэтому
+// отдельная защита от дублей не нужна: строка одна на asset.id.
+function addEmployeeAssetsToLabelSelection() {
+  const select = document.getElementById("labelEmployeeSelect");
+  const employeeId = select?.value || "";
+  if (!employeeId) {
+    showToast("Выберите сотрудника.", "warning");
+    return;
+  }
+  const employeeAssets = getReturnAssets(employeeId);
+  if (!employeeAssets.length) {
+    showToast("За этим сотрудником не закреплена техника.", "warning");
+    return;
+  }
+
+  const searchInput = document.getElementById("labelSearchInput");
+  const categorySelect = document.getElementById("labelFilterCategory");
+  const locationSelect = document.getElementById("labelFilterLocation");
+  const unprintedCheck = document.getElementById("labelUnprintedCheck");
+  if (searchInput) searchInput.value = "";
+  if (categorySelect) categorySelect.value = "";
+  if (locationSelect) locationSelect.value = "";
+  if (unprintedCheck) unprintedCheck.checked = false;
+  renderLabelGrid();
+
+  const grid = document.getElementById("labelGrid");
+  const employeeAssetIds = new Set(employeeAssets.map((asset) => asset.id));
+  let added = 0;
+  grid.querySelectorAll(".label-item").forEach((item) => {
+    if (!employeeAssetIds.has(item.dataset.id)) return;
+    const checkbox = item.querySelector("input[type=checkbox]");
+    if (!checkbox.checked) added += 1;
+    checkbox.checked = true;
+    item.classList.add("selected");
+  });
+  updateLabelCount();
+  showToast(`Добавлено позиций: ${added} (найдено за сотрудником: ${employeeAssets.length}).`, "success");
 }
 
 function updateLabelCount() {
