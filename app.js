@@ -2047,6 +2047,7 @@ function openEditEmployeeModal(employeeId) {
   document.getElementById("employeeModalTitle").textContent = "Редактировать сотрудника";
   document.getElementById("employeeSubmitBtn").textContent = "Сохранить изменения";
   syncEmployeeEditAside(employee);
+  syncEmployeeDuplicateWarning();
   document.getElementById("employeeModalOverlay")?.classList.remove("hidden");
 }
 
