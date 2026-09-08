@@ -263,3 +263,36 @@ test('запись сотрудника создаётся с пустым workp
   mergeAllocation(allocations, { employeeId: 'emp_1', quantity: 1 });
   assert.equal(allocations[0].workplaceId, '');
 });
+
+// ─── сортировка движений по свежести ─────────────────────────────
+
+const { movementSortValue } = require('../asset_ops.js');
+
+test('движение с датой сортируется по этой дате', () => {
+  const value = movementSortValue({ id: 'mov_1_abc', date: '2026-08-15' });
+  assert.equal(value, new Date('2026-08-15').getTime());
+});
+
+test('движение без даты сортируется по моменту создания из id', () => {
+  const value = movementSortValue({ id: 'mov_1757321893821_a1b2c3', date: '' });
+  assert.equal(value, 1757321893821);
+});
+
+test('движение без даты и без разбираемого id уходит в конец', () => {
+  const value = movementSortValue({ id: 'не-по-шаблону', date: '' });
+  assert.equal(value, -Infinity);
+});
+
+test('движение вовсе без id и без даты уходит в конец', () => {
+  const value = movementSortValue({ date: null });
+  assert.equal(value, -Infinity);
+});
+
+test('свежая выдача без даты сортируется выше старой выдачи с датой', () => {
+  // Ровно сценарий бага: «Выдать сразу» только что создало запись без
+  // даты — она не должна проваливаться ниже выдачи месячной давности.
+  const freshUnknownDate = { id: `mov_${Date.now()}_a1b2c3`, date: '' };
+  const oldDated = { id: 'mov_1_xyz', date: '2020-01-01' };
+  const sorted = [oldDated, freshUnknownDate].sort((a, b) => movementSortValue(b) - movementSortValue(a));
+  assert.deepEqual(sorted, [freshUnknownDate, oldDated]);
+});

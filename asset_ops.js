@@ -81,7 +81,22 @@ function searchAssets(assets, query) {
   });
 }
 
-const AssetOps = { mergeAllocation, searchAssets };
+// Ключ сортировки движений по свежести для списков «новые сверху». У
+// выдачи «Выдать сразу» (app.js, resetAssetIssueBlock) дата по умолчанию
+// неизвестна — технику часто заводят задним числом. Если в этом случае
+// считать её самой старой (как делает formatDate/dateSortKey в app.js
+// для дат покупки), свежая выдача проваливается в конец журнала и
+// выглядит как «операция не создалась», хотя она есть. Вместо этого для
+// записей без даты берём момент создания, зашитый в id вида
+// `mov_<timestamp>_<rand>` (см. createId в app.js).
+function movementSortValue(movement) {
+  const dateTime = movement.date ? new Date(movement.date).getTime() : NaN;
+  if (!Number.isNaN(dateTime)) return dateTime;
+  const createdAt = Number((String(movement.id || '').match(/^mov_(\d+)_/) || [])[1]);
+  return Number.isFinite(createdAt) ? createdAt : -Infinity;
+}
+
+const AssetOps = { mergeAllocation, searchAssets, movementSortValue };
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = AssetOps;
