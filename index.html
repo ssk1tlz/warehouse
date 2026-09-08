@@ -1348,6 +1348,28 @@
     </div>
   </div>
 
+  <!-- Продление гарантии — быстрое действие из панели «Требует внимания» -->
+  <div id="warrantyExtendOverlay" class="modal-overlay hidden">
+    <div class="operation-modal">
+      <div class="modal-header">
+        <h3>Продлить гарантию</h3>
+        <button type="button" class="modal-close" id="closeWarrantyExtendBtn">Закрыть</button>
+      </div>
+      <form id="warrantyExtendForm" class="asset-form">
+        <input type="hidden" name="assetId" id="warrantyExtendAssetId">
+        <p class="muted" id="warrantyExtendAssetName"></p>
+        <label class="form-field">
+          <span class="form-label">Новая дата окончания гарантии</span>
+          <input type="date" name="warrantyEnd" id="warrantyExtendDateInput" required>
+        </label>
+        <div class="form-actions">
+          <button type="submit">Сохранить</button>
+          <button type="button" class="secondary" id="warrantyExtendCancelBtn">Отмена</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Auth / setup wizard -->
   <div id="authOverlay" class="modal-overlay">
     <div class="operation-modal">

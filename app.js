@@ -3262,11 +3262,77 @@ function renderAttentionPanel() {
       <span class="attention-label">${ATTENTION_LABELS[item.type] || item.type}</span>
       <span class="attention-name">${escapeHtml(item.assetName)}</span>
       <span class="attention-detail">${escapeHtml(item.detail)}</span>
+      ${item.type === "warranty" ? `<button type="button" class="secondary attention-action" data-action="extend-warranty" data-asset-id="${item.assetId}">Продлить</button>` : ""}
     </li>
   `).join("");
   list.querySelectorAll(".attention-item").forEach((el) => {
-    el.addEventListener("click", () => enterAssetEditMode(el.dataset.assetId));
+    el.addEventListener("click", (event) => {
+      // Кнопка «Продлить» открывает своё окно и не должна ещё и уводить
+      // на полную форму редактирования — тот же клик не должен делать
+      // два разных действия сразу.
+      if (event.target.closest('[data-action="extend-warranty"]')) return;
+      enterAssetEditMode(el.dataset.assetId);
+    });
   });
+  list.querySelectorAll('[data-action="extend-warranty"]').forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openWarrantyExtendModal(btn.dataset.assetId);
+    });
+  });
+}
+
+// ─── ПРОДЛЕНИЕ ГАРАНТИИ ───────────────────────────────────────────
+// Дата окончания гарантии и так редактируется как обычное поле — в форме
+// техники и через inline-правку в «Реестре» (setupRegistryInlineEdit).
+// Это отдельное окно — не новый способ хранить дату, а быстрый путь к
+// тому же полю прямо из панели «Требует внимания», в момент, когда
+// пользователь и так смотрит на просроченную/истекающую гарантию, без
+// похода в полную форму редактирования техники.
+function openWarrantyExtendModal(assetId) {
+  const asset = getAssetById(assetId);
+  if (!asset) return;
+  document.getElementById("warrantyExtendAssetId").value = assetId;
+  document.getElementById("warrantyExtendAssetName").textContent = asset.name || "";
+  const dateInput = document.getElementById("warrantyExtendDateInput");
+  if (dateInput) {
+    // Подсказка по умолчанию — год вперёд от текущего окончания (если
+    // оно есть) или от сегодня: «продлить» обычно означает «на
+    // стандартный срок от того, что было», а не дату с нуля. Пользователь
+    // может тут же вписать любую другую.
+    const base = asset.warrantyEnd ? new Date(asset.warrantyEnd) : new Date();
+    const suggested = new Date(base);
+    suggested.setFullYear(suggested.getFullYear() + 1);
+    dateInput.value = suggested.toISOString().slice(0, 10);
+  }
+  document.getElementById("warrantyExtendOverlay")?.classList.remove("hidden");
+}
+
+function closeWarrantyExtendModal() {
+  document.getElementById("warrantyExtendOverlay")?.classList.add("hidden");
+}
+
+async function handleWarrantyExtendSubmit(event) {
+  event.preventDefault();
+  const formData = new FormData(event.currentTarget);
+  const assetId = String(formData.get("assetId") || "");
+  const asset = getAssetById(assetId);
+  if (!asset) { closeWarrantyExtendModal(); return; }
+  const newDate = String(formData.get("warrantyEnd") || "");
+  if (!newDate) {
+    showToast("Укажите дату.", "warning");
+    return;
+  }
+  const oldDate = asset.warrantyEnd || "";
+  if (newDate === oldDate) { closeWarrantyExtendModal(); return; }
+  asset.warrantyEnd = newDate;
+  // Тот же журнал изменений, что и у inline-правки в «Реестре»
+  // (commitRegistryEdit) — одно и то же поле, одна и та же запись в
+  // истории, независимо от того, откуда его поменяли.
+  addAuditEntry("asset", assetId, "edit", { warrantyEnd: { from: oldDate, to: newDate } });
+  closeWarrantyExtendModal();
+  await persist();
+  showToast(`Гарантия продлена до ${formatDate(newDate)}.`, "success");
 }
 
 // ─── CHARTS ──────────────────────────────────────────────────────
@@ -4865,6 +4931,14 @@ function bindEvents() {
 
   // Theme toggle
   document.getElementById("themeToggleBtn")?.addEventListener("click", toggleTheme);
+
+  // Продление гарантии (панель «Требует внимания»)
+  document.getElementById("warrantyExtendForm")?.addEventListener("submit", handleWarrantyExtendSubmit);
+  document.getElementById("warrantyExtendCancelBtn")?.addEventListener("click", closeWarrantyExtendModal);
+  document.getElementById("closeWarrantyExtendBtn")?.addEventListener("click", closeWarrantyExtendModal);
+  document.getElementById("warrantyExtendOverlay")?.addEventListener("click", (e) => {
+    if (e.target === document.getElementById("warrantyExtendOverlay")) closeWarrantyExtendModal();
+  });
 
   // Employee events
   document.getElementById("openAddEmployeeModalBtn")?.addEventListener("click", openAddEmployeeModal);
