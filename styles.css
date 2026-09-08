@@ -2291,6 +2291,18 @@ button.users-qr-btn:hover { background: var(--brand-dim); color: var(--brand-lig
 
 .emp-edit-aside .emp-status-badge { margin-bottom: 2px; }
 
+.emp-duplicate-warning {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--warn-dim);
+  border: 1px solid var(--warn);
+  font-size: 12.5px;
+}
+.emp-duplicate-warning-title { font-weight: 600; color: var(--warn); margin-bottom: 6px; }
+.emp-duplicate-warning-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; }
+.emp-duplicate-warning-item + .emp-duplicate-warning-item { border-top: 1px solid var(--warn-dim); }
+
 .emp-edit-info-list {
   width: 100%;
   display: flex;

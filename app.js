@@ -1997,9 +1997,34 @@ function syncEmployeeEditAside(employee) {
   setEmployeeEditInfo("employeeEditInfoCreated", formatDate(employee?.createdAt || new Date().toISOString()));
 }
 
+// Предупреждение о похожих сотрудниках при вводе ФИО (§1 ТЗ): показывает
+// найденные совпадения и даёт использовать существующую запись вместо
+// создания новой — но не запрещает сохранить как есть. Работает и при
+// добавлении, и при редактировании (excludeId исключает самого себя).
+function syncEmployeeDuplicateWarning() {
+  const panel = document.getElementById("employeeDuplicateWarning");
+  if (!panel) return;
+  const employeeId = document.getElementById("employeeFormId")?.value || "";
+  const fullName = document.getElementById("employeeFullNameInput")?.value || "";
+  const similar = AssetOps.findSimilarEmployees(state.employees, fullName, employeeId);
+  if (!similar.length) {
+    panel.classList.add("hidden");
+    panel.innerHTML = "";
+    return;
+  }
+  panel.classList.remove("hidden");
+  panel.innerHTML = `<div class="emp-duplicate-warning-title">Похожие сотрудники уже есть в реестре — возможно, это дубль:</div>`
+    + similar.map((employee) => `
+      <div class="emp-duplicate-warning-item">
+        <span>${escapeHtml(employee.fullName)}${employee.department ? ` — ${escapeHtml(employee.department)}` : ""}</span>
+        <button type="button" class="secondary" data-use-employee-id="${escapeHtml(employee.id)}">Использовать эту запись</button>
+      </div>`).join("");
+}
+
 function openAddEmployeeModal() {
   resetEmployeeForm();
   syncEmployeeEditAside(null);
+  document.getElementById("employeeDuplicateWarning")?.classList.add("hidden");
   document.getElementById("employeeModalOverlay")?.classList.remove("hidden");
   document.getElementById("employeeFullNameInput")?.focus();
 }
@@ -4443,9 +4468,15 @@ function bindEvents() {
   const handleEmployeeAsideSync = () => {
     const employeeId = document.getElementById("employeeFormId")?.value;
     syncEmployeeEditAside(employeeId ? getEmployeeById(employeeId) : null);
+    syncEmployeeDuplicateWarning();
   };
   dom.employeeForm?.addEventListener("input", handleEmployeeAsideSync);
   dom.employeeForm?.addEventListener("change", handleEmployeeAsideSync);
+  document.getElementById("employeeDuplicateWarning")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-use-employee-id]");
+    if (!button) return;
+    openEditEmployeeModal(button.dataset.useEmployeeId);
+  });
   dom.employeeCancelBtn?.addEventListener("click", closeEmployeeModal);
   document.getElementById("departmentForm")?.addEventListener("submit", handleDepartmentSubmit);
   document.getElementById("departmentCancelBtn")?.addEventListener("click", resetDepartmentForm);
