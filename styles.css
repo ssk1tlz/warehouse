@@ -812,6 +812,14 @@ thead { position: sticky; top: 0; z-index: 5; }
 #registryTable td.reg-num { text-align: right; }
 #registryTable td.reg-edit:empty::before { content: "—"; color: #5a6b85; }
 #registryTable td.reg-edit:focus:empty::before { content: ""; }
+/* Гарантия с снятым напоминанием: дата настоящая и правится как обычно,
+   поэтому не прячем и не зачёркиваем её — только приглушаем и ставим
+   точку-маркер. Маркер рисуется через ::after, а не текстом в ячейке:
+   ячейка contenteditable, и лишний текст попал бы в разбор даты
+   (commitRegistryEdit читает textContent). При правке маркер уходит. */
+#registryTable td.reg-no-reminder { color: #7c8ba1; }
+#registryTable td.reg-no-reminder::after { content: " ·"; color: var(--brand, #3b82f6); font-weight: 700; }
+#registryTable td.reg-no-reminder:focus::after { content: ""; }
 #registryTable td.reg-actions { text-align: center; padding: 4px; }
 #registryTable .reg-del {
   width: 26px; height: 26px; line-height: 1; border-radius: 6px;

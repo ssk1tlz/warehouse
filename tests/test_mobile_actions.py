@@ -748,3 +748,33 @@ def test_existing_action_types_still_require_asset_id(conn):
         assert False, "expected MobileActionError"
     except mobile_actions.MobileActionError as exc:
         assert "assetId" in str(exc)
+
+
+def test_apply_edit_restores_the_warranty_reminder_when_the_date_changes(conn):
+    # Ту же гарантию, у которой напоминание снято с рабочего места
+    # (applyWarrantyEnd в app.js), можно отредактировать и с телефона.
+    # Новая дата обязана вернуть напоминание, иначе один давний клик по
+    # «Не напоминать» молча заглушил бы напоминание уже про ДРУГУЮ,
+    # действующую гарантию.
+    conn.execute("UPDATE assets SET warranty_end='2026-03-15', warranty_reminder_off=1 WHERE id='ast_1'")
+    mobile_actions.apply_edit(conn, {
+        "assetId": "ast_1", "baseRev": 0, "name": "Ноутбук Dell", "category": "Ноутбуки",
+        "inventoryNumber": "INV-001", "serialNumber": "SN-001", "location": "",
+        "purchaseDate": "", "warrantyEnd": "2028-02-01",
+    })
+    row = conn.execute("SELECT warranty_end, warranty_reminder_off FROM assets WHERE id='ast_1'").fetchone()
+    assert row["warranty_end"] == "2028-02-01"
+    assert row["warranty_reminder_off"] == 0
+
+
+def test_apply_edit_keeps_the_reminder_off_when_the_warranty_date_is_unchanged(conn):
+    # Правка соседнего поля — не повод возвращать снятое напоминание:
+    # иначе техника вернулась бы в «Требует внимания» после переименования.
+    conn.execute("UPDATE assets SET warranty_end='2026-03-15', warranty_reminder_off=1 WHERE id='ast_1'")
+    mobile_actions.apply_edit(conn, {
+        "assetId": "ast_1", "baseRev": 0, "name": "Ноутбук Dell (переименован)", "category": "Ноутбуки",
+        "inventoryNumber": "INV-001", "serialNumber": "SN-001", "location": "Каб. 1",
+        "purchaseDate": "", "warrantyEnd": "2026-03-15",
+    })
+    row = conn.execute("SELECT warranty_reminder_off FROM assets WHERE id='ast_1'").fetchone()
+    assert row["warranty_reminder_off"] == 1

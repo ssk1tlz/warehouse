@@ -235,3 +235,18 @@ def test_migration_027_defaults_existing_rows_to_null(legacy_conn):
     migrations.run_migrations(legacy_conn)
     row = legacy_conn.execute("SELECT label_printed_at FROM assets WHERE id='ast_1'").fetchone()
     assert row["label_printed_at"] is None
+
+
+def test_migration_032_adds_warranty_reminder_off_column(legacy_conn):
+    migrations.run_migrations(legacy_conn)
+    columns = {row["name"] for row in legacy_conn.execute("PRAGMA table_info(assets)")}
+    assert "warranty_reminder_off" in columns
+
+
+def test_migration_032_leaves_existing_reminders_on(legacy_conn):
+    # Снятие напоминания — осознанное действие пользователя. Технику,
+    # заведённую до этой миграции, никто не «отключал», поэтому её
+    # гарантия обязана продолжать напоминать о себе как раньше.
+    migrations.run_migrations(legacy_conn)
+    row = legacy_conn.execute("SELECT warranty_reminder_off FROM assets WHERE id='ast_1'").fetchone()
+    assert row["warranty_reminder_off"] == 0

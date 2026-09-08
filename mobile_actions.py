@@ -341,9 +341,20 @@ def apply_edit(connection: sqlite3.Connection, action: dict) -> int:
         )
 
     new_rev = current_rev + 1
+    warranty_end = str(action.get("warrantyEnd") or "").strip()
+    # Новая дата гарантии возвращает снятое напоминание — та же логика,
+    # что у applyWarrantyEnd в app.js, потому что одну и ту же карточку
+    # правят и с рабочего места, и с телефона. Иначе давний клик по «Не
+    # напоминать» продолжил бы глушить напоминание уже про ДРУГУЮ,
+    # действующую гарантию.
+    reminder_off = (
+        asset["warranty_reminder_off"]
+        if warranty_end == (asset["warranty_end"] or "")
+        else 0
+    )
     connection.execute(
         "UPDATE assets SET name = ?, category = ?, inventory_number = ?, serial_number = ?, "
-        "location = ?, purchase_date = ?, warranty_end = ?, rev = ? WHERE id = ?",
+        "location = ?, purchase_date = ?, warranty_end = ?, warranty_reminder_off = ?, rev = ? WHERE id = ?",
         (
             name,
             str(action.get("category") or "").strip(),
@@ -351,7 +362,8 @@ def apply_edit(connection: sqlite3.Connection, action: dict) -> int:
             str(action.get("serialNumber") or "").strip(),
             str(action.get("location") or "").strip(),
             str(action.get("purchaseDate") or "").strip(),
-            str(action.get("warrantyEnd") or "").strip(),
+            warranty_end,
+            reminder_off,
             new_rev,
             asset["id"],
         ),

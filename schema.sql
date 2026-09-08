@@ -37,6 +37,10 @@ CREATE TABLE IF NOT EXISTS assets (
   retired_quantity INTEGER NOT NULL DEFAULT 0,
   min_quantity INTEGER NOT NULL DEFAULT 0,
   warranty_end TEXT NOT NULL DEFAULT '',
+  -- Напоминание о гарантии снято вручную (кнопка «Гарантия» →
+  -- «Не напоминать»): дата остаётся настоящей, но в панель «Требует
+  -- внимания» техника больше не попадает. См. миграцию 032.
+  warranty_reminder_off INTEGER NOT NULL DEFAULT 0,
   price REAL NOT NULL DEFAULT 0,
   repair_date TEXT NOT NULL DEFAULT '',
   location TEXT NOT NULL DEFAULT '',

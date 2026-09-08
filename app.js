@@ -329,6 +329,10 @@ function normalizeAsset(asset) {
     retiredQuantity: Math.max(0, Number(asset.retiredQuantity || 0)),
     minQuantity: Math.max(0, Number(asset.minQuantity || 0)),
     warrantyEnd: asset.warrantyEnd || "",
+    // Напоминание о гарантии снято вручную. Хранится отдельно от даты
+    // (server.py, миграция 032) именно для того, чтобы в реестре
+    // осталась настоящая дата окончания, а не пустое «Неизвестно».
+    warrantyReminderOff: Boolean(asset.warrantyReminderOff),
     price: Math.max(0, Number(asset.price || 0)),
     repairDate: asset.repairDate || "",
     location: asset.location || "",
@@ -1256,7 +1260,7 @@ function renderAssetsTable() {
       <td>${getAvailableQuantity(asset)}</td>
       <td>${getAllocatedQuantity(asset)}</td>
       <td>${getAssetHolderText(asset)}</td>
-      <td>${formatDate(asset.purchaseDate)}${asset.warrantyEnd ? `<div class="muted">Гар. до ${formatDate(asset.warrantyEnd)}</div>` : ""}</td>
+      <td>${formatDate(asset.purchaseDate)}${asset.warrantyEnd ? `<div class="muted">Гар. до ${formatDate(asset.warrantyEnd)}${asset.warrantyReminderOff ? " · без напоминаний" : ""}</div>` : ""}</td>
       <td><div class="row-actions"><button type="button" class="edit-button" data-requires-role="admin,storekeeper" data-action="edit-asset" data-id="${asset.id}">Ред.</button><button type="button" class="ghost" data-requires-role="admin,storekeeper" data-action="duplicate-asset" data-id="${asset.id}" title="Дублировать"><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><rect x="5" y="5" width="9" height="9" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M3 11V3h8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></button><button type="button" class="label-button" data-action="quick-label" data-id="${asset.id}"><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 2h6l4 4v8H2V2h2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></button><button type="button" class="danger-button" data-requires-role="admin,storekeeper" data-action="delete-asset" data-id="${asset.id}">Удалить</button></div></td>
     </tr>`;
   }).join("");
@@ -1365,7 +1369,7 @@ function renderRegistry() {
       <td>${escapeHtml(holders) || "—"}</td>
       <td class="${ec} reg-num" contenteditable="true" data-field="price" ${t}>${price ? price.toLocaleString("ru-RU") : "0"}</td>
       <td class="${ec}" contenteditable="true" data-field="purchaseDate" ${t}>${regDateDisplay(asset.purchaseDate)}</td>
-      <td class="${ec}" contenteditable="true" data-field="warrantyEnd" ${t}>${regDateDisplay(asset.warrantyEnd)}</td>
+      <td class="${ec}${asset.warrantyReminderOff ? " reg-no-reminder" : ""}" contenteditable="true" data-field="warrantyEnd" ${asset.warrantyReminderOff ? 'title="Напоминание о гарантии снято — дата настоящая. Впишите новую дату, чтобы напоминание вернулось."' : t}>${regDateDisplay(asset.warrantyEnd)}</td>
       <td class="${ec}" contenteditable="true" data-field="notes" ${t}>${escapeHtml(asset.notes || "")}</td>
       <td class="reg-actions"><button type="button" class="reg-del" data-action="reg-delete" data-id="${asset.id}" title="Удалить позицию">✕</button></td>
     </tr>`;
@@ -1435,7 +1439,8 @@ function commitRegistryEdit(cell) {
   if (String(newVal) === String(oldVal)) {
     return; // no change — leave the cell as is (avoids re-render races)
   }
-  asset[field] = newVal;
+  if (field === "warrantyEnd") applyWarrantyEnd(asset, String(newVal));
+  else asset[field] = newVal;
   addAuditEntry("asset", id, "edit", { [field]: { from: oldVal, to: newVal } });
   persist();
 }
@@ -3290,32 +3295,20 @@ function renderAttentionPanel() {
 // пользователь и так смотрит на просроченную/истекающую гарантию, без
 // похода в полную форму редактирования техники.
 //
-// Раньше здесь было две кнопки («Продлить» и «Обновить») с разной
-// подсказкой даты — по сути одно и то же действие с двумя вариантами
-// расчёта, что путало. Теперь кнопка одна, а выбор расчёта — галочка
-// внутри окна: снята — год вперёд от ТЕКУЩЕГО окончания (обычная
-// пролонгация на тот же срок), отмечена — год вперёд от СЕГОДНЯ
-// (гарантия по сути началась заново: ремонт, замена по гарантии, либо
-// старая дата истекла настолько давно, что отсчитывать от неё
-// бессмысленно). В обоих случаях это подсказка в одном и том же поле
-// даты — пользователь может тут же вписать любую другую.
-function warrantyExtendSuggestedDate(asset, renewed) {
-  const base = renewed ? new Date() : (asset.warrantyEnd ? new Date(asset.warrantyEnd) : new Date());
+// Раньше выбор расчёта даты был отдельной галочкой «гарантия
+// обновлена». Её убрали: пользователь не может знать, какой из двух
+// отсчётов имел в виду автор кода, а ответ выводится из самой даты.
+// Гарантия ещё действует — продлеваем на год от её окончания (обычная
+// пролонгация на тот же срок); уже истекла — год от сегодня, потому что
+// отсчёт от просроченной даты предложил бы дату в прошлом. В обоих
+// случаях это лишь подсказка в поле, любую другую дату можно вписать
+// руками.
+function warrantyExtendSuggestedDate(asset, todayIso) {
+  const end = asset.warrantyEnd || "";
+  const base = end && end > todayIso ? new Date(end) : new Date(todayIso);
   const suggested = new Date(base);
   suggested.setFullYear(suggested.getFullYear() + 1);
   return suggested.toISOString().slice(0, 10);
-}
-
-function syncWarrantyExtendDate() {
-  const assetId = document.getElementById("warrantyExtendAssetId")?.value || "";
-  const asset = getAssetById(assetId);
-  if (!asset) return;
-  const renewed = Boolean(document.getElementById("warrantyRenewCheckbox")?.checked);
-  // Заголовок больше не меняется: в окне теперь три исхода — продлить,
-  // отсчитать заново и обнулить, — и подстраивать его под один из них
-  // значит врать про два остальных.
-  const dateInput = document.getElementById("warrantyExtendDateInput");
-  if (dateInput) dateInput.value = warrantyExtendSuggestedDate(asset, renewed);
 }
 
 function openWarrantyExtendModal(assetId) {
@@ -3323,14 +3316,29 @@ function openWarrantyExtendModal(assetId) {
   if (!asset) return;
   document.getElementById("warrantyExtendAssetId").value = assetId;
   document.getElementById("warrantyExtendAssetName").textContent = asset.name || "";
-  const checkbox = document.getElementById("warrantyRenewCheckbox");
-  if (checkbox) checkbox.checked = false;
-  syncWarrantyExtendDate();
+  const dateInput = document.getElementById("warrantyExtendDateInput");
+  if (dateInput) dateInput.value = warrantyExtendSuggestedDate(asset, today());
+  // Кнопка «Не напоминать» бессмысленна, когда напоминать уже не о чем:
+  // даты нет или её напоминание и так снято.
+  const dismissBtn = document.getElementById("warrantyDismissBtn");
+  if (dismissBtn) dismissBtn.hidden = !asset.warrantyEnd || Boolean(asset.warrantyReminderOff);
   document.getElementById("warrantyExtendOverlay")?.classList.remove("hidden");
 }
 
 function closeWarrantyExtendModal() {
   document.getElementById("warrantyExtendOverlay")?.classList.add("hidden");
+}
+
+// Новая дата отменяет снятое напоминание: гарантию продлили или
+// исправили — значит, о ней снова есть смысл напоминать, когда срок
+// подойдёт. Иначе один давний клик по «Не напоминать» молча глушил бы
+// напоминание уже про ДРУГУЮ, действующую гарантию. Единая точка для
+// всех трёх путей правки даты: это окно, форма техники и inline-правка
+// в «Реестре».
+function applyWarrantyEnd(asset, newDate) {
+  const value = newDate || "";
+  if ((asset.warrantyEnd || "") !== value) asset.warrantyReminderOff = false;
+  asset.warrantyEnd = value;
 }
 
 async function handleWarrantyExtendSubmit(event) {
@@ -3346,7 +3354,7 @@ async function handleWarrantyExtendSubmit(event) {
   }
   const oldDate = asset.warrantyEnd || "";
   if (newDate === oldDate) { closeWarrantyExtendModal(); return; }
-  asset.warrantyEnd = newDate;
+  applyWarrantyEnd(asset, newDate);
   // Тот же журнал изменений, что и у inline-правки в «Реестре»
   // (commitRegistryEdit) — одно и то же поле, одна и та же запись в
   // истории, независимо от того, откуда его поменяли.
@@ -3356,26 +3364,28 @@ async function handleWarrantyExtendSubmit(event) {
   showToast(`Гарантия продлена до ${formatDate(newDate)}.`, "success");
 }
 
-// Обнуление — не «ещё один способ поставить дату», а отказ от неё: у
-// старых серверов и ИБП гарантии больше не будет, и напоминание в панели
-// «Требует внимания» только мешает. Пустая дата показывается как
-// «Неизвестно» и из панели уходит навсегда.
+// Снятие напоминания — не стирание даты. У старых серверов и ИБП
+// гарантия давно истекла и продлевать нечего, но дата её окончания —
+// настоящий факт: обнулив поле, мы получили бы в реестре «Неизвестно»,
+// то есть соврали бы о технике ради тишины в панели. Поэтому дата
+// остаётся, а из «Требует внимания» запись убирает отдельный флаг
+// (server.compute_attention_items).
 //
-// Подтверждения нет намеренно: обнулять приходится пачками, а прежняя
-// дата не теряется — она уходит в журнал изменений той же записью, что и
-// обычное сохранение, так что ошибочный клик виден и обратим.
-async function handleWarrantyClear() {
+// Подтверждения нет намеренно: снимать напоминания приходится пачками,
+// а действие обратимо — достаточно вписать дату гарантии заново, и
+// напоминание вернётся (applyWarrantyEnd).
+async function handleWarrantyDismiss() {
   const assetId = String(document.getElementById("warrantyExtendAssetId")?.value || "");
   const asset = getAssetById(assetId);
   if (!asset) { closeWarrantyExtendModal(); return; }
-  const oldDate = asset.warrantyEnd || "";
-  if (!oldDate) { closeWarrantyExtendModal(); return; }
-  asset.warrantyEnd = "";
-  addAuditEntry("asset", assetId, "edit", { warrantyEnd: { from: oldDate, to: "" } });
+  if (!asset.warrantyEnd || asset.warrantyReminderOff) { closeWarrantyExtendModal(); return; }
+  asset.warrantyReminderOff = true;
+  addAuditEntry("asset", assetId, "edit", { warrantyReminderOff: { from: false, to: true } });
   closeWarrantyExtendModal();
   await persist();
-  showToast(`Гарантия обнулена: ${asset.name}. Прежняя дата — ${formatDate(oldDate)} — осталась в истории.`, "success");
+  showToast(`Напоминание снято: ${asset.name}. Гарантия до ${formatDate(asset.warrantyEnd)} осталась в реестре.`, "success");
 }
+
 
 // ─── CHARTS ──────────────────────────────────────────────────────
 let chartMovementsInstance = null;
@@ -3872,7 +3882,7 @@ async function handleAssetSubmit(event) {
     asset.notes = String(formData.get("notes") || "").trim();
     asset.quantity = Math.max(getAllocatedQuantity(asset), quantity);
     asset.minQuantity = Math.max(0, Number(formData.get("minQuantity") || 0));
-    asset.warrantyEnd = formData.get("warrantyEnd") || "";
+    applyWarrantyEnd(asset, formData.get("warrantyEnd") || "");
     asset.price = Math.max(0, Number(formData.get("price") || 0));
     asset.location = String(formData.get("location") || "").trim();
     // photoUrl is intentionally NOT touched here: it's server-owned (set only
@@ -4976,8 +4986,7 @@ function bindEvents() {
 
   // Продление гарантии (панель «Требует внимания»)
   document.getElementById("warrantyExtendForm")?.addEventListener("submit", handleWarrantyExtendSubmit);
-  document.getElementById("warrantyRenewCheckbox")?.addEventListener("change", syncWarrantyExtendDate);
-  document.getElementById("warrantyClearBtn")?.addEventListener("click", handleWarrantyClear);
+  document.getElementById("warrantyDismissBtn")?.addEventListener("click", handleWarrantyDismiss);
   document.getElementById("warrantyExtendCancelBtn")?.addEventListener("click", closeWarrantyExtendModal);
   document.getElementById("closeWarrantyExtendBtn")?.addEventListener("click", closeWarrantyExtendModal);
   document.getElementById("warrantyExtendOverlay")?.addEventListener("click", (e) => {

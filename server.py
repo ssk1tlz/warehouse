@@ -474,7 +474,12 @@ def compute_attention_items(assets: list[dict], settings: dict, *, today: date |
         if int(asset.get("quantity") or 0) <= 0:
             continue
         warranty_end = (asset.get("warrantyEnd") or "").strip()
-        if warranty_end:
+        # Пользователь снял напоминание вручную («Гарантия» → «Не
+        # напоминать»): у старого сервера или ИБП гарантии больше не
+        # будет, продлевать нечего, а запись в панели только мешает
+        # видеть остальные. Сама дата при этом остаётся в реестре —
+        # именно ради неё флаг и заведён, вместо стирания warranty_end.
+        if warranty_end and not asset.get("warrantyReminderOff"):
             try:
                 end_date = date.fromisoformat(warranty_end)
             except ValueError:
@@ -553,7 +558,7 @@ def export_state() -> dict:
 
         assets = []
         for row in connection.execute(
-            "SELECT id, name, category, inventory_number, serial_number, purchase_date, status, notes, quantity, repair_quantity, retired_quantity, min_quantity, warranty_end, price, repair_date, location, photo_url, label_printed_at, rev FROM assets ORDER BY name"
+            "SELECT id, name, category, inventory_number, serial_number, purchase_date, status, notes, quantity, repair_quantity, retired_quantity, min_quantity, warranty_end, warranty_reminder_off, price, repair_date, location, photo_url, label_printed_at, rev FROM assets ORDER BY name"
         ):
             assets.append(
                 {
@@ -570,6 +575,7 @@ def export_state() -> dict:
                     "retiredQuantity": row["retired_quantity"] or 0,
                     "minQuantity": row["min_quantity"] or 0,
                     "warrantyEnd": row["warranty_end"] or "",
+                    "warrantyReminderOff": bool(row["warranty_reminder_off"]),
                     "price": row["price"] or 0,
                     "repairDate": row["repair_date"] or "",
                     "location": row["location"] or "",
@@ -746,8 +752,8 @@ def import_state(payload: dict, actor: str) -> dict:
             old_photo_url = old[9] if old is not None else ""
             connection.execute(
                 """
-                INSERT INTO assets (id, name, category, inventory_number, serial_number, purchase_date, status, notes, quantity, repair_quantity, retired_quantity, min_quantity, warranty_end, price, repair_date, location, photo_url, rev, label_printed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO assets (id, name, category, inventory_number, serial_number, purchase_date, status, notes, quantity, repair_quantity, retired_quantity, min_quantity, warranty_end, warranty_reminder_off, price, repair_date, location, photo_url, rev, label_printed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     asset.get("id"),
@@ -763,6 +769,7 @@ def import_state(payload: dict, actor: str) -> dict:
                     max(0, int(asset.get("retiredQuantity") or 0)),
                     max(0, int(asset.get("minQuantity") or 0)),
                     asset.get("warrantyEnd") or "",
+                    1 if asset.get("warrantyReminderOff") else 0,
                     max(0, float(asset.get("price") or 0)),
                     asset.get("repairDate") or "",
                     asset.get("location") or "",

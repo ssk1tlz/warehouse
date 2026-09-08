@@ -351,6 +351,18 @@ def _migrate_031_movement_workplace(c):
     _add_column_if_missing(c, "movements", "workplace_id", "workplace_id TEXT NOT NULL DEFAULT ''")
 
 
+def _migrate_032_warranty_reminder_off(c):
+    # Отказ от гарантии — не то же самое, что её отсутствие. У старых
+    # серверов и ИБП дата окончания известна и истекла: стереть её ради
+    # тишины в панели «Требует внимания» значило бы соврать в реестре.
+    # Поэтому напоминание снимается отдельным флагом, а warranty_end
+    # остаётся нетронутым. 0 по умолчанию: никто не отключал напоминания
+    # у техники, заведённой до этой миграции.
+    _add_column_if_missing(
+        c, "assets", "warranty_reminder_off",
+        "warranty_reminder_off INTEGER NOT NULL DEFAULT 0",
+    )
+
 MIGRATIONS: list[Migration] = [
     (1, "assets.repair_quantity", _migrate_001),
     (2, "assets.retired_quantity", _migrate_002),
@@ -383,6 +395,7 @@ MIGRATIONS: list[Migration] = [
     (29, "workplaces table", _migrate_029_workplaces_table),
     (30, "asset_allocations.workplace_id", _migrate_030_allocation_workplace),
     (31, "movements.workplace_id", _migrate_031_movement_workplace),
+    (32, "assets.warranty_reminder_off", _migrate_032_warranty_reminder_off),
 ]
 
 

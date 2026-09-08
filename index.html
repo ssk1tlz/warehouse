@@ -1362,15 +1362,13 @@
           <span class="form-label">Новая дата окончания гарантии</span>
           <input type="date" name="warrantyEnd" id="warrantyExtendDateInput" required>
         </label>
-        <label style="display:flex;align-items:center;gap:8px;margin:4px 0 10px">
-          <input type="checkbox" id="warrantyRenewCheckbox" style="width:15px;height:15px;accent-color:var(--brand)">
-          <span>Гарантия обновлена — отсчитать год от сегодня, а не от старого окончания</span>
-        </label>
         <div class="form-actions">
           <button type="submit">Сохранить</button>
-          <!-- Отказ от гарантии, а не ещё одна дата: техника уходит из
-               панели «Требует внимания» насовсем. -->
-          <button type="button" class="danger-button" id="warrantyClearBtn">Обнулить гарантию</button>
+          <!-- Не стирание даты, а снятие напоминания: гарантия до
+               15.03.2026 останется в реестре, из панели «Требует
+               внимания» техника уйдёт. Прячется, когда напоминать не о
+               чем (openWarrantyExtendModal). -->
+          <button type="button" class="secondary" id="warrantyDismissBtn">Не напоминать</button>
           <button type="button" class="secondary" id="warrantyExtendCancelBtn">Отмена</button>
         </div>
       </form>
