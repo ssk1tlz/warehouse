@@ -951,6 +951,7 @@ function readAssetIssueRequest(addedQuantity) {
     department,
     site,
     workplaceId,
+    notes: String(document.getElementById("assetIssueNotes")?.value || "").trim(),
     quantity,
     // Пустая дата — законное «неизвестно»: в акте вместо дня, месяца и
     // года печатаются прочерки, в истории пишется «Неизвестно».
@@ -985,7 +986,9 @@ function issueAssetOnCreate(asset, request) {
     actNumber: getNextActNumber(),
     quantity: request.quantity,
     date: request.date,
-    notes: "Выдано при добавлении техники",
+    // Пустой комментарий — не ошибка: полю необязательное, тогда в
+    // истории остаётся тот же осмысленный текст, что был до этого поля.
+    notes: request.notes || "Выдано при добавлении техники",
   });
 }
 
