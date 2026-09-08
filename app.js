@@ -591,7 +591,20 @@ async function renderAssetPhotoPreview(asset) {
 }
 
 function getActiveEmployees(employees) {
-  return employees.filter((e) => (e.status || "active") !== "inactive");
+  return employees.filter((e) => (e.status || "active") !== "inactive" && e.status !== "deleted");
+}
+
+// Сотрудники, кроме мягко удалённых (status === "deleted") — для реестра,
+// счётчиков, экспортов и любых списков выбора. Мягко удалённый сотрудник
+// остаётся в state.employees (и в _employeeMap — см. rebuildLookupMaps),
+// чтобы старые движения (getEmployeeById) продолжали показывать его имя
+// в истории, но пропадает из всего, что перечисляет живых людей. Удалять
+// саму запись нельзя: движения по нему (выдачи, возвраты) хранят его
+// employeeId, а сервер держит внешний ключ movements.employee_id →
+// employees.id — стереть строку означало бы либо потерять историю
+// (старое поведение deleteEmployee), либо сломать сохранение по FK.
+function getVisibleEmployees(employees) {
+  return employees.filter((e) => e.status !== "deleted");
 }
 
 function getEmployeeAllocation(asset, employeeId) {
@@ -1713,7 +1726,11 @@ function getInitials(fullName) {
 
 function formatEmployeeId(employee, index) {
   if (employee.customId) return employee.customId;
-  const num = index !== undefined ? index + 1 : (state.employees.findIndex((e) => e.id === employee.id) + 1);
+  // Индекс считаем по видимым сотрудникам — иначе номер на карточке
+  // разойдётся с номером в реестре, как только кто-то мягко удалён
+  // (см. getVisibleEmployees): реестр их не считает, а findIndex по
+  // сырому state.employees считал бы.
+  const num = index !== undefined ? index + 1 : (getVisibleEmployees(state.employees).findIndex((e) => e.id === employee.id) + 1);
   return `ID: ${String(num || 1).padStart(4, "0")}`;
 }
 
@@ -1745,9 +1762,10 @@ function getEmployeeAssetCount(employeeId) {
 }
 
 function renderEmployeeStats() {
-  const total = state.employees.length;
-  const active = state.employees.filter((e) => (e.status || "active") !== "inactive").length;
-  const inactive = state.employees.filter((e) => e.status === "inactive").length;
+  const visible = getVisibleEmployees(state.employees);
+  const total = visible.length;
+  const active = visible.filter((e) => (e.status || "active") !== "inactive").length;
+  const inactive = visible.filter((e) => e.status === "inactive").length;
   const depts = state.departments.length;
 
   const totalEl = document.getElementById("empStatTotal");
@@ -1831,7 +1849,7 @@ function renderEmployees() {
 
   renderEmployeeActiveChips({ query, department: departmentFilter, position: positionFilter, status: statusFilter });
 
-  const filtered = state.employees.map((employee, originalIndex) => ({
+  const filtered = getVisibleEmployees(state.employees).map((employee, originalIndex) => ({
     employee,
     originalIndex,
     assetCount: getEmployeeAssetCount(employee.id),
@@ -2022,11 +2040,18 @@ function syncEmployeeDuplicateWarning() {
   const buttonText = employeeId ? "Открыть эту запись (текущие правки будут потеряны)" : "Использовать эту запись";
   panel.innerHTML = `<div class="emp-duplicate-warning-title">${title}</div>`
     + similar.map((employee) => {
-      const statusSuffix = employee.status === "inactive" ? " (уволен)" : "";
+      const isDeleted = employee.status === "deleted";
+      const statusSuffix = isDeleted ? " (удалён)" : employee.status === "inactive" ? " (уволен)" : "";
+      // Удалённая запись — отдельный, третий вариант кнопки: открытие
+      // такой записи через openEditEmployeeModal молча возвращает её из
+      // удалённых (у employeeStatusSelect нет варианта "deleted", при
+      // сохранении статус откатится на "Активен") — текст честно
+      // называет это восстановлением, а не «открытием»/«использованием».
+      const itemButtonText = isDeleted ? "Восстановить эту запись" : buttonText;
       return `
       <div class="emp-duplicate-warning-item">
         <span>${escapeHtml(employee.fullName)}${statusSuffix}${employee.department ? ` — ${escapeHtml(employee.department)}` : ""}</span>
-        <button type="button" class="secondary" data-use-employee-id="${escapeHtml(employee.id)}">${buttonText}</button>
+        <button type="button" class="secondary" data-use-employee-id="${escapeHtml(employee.id)}">${itemButtonText}</button>
       </div>`;
     }).join("");
 }
@@ -2158,13 +2183,14 @@ function closeEmployeeDetailsModal() {
 }
 
 function exportEmployeesExcel() {
-  if (!state.employees.length) {
+  const visible = getVisibleEmployees(state.employees);
+  if (!visible.length) {
     showToast("Список сотрудников пуст", "warning");
     return;
   }
 
   const headers = ["ID", "ФИО", "Отдел", "Должность", "Объект", "Телефон", "Email", "Статус", "Техника (шт)"];
-  const rows = state.employees.map((emp, index) => [
+  const rows = visible.map((emp, index) => [
     formatEmployeeId(emp, index),
     emp.fullName || "",
     emp.department || "",
@@ -2197,8 +2223,8 @@ function renderDepartments() {
     return;
   }
   container.innerHTML = state.departments.map((dept) => {
-    const employeeCount = state.employees.filter((emp) => emp.department === dept.name).length;
-    const employeesInDept = state.employees.filter((emp) => emp.department === dept.name);
+    const employeesInDept = getVisibleEmployees(state.employees).filter((emp) => emp.department === dept.name);
+    const employeeCount = employeesInDept.length;
 
     // Calculate assets allocated to this department
     const deptAssets = [];
@@ -2290,7 +2316,7 @@ async function handleDepartmentDelete(departmentId) {
   const dept = state.departments.find((d) => d.id === departmentId);
   if (!dept) return;
 
-  const employeesInDept = state.employees.filter((emp) => emp.department === dept.name);
+  const employeesInDept = getVisibleEmployees(state.employees).filter((emp) => emp.department === dept.name);
 
   const deptHasAssets = state.assets.some((asset) => {
     const alloc = getDepartmentAllocation(asset, dept.name);
@@ -2320,8 +2346,17 @@ async function handleDepartmentDelete(departmentId) {
   if (!confirmed) return;
 
   const employeeIds = employeesInDept.map((e) => e.id);
-  state.employees = state.employees.filter((emp) => emp.department !== dept.name);
-  state.movements = state.movements.filter((m) => !employeeIds.includes(m.employeeId));
+  // Мягкое удаление, не стирание записи и не чистка движений — см.
+  // getVisibleEmployees за причиной (внешний ключ movements.employee_id
+  // на сервере и требование ТЗ сохранять историю операций).
+  employeesInDept.forEach((emp) => { emp.status = "deleted"; });
+  // Стол остаётся, освобождается только хозяин — та же логика, что в
+  // deleteEmployee/bulkDeleteEmployees: техника на столе не принадлежала
+  // сотруднику лично, и без этой строки стол показывал бы удалённого
+  // сотрудника своим хозяином.
+  state.workplaces.forEach((workplace) => {
+    if (employeeIds.includes(workplace.employeeId)) workplace.employeeId = null;
+  });
   state.departments = state.departments.filter((d) => d.id !== departmentId);
 
   addAuditEntry("department", departmentId, "delete", { name: dept.name, employeesDeleted: employeeIds.length });
@@ -2348,7 +2383,7 @@ function renderSites() {
     return;
   }
   container.innerHTML = state.sites.map((site) => {
-    const employeesAtSite = state.employees.filter((emp) => emp.site === site.name);
+    const employeesAtSite = getVisibleEmployees(state.employees).filter((emp) => emp.site === site.name);
     const employeeCount = employeesAtSite.length;
     const siteAssets = [];
     state.assets.forEach(asset => {
@@ -2436,7 +2471,7 @@ async function handleSiteSubmit(e) {
 function handleSiteDelete(siteId) {
   const site = state.sites.find((s) => s.id === siteId);
   if (!site) return;
-  const employeeCount = state.employees.filter((emp) => emp.site === site.name).length;
+  const employeeCount = getVisibleEmployees(state.employees).filter((emp) => emp.site === site.name).length;
   if (employeeCount > 0) {
     showToast(`Невозможно удалить: к объекту привязано ${employeeCount} сотрудник(ов)`, "warning");
     return;
@@ -3090,7 +3125,7 @@ function renderSelects() {
   const siteOptions = state.sites.length
     ? state.sites.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}</option>`).join("")
     : `<option value="">Нет объектов</option>`;
-  const employeeOptions = state.employees
+  const employeeOptions = getVisibleEmployees(state.employees)
     .map((e) => `<option value="${e.id}">${escapeHtml(e.fullName)}</option>`)
     .join("");
   const activeEmployeeOptions = getActiveEmployees(state.employees)
@@ -3111,7 +3146,7 @@ function renderSelects() {
     employeeSiteSelect.value = current;
   }
   const locationOptions = [`<option value="warehouse">Склад</option>`]
-    .concat(state.employees.map((employee) => `<option value="employee:${employee.id}">${employee.fullName}</option>`))
+    .concat(getVisibleEmployees(state.employees).map((employee) => `<option value="employee:${employee.id}">${employee.fullName}</option>`))
     .join("");
   const stockAssets = state.assets.filter((asset) => getAvailableQuantity(asset) > 0);
   const repairAssets = state.assets.filter((asset) => Number(asset.repairQuantity || 0) > 0);
@@ -3453,7 +3488,10 @@ function addKitItemRow() {
 async function issueKitTemplate(kitId) {
   const kit = state.kitTemplates.find((k) => k.id === kitId);
   if (!kit) return;
-  if (!state.employees.length) { showToast("Сначала добавьте сотрудников.", "warning"); return; }
+  // getActiveEmployees, не сырой state.employees: именно им заполняется
+  // issueEmployeeSelect ниже — иначе гвард пропустит комплект в модалку
+  // с пустым списком, если все сотрудники мягко удалены/уволены.
+  if (!getActiveEmployees(state.employees).length) { showToast("Сначала добавьте сотрудников.", "warning"); return; }
   // Open the issue modal and pre-fill it
   const issueModal = document.getElementById("issueModal");
   if (!issueModal) return;
@@ -3586,7 +3624,7 @@ async function deleteAsset(assetId) {
 
 async function deleteEmployee(employeeId) {
   const employee = getEmployeeById(employeeId);
-  if (!employee) return;
+  if (!employee || employee.status === "deleted") return;
   const hasAssets = state.assets.some((asset) => {
     const alloc = getEmployeeAllocation(asset, employeeId);
     return alloc && alloc.quantity > 0;
@@ -3598,14 +3636,24 @@ async function deleteEmployee(employeeId) {
   const confirmed = await showConfirm(`Удалить сотрудника "${employee.fullName}"?`);
   if (!confirmed) return;
   addAuditEntry("employee", employeeId, "delete", { name: employee.fullName });
-  state.employees = state.employees.filter((entry) => entry.id !== employeeId);
+  // Мягкое удаление: запись остаётся в базе со статусом "deleted", а не
+  // стирается. Стереть саму запись, но оставить её движения (выдачи,
+  // возвраты) на её employeeId сервер не даст — movements.employee_id
+  // держит внешний ключ на employees.id (PRAGMA foreign_keys = ON,
+  // server.py), сохранение просто упадёт по ошибке целостности. Стирать
+  // же не запись, а движения — то, что делал этот код раньше, — тихо
+  // уничтожало историю операций по технике, которая остаётся в системе
+  // (§2/§8 ТЗ требуют её сохранять). Мягкое удаление снимает оба: ключ
+  // цел, история цела, а сотрудник пропадает из реестра и всех списков
+  // выбора (getVisibleEmployees/getActiveEmployees) — getEmployeeById
+  // по-прежнему находит его по id, чтобы старые движения показывали имя.
+  employee.status = "deleted";
   // Стол остаётся, освобождается только хозяин: техника на нём не
   // принадлежала сотруднику и возврата не требует. Личная техника
   // удалить сотрудника и так не даёт (проверка выше).
   state.workplaces.forEach((workplace) => {
     if (workplace.employeeId === employeeId) workplace.employeeId = null;
   });
-  state.movements = state.movements.filter((movement) => movement.employeeId !== employeeId);
   rebuildLookupMaps();
   await persist();
   renderEmployees();
@@ -3652,8 +3700,12 @@ async function bulkDeleteEmployees() {
   if (!confirmed) return;
 
   ids.forEach((id) => addAuditEntry("employee", id, "delete", { name: getEmployeeById(id)?.fullName }));
-  state.employees = state.employees.filter((emp) => !ids.includes(emp.id));
-  state.movements = state.movements.filter((m) => !ids.includes(m.employeeId));
+  // Мягкое удаление — см. deleteEmployee выше за причиной (внешний ключ
+  // movements.employee_id на сервере и требование ТЗ сохранять историю).
+  ids.forEach((id) => {
+    const emp = getEmployeeById(id);
+    if (emp) emp.status = "deleted";
+  });
   // Стол остаётся, освобождается только хозяин: техника на нём не
   // принадлежала сотруднику и возврата не требует. Личная техника
   // удалить сотрудника и так не даёт (проверка выше).
@@ -4290,7 +4342,7 @@ function handleExcelExport() {
       formatDate(asset.purchaseDate),
     ]);
 
-  const employeeRows = state.employees.map((employee) => {
+  const employeeRows = getVisibleEmployees(state.employees).map((employee) => {
     const items = state.assets
       .map((asset) => {
         const allocation = getEmployeeAllocation(asset, employee.id);
@@ -5250,7 +5302,7 @@ function populateLabelEmployeeSelect() {
   // Все сотрудники, а не только активные — как в окне возврата
   // (returnEmployeeSelect): уволенный может всё ещё числить на себе
   // технику, которую нужно промаркировать при передаче.
-  const employees = [...state.employees].sort((a, b) => a.fullName.localeCompare(b.fullName, "ru"));
+  const employees = getVisibleEmployees(state.employees).sort((a, b) => a.fullName.localeCompare(b.fullName, "ru"));
   select.innerHTML = `<option value="">— сотрудник —</option>`
     + employees.map((employee) =>
       `<option value="${escapeHtml(employee.id)}">${escapeHtml(employee.fullName)}</option>`).join("");

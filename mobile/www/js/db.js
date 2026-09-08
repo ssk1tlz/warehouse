@@ -290,8 +290,11 @@ async function searchAssets(query, limit = 30) {
 
 async function searchEmployees(query, limit = 30) {
   const q = `%${String(query || '').trim()}%`;
+  // Мягко удалённые (status = 'deleted', см. app.js::getVisibleEmployees)
+  // исключены — как и в десктопе, они пропадают из поиска и выбора, хотя
+  // их имя всё ещё разрешается по id в истории движений.
   const result = await db.query(
-    'SELECT * FROM employees WHERE full_name LIKE ? ORDER BY full_name LIMIT ?',
+    "SELECT * FROM employees WHERE full_name LIKE ? AND (status IS NULL OR status != 'deleted') ORDER BY full_name LIMIT ?",
     [q, limit]
   );
   return result.values.map((row) => ({
