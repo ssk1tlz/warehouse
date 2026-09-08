@@ -2013,12 +2013,22 @@ function syncEmployeeDuplicateWarning() {
     return;
   }
   panel.classList.remove("hidden");
-  panel.innerHTML = `<div class="emp-duplicate-warning-title">Похожие сотрудники уже есть в реестре — возможно, это дубль:</div>`
-    + similar.map((employee) => `
+  // В режиме редактирования кнопка открывает ДРУГУЮ запись и теряет
+  // введённые здесь правки — формулировка честно предупреждает об этом,
+  // а не только про «возможный дубль» при создании нового сотрудника.
+  const title = employeeId
+    ? "Похожие сотрудники уже есть в реестре:"
+    : "Похожие сотрудники уже есть в реестре — возможно, это дубль:";
+  const buttonText = employeeId ? "Открыть эту запись (текущие правки будут потеряны)" : "Использовать эту запись";
+  panel.innerHTML = `<div class="emp-duplicate-warning-title">${title}</div>`
+    + similar.map((employee) => {
+      const statusSuffix = employee.status === "inactive" ? " (уволен)" : "";
+      return `
       <div class="emp-duplicate-warning-item">
-        <span>${escapeHtml(employee.fullName)}${employee.department ? ` — ${escapeHtml(employee.department)}` : ""}</span>
-        <button type="button" class="secondary" data-use-employee-id="${escapeHtml(employee.id)}">Использовать эту запись</button>
-      </div>`).join("");
+        <span>${escapeHtml(employee.fullName)}${statusSuffix}${employee.department ? ` — ${escapeHtml(employee.department)}` : ""}</span>
+        <button type="button" class="secondary" data-use-employee-id="${escapeHtml(employee.id)}">${buttonText}</button>
+      </div>`;
+    }).join("");
 }
 
 function openAddEmployeeModal() {
@@ -2504,9 +2514,17 @@ function renderHoldingsListDetailed(entries, recipient) {
       : "—";
     const statusText = statusLabels[getAssetStatus(asset)] || asset.status;
     const noteText = movement?.notes ? ` · ${escapeHtml(movement.notes)}` : "";
+    // Составная подпись вместо одного «Выдано:»: на рабочем месте дата
+    // относится к столу, а не к текущему хозяину (стол мог сменить
+    // владельца без новой выдачи), и когда движение покрывает не всё
+    // количество записи (частями довыдавали), дата тоже только «последняя»,
+    // а не «когда пришло всё».
+    const verb = movement && movement.quantity < allocation.quantity ? "Последняя выдача" : "Выдано";
+    const target = recipient.workplaceId ? " на место" : "";
+    const issueLabel = `${verb}${target}`;
     return `<li>
       <code>${escapeHtml(asset.inventoryNumber || "—")}</code><span>${escapeHtml(asset.name)}</span><b>${allocation.quantity} шт.</b>
-      <div class="held-item-meta">Выдано: ${escapeHtml(dateText)} · ${escapeHtml(opText)} · Статус: ${escapeHtml(statusText)}${noteText}</div>
+      <div class="held-item-meta">${escapeHtml(issueLabel)}: ${escapeHtml(dateText)} · ${escapeHtml(opText)} · Статус: ${escapeHtml(statusText)}${noteText}</div>
     </li>`;
   }).join("") + `</ul>`;
 }

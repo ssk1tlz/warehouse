@@ -420,3 +420,19 @@ test('findSimilarEmployees пропускает сотрудников с пус
   const similar = findSimilarEmployees(employees, 'Иванов Иван Иванович');
   assert.deepEqual(similar.map((e) => e.id), ['emp_2']);
 });
+
+test('normalizeFullName сворачивает узбекские буквы к похожим русским (ў/ғ/қ/ҳ)', () => {
+  assert.equal(normalizeFullName('Тўхтаев Азиз Ўғли'), normalizeFullName('Тухтаев Азиз Угли'));
+});
+
+test('normalizeFullName сворачивает дефис в пробел', () => {
+  assert.equal(normalizeFullName('Петров-Водкин Иван'), 'петров водкин иван');
+});
+
+test('findSimilarEmployees находит дубль при разном написании ў/у', () => {
+  // Живой пример: «ўғли»/«уғли» — два написания одного и того же
+  // патронимического суффикса в базе.
+  const employees = [{ id: 'emp_1', fullName: 'Тўхтаев Азиз Азизович' }];
+  const similar = findSimilarEmployees(employees, 'Тухтаев Азиз Азизович');
+  assert.deepEqual(similar.map((e) => e.id), ['emp_1']);
+});
