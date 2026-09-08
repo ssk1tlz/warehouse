@@ -72,6 +72,10 @@ def find_site_allocation(allocations: list[sqlite3.Row], site: str) -> sqlite3.R
 
 
 def _new_movement_id() -> str:
+    # Формат mov_<timestamp_ms>_<hex> — тот же, что app.js::createId для
+    # движений. asset_ops.js (AssetOps.movementSortValue/movementCreatedAt)
+    # разбирает этот id у записей без даты; меняя формат здесь, проверьте и
+    # его.
     return f"mov_{int(time.time() * 1000)}_{secrets.token_hex(3)}"
 
 

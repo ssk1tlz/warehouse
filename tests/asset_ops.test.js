@@ -266,7 +266,7 @@ test('запись сотрудника создаётся с пустым workp
 
 // ─── сортировка движений по свежести ─────────────────────────────
 
-const { movementSortValue } = require('../asset_ops.js');
+const { movementSortValue, movementCreatedAt } = require('../asset_ops.js');
 
 test('движение с датой сортируется по этой дате', () => {
   const value = movementSortValue({ id: 'mov_1_abc', date: '2026-08-15' });
@@ -280,12 +280,12 @@ test('движение без даты сортируется по момент�
 
 test('движение без даты и без разбираемого id уходит в конец', () => {
   const value = movementSortValue({ id: 'не-по-шаблону', date: '' });
-  assert.equal(value, -Infinity);
+  assert.equal(value, Number.MIN_SAFE_INTEGER);
 });
 
 test('движение вовсе без id и без даты уходит в конец', () => {
   const value = movementSortValue({ date: null });
-  assert.equal(value, -Infinity);
+  assert.equal(value, Number.MIN_SAFE_INTEGER);
 });
 
 test('свежая выдача без даты сортируется выше старой выдачи с датой', () => {
@@ -295,4 +295,24 @@ test('свежая выдача без даты сортируется выше 
   const oldDated = { id: 'mov_1_xyz', date: '2020-01-01' };
   const sorted = [oldDated, freshUnknownDate].sort((a, b) => movementSortValue(b) - movementSortValue(a));
   assert.deepEqual(sorted, [freshUnknownDate, oldDated]);
+});
+
+test('movementCreatedAt разбирает момент создания из id движения', () => {
+  assert.equal(movementCreatedAt({ id: 'mov_1757321893821_a1b2c3' }), 1757321893821);
+});
+
+test('movementCreatedAt возвращает null для нераспознанного id', () => {
+  assert.equal(movementCreatedAt({ id: 'не-по-шаблону' }), null);
+});
+
+test('movementCreatedAt возвращает null при отсутствии id', () => {
+  assert.equal(movementCreatedAt({}), null);
+});
+
+test('два движения без даты и без разбираемого id сравниваются без NaN', () => {
+  // Раньше сентинел -Infinity здесь давал -Infinity - (-Infinity) === NaN,
+  // и sort() молча переставал их упорядочивать.
+  const a = { id: 'a', date: '' };
+  const b = { id: 'b', date: '' };
+  assert.equal(Number.isNaN(movementSortValue(b) - movementSortValue(a)), false);
 });

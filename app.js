@@ -262,6 +262,11 @@ function rebuildLookupMaps() {
   _assetMap = new Map(state.assets.map(a => [a.id, a]));
 }
 
+// Формат `<prefix>_<timestamp>_<rand>`. Для движений (`mov_...`) это ещё и
+// контракт с AssetOps.movementSortValue/movementCreatedAt в asset_ops.js —
+// они разбирают этот id, чтобы дать записям без даты разумный порядок и
+// подпись создания. Меняя формат, проверьте эти функции (тот же формат
+// отдельно минтит _new_movement_id в mobile_actions.py).
 function createId(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
 }
@@ -283,6 +288,17 @@ function formatDate(date) {
 function dateSortKey(date) {
   const time = date ? new Date(date).getTime() : NaN;
   return Number.isNaN(time) ? -Infinity : time;
+}
+
+// Подпись даты для строки движения. Если дата неизвестна, но у записи
+// разборчивый id, показываем момент создания — иначе несколько таких
+// строк подряд (частый случай: «Выдать сразу» без указанной даты)
+// читаются как один и тот же необъяснённый провал, хотя они появились в
+// разное время и именно поэтому так упорядочены (см. AssetOps.movementSortValue).
+function movementDateLabel(movement) {
+  if (movement.date) return formatDate(movement.date);
+  const createdAt = AssetOps.movementCreatedAt(movement);
+  return createdAt === null ? "Неизвестно" : `Неизвестно (запись от ${formatDate(new Date(createdAt).toISOString())})`;
 }
 
 function debounce(fn, ms = 200) {
@@ -1090,7 +1106,7 @@ function renderRecentMovements() {
   dom.recentMovements.innerHTML = recent.map((movement) => {
     const asset = getAssetById(movement.assetId);
     const employee = getEmployeeById(movement.employeeId);
-    return `<article class="list-item"><div class="title-line"><strong>${movementLabels[movement.type] || movement.type}</strong><span class="chip">${formatDate(movement.date)}</span></div><p>${asset ? asset.name : "Позиция удалена"}${movement.quantity ? ` · ${movement.quantity} шт.` : ""}</p><p class="muted">${employee ? employee.fullName : "Без сотрудника"}${movement.notes ? ` · ${movement.notes}` : ""}</p></article>`;
+    return `<article class="list-item"><div class="title-line"><strong>${movementLabels[movement.type] || movement.type}</strong><span class="chip">${movementDateLabel(movement)}</span></div><p>${asset ? asset.name : "Позиция удалена"}${movement.quantity ? ` · ${movement.quantity} шт.` : ""}</p><p class="muted">${employee ? employee.fullName : "Без сотрудника"}${movement.notes ? ` · ${movement.notes}` : ""}</p></article>`;
   }).join("");
 }
 
@@ -2574,7 +2590,7 @@ function renderMovementTable() {
     const actButton = movement.type === "issue" || movement.type === "return"
       ? `<button type="button" class="edit-button" data-action="print-act" data-id="${movement.id}">Акт</button>`
       : "";
-    return `<tr><td>${formatDate(movement.date)}</td><td>${movementLabels[movement.type] || movement.type}</td><td>${asset ? asset.name : "-"}</td><td>${asset ? (asset.inventoryNumber || "Отсутствует") : "-"}</td><td>${movement.quantity ? movement.quantity + " шт." : "-"}</td><td>${employee ? employee.fullName : "Склад"}</td><td>${movement.notes || ""}</td><td><div class="row-actions">${actButton}</div></td></tr>`;
+    return `<tr><td>${movementDateLabel(movement)}</td><td>${movementLabels[movement.type] || movement.type}</td><td>${asset ? asset.name : "-"}</td><td>${asset ? (asset.inventoryNumber || "Отсутствует") : "-"}</td><td>${movement.quantity ? movement.quantity + " шт." : "-"}</td><td>${employee ? employee.fullName : "Склад"}</td><td>${movement.notes || ""}</td><td><div class="row-actions">${actButton}</div></td></tr>`;
   }).join("");
 }
 

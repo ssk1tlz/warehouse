@@ -81,22 +81,36 @@ function searchAssets(assets, query) {
   });
 }
 
+// Момент создания записи движения, зашитый в id вида
+// `mov_<timestamp>_<rand>` (см. createId в app.js и _new_movement_id в
+// mobile_actions.py — оба используют этот формат для движений). Возвращает
+// null, если id не в этом формате.
+function movementCreatedAt(movement) {
+  const createdAt = Number((String(movement.id || '').match(/^mov_(\d+)_/) || [])[1]);
+  return Number.isFinite(createdAt) ? createdAt : null;
+}
+
 // Ключ сортировки движений по свежести для списков «новые сверху». У
 // выдачи «Выдать сразу» (app.js, resetAssetIssueBlock) дата по умолчанию
 // неизвестна — технику часто заводят задним числом. Если в этом случае
 // считать её самой старой (как делает formatDate/dateSortKey в app.js
 // для дат покупки), свежая выдача проваливается в конец журнала и
 // выглядит как «операция не создалась», хотя она есть. Вместо этого для
-// записей без даты берём момент создания, зашитый в id вида
-// `mov_<timestamp>_<rand>` (см. createId в app.js).
+// записей без даты берём момент создания (movementCreatedAt).
+//
+// Сентинел для нераспознанного id — Number.MIN_SAFE_INTEGER, а не
+// -Infinity: два таких движения в одном сравнении дали бы
+// -Infinity - (-Infinity) === NaN, и Array.prototype.sort молча
+// перестала бы их упорядочивать — та же ловушка, от которой
+// предостерегает комментарий у dateSortKey в app.js.
 function movementSortValue(movement) {
   const dateTime = movement.date ? new Date(movement.date).getTime() : NaN;
   if (!Number.isNaN(dateTime)) return dateTime;
-  const createdAt = Number((String(movement.id || '').match(/^mov_(\d+)_/) || [])[1]);
-  return Number.isFinite(createdAt) ? createdAt : -Infinity;
+  const createdAt = movementCreatedAt(movement);
+  return createdAt === null ? Number.MIN_SAFE_INTEGER : createdAt;
 }
 
-const AssetOps = { mergeAllocation, searchAssets, movementSortValue };
+const AssetOps = { mergeAllocation, searchAssets, movementSortValue, movementCreatedAt };
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = AssetOps;
