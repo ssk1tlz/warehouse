@@ -727,12 +727,13 @@
           <div class="panel-header">
             <h3 id="workplaceFormTitle">Добавить рабочее место</h3>
           </div>
+          <p class="muted" style="margin:-8px 0 14px;">Укажите отдел, сотрудника и основные данные о рабочем месте.</p>
           <form id="workplaceForm" class="asset-form">
             <input type="hidden" name="workplaceId">
             <div class="form-row">
               <label class="form-field">
-                <span class="form-label">Название <span class="req">*</span></span>
-                <input name="name" required placeholder="Стол 2 / Каб. 305, окно">
+                <span class="form-label">Отдел <span class="req">*</span></span>
+                <select name="department" id="workplaceDepartmentSelect" required></select>
               </label>
               <label class="form-field">
                 <span class="form-label">Сотрудник</span>
@@ -741,9 +742,16 @@
             </div>
             <div class="form-row">
               <label class="form-field">
-                <span class="form-label">Объект</span>
-                <select name="site" id="workplaceSiteSelect"></select>
+                <span class="form-label">Название <span class="req">*</span></span>
+                <input name="name" required placeholder="Стол 2 / Каб. 305, окно">
               </label>
+              <label class="form-field">
+                <span class="form-label">Объект / локация</span>
+                <input name="site" id="workplaceSiteInput" list="workplaceSiteOptions" placeholder="Укажите объект / локацию">
+                <datalist id="workplaceSiteOptions"></datalist>
+              </label>
+            </div>
+            <div class="form-row">
               <label class="form-field">
                 <span class="form-label">Комментарий</span>
                 <input name="notes" placeholder="Примечание…">

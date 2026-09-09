@@ -386,6 +386,10 @@ function hydrateState(parsed) {
     workplaces: (parsed.workplaces || []).map((entry) => ({
       id: entry.id,
       name: entry.name || "",
+      // code — server-owned (workplace_codes.py), клиент его не
+      // редактирует, только отображает.
+      code: entry.code || "",
+      department: entry.department || "",
       employeeId: entry.employeeId || null,
       site: entry.site || "",
       notes: entry.notes || "",
@@ -2599,20 +2603,24 @@ function renderWorkplaces() {
 }
 
 function renderWorkplaceFormSelects() {
+  const departmentSelect = document.getElementById("workplaceDepartmentSelect");
+  if (departmentSelect) {
+    const current = departmentSelect.value;
+    departmentSelect.innerHTML = `<option value="">Выберите отдел</option>`
+      + state.departments.map((dept) => `<option value="${escapeHtml(dept.name)}">${escapeHtml(dept.name)}</option>`).join("");
+    departmentSelect.value = current;
+  }
   const employeeSelect = document.getElementById("workplaceEmployeeSelect");
   if (employeeSelect) {
     const current = employeeSelect.value;
     employeeSelect.innerHTML = `<option value="">— свободно —</option>`
       + getActiveEmployees(state.employees).map((employee) =>
-        `<option value="${escapeHtml(employee.id)}">${escapeHtml(employee.fullName)}</option>`).join("");
+        `<option value="${escapeHtml(employee.id)}">${escapeHtml(employee.fullName)}${employee.department ? ` — ${escapeHtml(employee.department)}` : ""}</option>`).join("");
     employeeSelect.value = current;
   }
-  const siteSelect = document.getElementById("workplaceSiteSelect");
-  if (siteSelect) {
-    const current = siteSelect.value;
-    siteSelect.innerHTML = `<option value="">— не указан —</option>`
-      + state.sites.map((site) => `<option value="${escapeHtml(site.name)}">${escapeHtml(site.name)}</option>`).join("");
-    siteSelect.value = current;
+  const siteOptions = document.getElementById("workplaceSiteOptions");
+  if (siteOptions) {
+    siteOptions.innerHTML = state.sites.map((site) => `<option value="${escapeHtml(site.name)}"></option>`).join("");
   }
 }
 
@@ -2622,9 +2630,19 @@ async function handleWorkplaceSubmit(event) {
   const workplaceId = String(formData.get("workplaceId") || "").trim();
   const name = String(formData.get("name") || "").trim();
   if (!name) { showToast("Введите название рабочего места.", "warning"); return; }
+  const department = String(formData.get("department") || "").trim();
+  if (!department) { showToast("Выберите отдел.", "warning"); return; }
   const employeeId = String(formData.get("employeeId") || "") || null;
-  const site = String(formData.get("site") || "");
+  const site = String(formData.get("site") || "").trim();
   const notes = String(formData.get("notes") || "").trim();
+
+  const duplicate = state.workplaces.find((w) =>
+    w.id !== workplaceId && w.name.toLowerCase() === name.toLowerCase() && w.department === department
+  );
+  if (duplicate) {
+    showToast("Рабочее место с таким названием уже существует в этом отделе.", "warning");
+    return;
+  }
 
   // Один сотрудник — один стол: иначе «его техника» перестаёт быть
   // однозначной. Прежний стол освобождается.
@@ -2638,19 +2656,27 @@ async function handleWorkplaceSubmit(event) {
     const workplace = getWorkplaceById(workplaceId);
     if (!workplace) return;
     const previousOwner = workplace.employeeId;
-    Object.assign(workplace, { name, employeeId, site, notes });
+    const fieldsChanged = workplace.name !== name || workplace.department !== department
+      || workplace.site !== site || workplace.notes !== notes;
+    Object.assign(workplace, { name, department, employeeId, site, notes });
     if (previousOwner !== employeeId) {
       addAuditEntry("workplace", workplace.id, "reassign", {
         from: previousOwner ? getEmployeeById(previousOwner)?.fullName : "свободно",
         to: employeeId ? getEmployeeById(employeeId)?.fullName : "свободно",
       });
     }
+    if (fieldsChanged) {
+      addAuditEntry("workplace", workplace.id, "update", { name, department, site, notes });
+    }
+    showToast("Рабочее место обновлено.", "success");
   } else {
-    const duplicate = state.workplaces.find((w) => w.name.toLowerCase() === name.toLowerCase());
-    if (duplicate) showToast(`Место с названием «${name}» уже есть — создано ещё одно.`, "warning");
-    const workplace = { id: createId("wp"), name, employeeId, site, notes };
+    // code остаётся пустым до ответа сервера — persist() ниже заменяет
+    // весь state результатом POST /api/state, где сервер уже назначил
+    // реальный WP-NNNN (см. server.py import_state).
+    const workplace = { id: createId("wp"), name, code: "", department, employeeId, site, notes };
     state.workplaces.push(workplace);
-    addAuditEntry("workplace", workplace.id, "create", { name });
+    addAuditEntry("workplace", workplace.id, "create", { name, department });
+    showToast("Рабочее место успешно создано.", "success");
   }
   resetWorkplaceForm();
   await persist();
@@ -2662,6 +2688,8 @@ function resetWorkplaceForm() {
   if (!form) return;
   form.reset();
   form.elements.workplaceId.value = "";
+  const departmentSelect = document.getElementById("workplaceDepartmentSelect");
+  if (departmentSelect) departmentSelect.dataset.touched = "";
   document.getElementById("workplaceFormTitle").textContent = "Добавить рабочее место";
   document.getElementById("workplaceSubmitBtn").textContent = "Сохранить место";
   document.getElementById("workplaceCancelBtn").classList.add("hidden");
@@ -2673,11 +2701,14 @@ function enterWorkplaceEditMode(workplaceId) {
   const form = document.getElementById("workplaceForm");
   renderWorkplaceFormSelects();
   form.elements.workplaceId.value = workplace.id;
+  form.elements.department.value = workplace.department || "";
   form.elements.name.value = workplace.name;
   form.elements.employeeId.value = workplace.employeeId || "";
   form.elements.site.value = workplace.site || "";
   form.elements.notes.value = workplace.notes || "";
-  document.getElementById("workplaceFormTitle").textContent = "Изменить рабочее место";
+  document.getElementById("workplaceFormTitle").textContent = workplace.code
+    ? `Изменить рабочее место (${workplace.code})`
+    : "Изменить рабочее место";
   document.getElementById("workplaceSubmitBtn").textContent = "Сохранить изменения";
   document.getElementById("workplaceCancelBtn").classList.remove("hidden");
 }
@@ -4711,6 +4742,17 @@ function bindEvents() {
   document.getElementById("siteCancelBtn")?.addEventListener("click", resetSiteForm);
   document.getElementById("workplaceForm")?.addEventListener("submit", handleWorkplaceSubmit);
   document.getElementById("workplaceCancelBtn")?.addEventListener("click", resetWorkplaceForm);
+  document.getElementById("workplaceEmployeeSelect")?.addEventListener("change", (event) => {
+    const form = document.getElementById("workplaceForm");
+    const isEditing = Boolean(form?.elements.workplaceId.value);
+    const departmentSelect = document.getElementById("workplaceDepartmentSelect");
+    if (!departmentSelect || isEditing || departmentSelect.dataset.touched === "1") return;
+    const employee = getEmployeeById(event.target.value);
+    if (employee?.department) departmentSelect.value = employee.department;
+  });
+  document.getElementById("workplaceDepartmentSelect")?.addEventListener("change", (event) => {
+    event.target.dataset.touched = "1";
+  });
   document.getElementById("workplacesList")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action]");
     if (!button) return;
