@@ -33,10 +33,14 @@ def test_empty_state_has_workplaces_list(db):
 def test_workplace_round_trip(db):
     server.import_state(payload(
         employees=[{"id": "emp_1", "fullName": "Цой Марина"}],
-        workplaces=[{"id": "w1", "name": "Стол 2", "employeeId": "emp_1", "site": "АБЗ", "notes": "у окна"}],
+        workplaces=[{"id": "w1", "name": "Стол 2", "department": "Бухгалтерия",
+                      "employeeId": "emp_1", "site": "АБЗ", "notes": "у окна"}],
     ), actor="tester")
     saved = server.export_state()["workplaces"]
-    assert saved == [{"id": "w1", "name": "Стол 2", "employeeId": "emp_1", "site": "АБЗ", "notes": "у окна"}]
+    assert saved == [{
+        "id": "w1", "name": "Стол 2", "code": "WP-0001", "department": "Бухгалтерия",
+        "employeeId": "emp_1", "site": "АБЗ", "notes": "у окна",
+    }]
 
 
 def test_workplace_without_occupant_is_allowed(db):
@@ -92,3 +96,60 @@ def test_movement_carries_workplace_id(db):
                     "quantity": 1, "date": "2026-09-07"}],
     ), actor="tester")
     assert server.export_state()["movements"][0]["workplaceId"] == "w1"
+
+
+def test_workplace_gets_assigned_code_on_creation(db):
+    server.import_state(payload(
+        workplaces=[{"id": "w1", "name": "Стол 2", "department": "Бухгалтерия"}],
+    ), actor="tester")
+    assert server.export_state()["workplaces"][0]["code"] == "WP-0001"
+
+
+def test_workplace_code_is_preserved_across_edits(db):
+    server.import_state(payload(
+        workplaces=[{"id": "w1", "name": "Стол 2", "department": "Бухгалтерия"}],
+    ), actor="tester")
+    first_code = server.export_state()["workplaces"][0]["code"]
+    # Клиент никогда не должен уметь переписать код, даже если пришлёт своё значение.
+    server.import_state(payload(
+        workplaces=[{"id": "w1", "name": "Стол 2 (у окна)", "department": "Бухгалтерия", "code": "WP-9999"}],
+    ), actor="tester")
+    assert server.export_state()["workplaces"][0]["code"] == first_code
+
+
+def test_second_new_workplace_in_same_save_gets_next_code(db):
+    server.import_state(payload(
+        workplaces=[
+            {"id": "w1", "name": "Стол 1", "department": "Бухгалтерия"},
+            {"id": "w2", "name": "Стол 2", "department": "Бухгалтерия"},
+        ],
+    ), actor="tester")
+    codes = {w["id"]: w["code"] for w in server.export_state()["workplaces"]}
+    assert codes == {"w1": "WP-0001", "w2": "WP-0002"}
+
+
+def test_validate_state_requires_department():
+    error = server.validate_state(payload(
+        workplaces=[{"id": "w1", "name": "Стол 2", "department": ""}],
+    ))
+    assert error == "Укажите отдел для рабочего места «Стол 2»."
+
+
+def test_validate_state_rejects_duplicate_name_in_same_department():
+    error = server.validate_state(payload(
+        workplaces=[
+            {"id": "w1", "name": "Стол 2", "department": "Бухгалтерия"},
+            {"id": "w2", "name": "стол 2", "department": "Бухгалтерия"},
+        ],
+    ))
+    assert error == "Рабочее место с таким названием уже существует в этом отделе."
+
+
+def test_validate_state_allows_same_name_in_different_departments():
+    error = server.validate_state(payload(
+        workplaces=[
+            {"id": "w1", "name": "Стол 2", "department": "Бухгалтерия"},
+            {"id": "w2", "name": "Стол 2", "department": "IT"},
+        ],
+    ))
+    assert error is None

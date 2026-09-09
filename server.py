@@ -26,6 +26,7 @@ else:
     _ACT_IMPORT_ERROR = ""
 
 import asset_codes
+import workplace_codes
 import mobile_actions
 import migrations
 import auth
@@ -384,6 +385,17 @@ def validate_state(payload: dict) -> str | None:
         mtype = mov.get("type", "")
         if mtype not in VALID_MOVEMENT_TYPES:
             return f"Invalid movement type: {mtype}"
+    seen_workplace_keys = set()
+    for workplace in payload.get("workplaces", []):
+        if not workplace.get("id") or not str(workplace.get("name", "")).strip():
+            return "У каждого рабочего места должны быть id и название."
+        department = str(workplace.get("department", "")).strip()
+        if not department:
+            return f"Укажите отдел для рабочего места «{workplace.get('name')}»."
+        key = (str(workplace.get("name", "")).strip().lower(), department)
+        if key in seen_workplace_keys:
+            return "Рабочее место с таким названием уже существует в этом отделе."
+        seen_workplace_keys.add(key)
     return None
 
 EMPTY_STATE = {
@@ -539,12 +551,14 @@ def export_state() -> dict:
             {
                 "id": row["id"],
                 "name": row["name"],
+                "code": row["code"] or "",
+                "department": row["department"] or "",
                 "employeeId": row["employee_id"],
                 "site": row["site"] or "",
                 "notes": row["notes"] or "",
             }
             for row in connection.execute(
-                "SELECT id, name, employee_id, site, notes FROM workplaces ORDER BY name"
+                "SELECT id, name, code, department, employee_id, site, notes FROM workplaces ORDER BY name"
             )
         ]
 
@@ -673,6 +687,14 @@ def import_state(payload: dict, actor: str) -> dict:
                 "purchase_date, warranty_end, rev, label_printed_at, photo_url FROM assets"
             )
         }
+        old_workplace_codes = {
+            row["id"]: row["code"] or ""
+            for row in connection.execute("SELECT id, code FROM workplaces")
+        }
+        # Вызывается до DELETE FROM workplaces ниже, пока таблица ещё хранит
+        # прежние строки — иначе next_number увидел бы пустую таблицу и
+        # начал бы нумерацию заново на каждом сохранении.
+        next_workplace_num = workplace_codes.next_number(connection)
         connection.execute("DELETE FROM asset_allocations")
         connection.execute("DELETE FROM movements")
         connection.execute("DELETE FROM assets")
@@ -709,11 +731,21 @@ def import_state(payload: dict, actor: str) -> dict:
             )
 
         for workplace in workplaces:
+            workplace_id = workplace.get("id")
+            old_code = old_workplace_codes.get(workplace_id)
+            if old_code:
+                code = old_code
+            else:
+                code = workplace_codes.assign_code(next_workplace_num)
+                next_workplace_num += 1
             connection.execute(
-                "INSERT INTO workplaces (id, name, employee_id, site, notes) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO workplaces (id, name, code, department, employee_id, site, notes) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
-                    workplace.get("id"),
+                    workplace_id,
                     workplace.get("name") or "",
+                    code,
+                    workplace.get("department") or "",
                     workplace.get("employeeId") or None,
                     workplace.get("site") or "",
                     workplace.get("notes") or "",
