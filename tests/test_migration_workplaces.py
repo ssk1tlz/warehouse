@@ -88,3 +88,57 @@ def test_all_three_registered_in_order():
     versions = [version for version, _name, _func in migrations.MIGRATIONS]
     assert {29, 30, 31} <= set(versions)
     assert versions == sorted(versions)
+
+
+def test_033_adds_department_column(conn):
+    migrations._migrate_029_workplaces_table(conn)
+    migrations._migrate_033_workplaces_department(conn)
+    assert "department" in columns(conn, "workplaces")
+
+
+def test_033_is_idempotent(conn):
+    migrations._migrate_029_workplaces_table(conn)
+    migrations._migrate_033_workplaces_department(conn)
+    migrations._migrate_033_workplaces_department(conn)
+    assert "department" in columns(conn, "workplaces")
+
+
+def test_034_adds_code_column(conn):
+    migrations._migrate_029_workplaces_table(conn)
+    migrations._migrate_034_workplaces_code(conn)
+    assert "code" in columns(conn, "workplaces")
+
+
+def test_034_backfills_existing_rows_sequentially(conn):
+    migrations._migrate_029_workplaces_table(conn)
+    conn.execute("INSERT INTO workplaces (id, name) VALUES ('w1', 'Стол 2')")
+    conn.execute("INSERT INTO workplaces (id, name) VALUES ('w2', 'Стол 1')")
+    migrations._migrate_034_workplaces_code(conn)
+    rows = {row["id"]: row["code"] for row in conn.execute("SELECT id, code FROM workplaces")}
+    # Бэкофилл идёт в порядке "name, id" — "Стол 1" (w2) раньше "Стол 2" (w1).
+    assert rows == {"w2": "WP-0001", "w1": "WP-0002"}
+
+
+def test_034_does_not_touch_rows_with_existing_code(conn):
+    migrations._migrate_029_workplaces_table(conn)
+    conn.execute("INSERT INTO workplaces (id, name) VALUES ('w1', 'Стол 2')")
+    migrations._migrate_034_workplaces_code(conn)
+    conn.execute("UPDATE workplaces SET code = 'WP-0009' WHERE id = 'w1'")
+    migrations._migrate_034_workplaces_code(conn)
+    assert conn.execute("SELECT code FROM workplaces WHERE id='w1'").fetchone()["code"] == "WP-0009"
+
+
+def test_034_is_idempotent(conn):
+    migrations._migrate_029_workplaces_table(conn)
+    conn.execute("INSERT INTO workplaces (id, name) VALUES ('w1', 'Стол 2')")
+    migrations._migrate_034_workplaces_code(conn)
+    first = conn.execute("SELECT code FROM workplaces WHERE id='w1'").fetchone()["code"]
+    migrations._migrate_034_workplaces_code(conn)
+    second = conn.execute("SELECT code FROM workplaces WHERE id='w1'").fetchone()["code"]
+    assert first == second
+
+
+def test_033_and_034_registered_in_order():
+    versions = [version for version, _name, _func in migrations.MIGRATIONS]
+    assert {33, 34} <= set(versions)
+    assert versions == sorted(versions)

@@ -158,5 +158,12 @@ CREATE TABLE IF NOT EXISTS workplaces (
   name TEXT NOT NULL,
   employee_id TEXT REFERENCES employees(id),
   site TEXT NOT NULL DEFAULT '',
-  notes TEXT NOT NULL DEFAULT ''
+  notes TEXT NOT NULL DEFAULT '',
+  -- Собственный отдел рабочего места (не department сотрудника — он
+  -- может временно сидеть на месте другого подразделения). Текст, а не
+  -- FK на departments.id — как employees.department. См. миграцию 033.
+  department TEXT NOT NULL DEFAULT '',
+  -- Внутренний идентификатор вида WP-0001, назначается сервером
+  -- (workplace_codes.py), клиент не редактирует. См. миграцию 034.
+  code TEXT NOT NULL DEFAULT ''
 );

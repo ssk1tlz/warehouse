@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Callable
 
 import asset_codes
+import workplace_codes
 
 Migration = tuple[int, str, "Callable[[sqlite3.Connection], None]"]
 
@@ -363,6 +364,26 @@ def _migrate_032_warranty_reminder_off(c):
         "warranty_reminder_off INTEGER NOT NULL DEFAULT 0",
     )
 
+
+def _migrate_033_workplaces_department(c):
+    _add_column_if_missing(c, "workplaces", "department", "department TEXT NOT NULL DEFAULT ''")
+
+
+def _migrate_034_workplaces_code(connection: sqlite3.Connection) -> None:
+    _add_column_if_missing(connection, "workplaces", "code", "code TEXT NOT NULL DEFAULT ''")
+    rows = list(connection.execute(
+        "SELECT id FROM workplaces WHERE code = '' ORDER BY name, id"
+    ))
+    if not rows:
+        return
+    next_num = workplace_codes.next_number(connection)
+    for row in rows:
+        connection.execute(
+            "UPDATE workplaces SET code = ? WHERE id = ?",
+            (workplace_codes.assign_code(next_num), row["id"]),
+        )
+        next_num += 1
+
 MIGRATIONS: list[Migration] = [
     (1, "assets.repair_quantity", _migrate_001),
     (2, "assets.retired_quantity", _migrate_002),
@@ -396,6 +417,8 @@ MIGRATIONS: list[Migration] = [
     (30, "asset_allocations.workplace_id", _migrate_030_allocation_workplace),
     (31, "movements.workplace_id", _migrate_031_movement_workplace),
     (32, "assets.warranty_reminder_off", _migrate_032_warranty_reminder_off),
+    (33, "workplaces.department", _migrate_033_workplaces_department),
+    (34, "workplaces.code: бэкофилл WP-NNNN", _migrate_034_workplaces_code),
 ]
 
 
