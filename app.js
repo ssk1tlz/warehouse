@@ -2573,31 +2573,187 @@ function renderHoldingsListDetailed(entries, recipient) {
   }).join("") + `</ul>`;
 }
 
+let workplaceActiveDept = "";
+let workplaceSortBy = "name";
+// null = ещё не инициализировано (раскрыть первый отдел с местами при
+// первом рендере); дальше — набор развёрнутых отделов, который хранит
+// ручные клики пользователя между рендерами.
+let workplaceExpandedDepts = null;
+
+// Статус вычисляется из реальных данных (state.attentionItems + статус
+// актива), а не хранится статичной меткой — см. промпт §10.
+function getWorkplaceStatus(workplaceId) {
+  const items = getWorkplaceAssets(workplaceId);
+  if (!items.length) return { tone: "muted", label: "Оборудование не назначено" };
+  const attentionAssetIds = new Set((state.attentionItems || []).map((item) => item.assetId));
+  const needsAttention = items.some(({ asset }) =>
+    asset.status === "repair" || asset.status === "retired" || attentionAssetIds.has(asset.id)
+  );
+  return needsAttention
+    ? { tone: "warn", label: "⚠ Требует проверки" }
+    : { tone: "ok", label: "🟢 Всё в порядке" };
+}
+
+function workplaceMatchesQuery(workplace, query) {
+  const owner = workplace.employeeId ? getEmployeeById(workplace.employeeId) : null;
+  const items = getWorkplaceAssets(workplace.id);
+  const assetText = items.map(({ asset }) => `${asset.inventoryNumber} ${asset.name}`).join(" ");
+  return matchesSearch(query, workplace.name, workplace.code, workplace.department, workplace.site, owner?.fullName, assetText);
+}
+
+function sortWorkplaceRows(rows, sortBy) {
+  const withMeta = rows.map((workplace) => ({
+    workplace,
+    owner: workplace.employeeId ? getEmployeeById(workplace.employeeId) : null,
+    equipmentCount: getWorkplaceAssets(workplace.id).reduce((sum, e) => sum + e.allocation.quantity, 0),
+  }));
+  const byName = (a, b) => a.localeCompare(b, "ru");
+  switch (sortBy) {
+    case "employee":
+      withMeta.sort((a, b) => byName(a.owner?.fullName || "￿", b.owner?.fullName || "￿"));
+      break;
+    case "location":
+      withMeta.sort((a, b) => byName(a.workplace.site || "￿", b.workplace.site || "￿"));
+      break;
+    case "equipment":
+      withMeta.sort((a, b) => b.equipmentCount - a.equipmentCount);
+      break;
+    default:
+      withMeta.sort((a, b) => byName(a.workplace.name, b.workplace.name));
+  }
+  return withMeta;
+}
+
 function renderWorkplaces() {
   renderWorkplaceFormSelects();
-  const container = document.getElementById("workplacesList");
-  if (!container) return;
+  const listContainer = document.getElementById("workplacesList");
+  const tabsContainer = document.getElementById("workplaceDeptTabs");
+  if (!listContainer || !tabsContainer) return;
+
   if (!state.workplaces.length) {
-    container.innerHTML = `<div class="empty-state"><p>Нет рабочих мест</p></div>`;
+    tabsContainer.innerHTML = "";
+    listContainer.innerHTML = `<div class="empty-state"><p>Рабочих мест пока нет.</p><p class="muted">Создайте первое рабочее место, чтобы начать работу.</p></div>`;
     return;
   }
-  container.innerHTML = state.workplaces.map((workplace) => {
-    const owner = workplace.employeeId ? getEmployeeById(workplace.employeeId) : null;
-    const items = getWorkplaceAssets(workplace.id);
-    const units = items.reduce((sum, entry) => sum + entry.allocation.quantity, 0);
-    const itemsText = items.length
-      ? items.map(({ asset, allocation }) => `${escapeHtml(asset.inventoryNumber || asset.name)} ×${allocation.quantity}`).join(", ")
-      : "Техники нет";
-    return `<article class="list-item" data-workplace-id="${escapeHtml(workplace.id)}">
-      <div class="title-line">
-        <strong>${escapeHtml(workplace.name)}</strong>
-        <span class="chip ${owner ? "ok" : ""}">${owner ? escapeHtml(owner.fullName) : "Свободно"}</span>
-        <div class="row-actions">
-          <button type="button" class="edit-button" data-action="edit-workplace" data-workplace-id="${escapeHtml(workplace.id)}">Изменить</button>
-          <button type="button" class="danger-button" data-action="delete-workplace" data-workplace-id="${escapeHtml(workplace.id)}">Удалить</button>
-        </div>
+
+  const query = normalizeSearchValue(document.getElementById("workplaceSearchInput")?.value);
+
+  // Отделы — в порядке state.departments (уже отсортированы сервером по
+  // имени), плюс отделы, которых больше нет в справочнике, но за
+  // которыми ещё числятся места (отдел удалили, место осталось).
+  const departmentNames = state.departments.map((d) => d.name);
+  state.workplaces.forEach((w) => {
+    if (w.department && !departmentNames.includes(w.department)) departmentNames.push(w.department);
+  });
+
+  const groups = departmentNames.map((department) => {
+    const all = state.workplaces.filter((w) => w.department === department);
+    const matched = query ? all.filter((w) => workplaceMatchesQuery(w, query)) : all;
+    return { department, all, matched };
+  });
+
+  if (workplaceExpandedDepts === null) {
+    const firstWithResults = groups.find((g) => g.all.length)?.department;
+    workplaceExpandedDepts = new Set(firstWithResults ? [firstWithResults] : []);
+  }
+
+  tabsContainer.innerHTML = renderWorkplaceDeptTabs(groups);
+
+  const visibleGroups = groups.filter((g) => !workplaceActiveDept || g.department === workplaceActiveDept);
+  const groupsWithResults = query ? visibleGroups.filter((g) => g.matched.length) : visibleGroups;
+
+  if (query && !groupsWithResults.length) {
+    listContainer.innerHTML = `<div class="empty-state"><p>По вашему запросу рабочие места не найдены.</p></div>`;
+    return;
+  }
+
+  // При поиске отделы с совпадениями раскрываются автоматически (промпт
+  // §13/§28); без поиска — используется набор, который крутит пользователь.
+  const expandedForRender = query
+    ? new Set(groupsWithResults.map((g) => g.department))
+    : workplaceExpandedDepts;
+
+  listContainer.innerHTML = visibleGroups
+    .filter((group) => !query || group.matched.length)
+    .map((group) => renderWorkplaceDeptGroup(group, {
+      expanded: expandedForRender.has(group.department),
+      rows: query ? group.matched : group.all,
+    }))
+    .join("");
+}
+
+function renderWorkplaceDeptTabs(groups) {
+  const totalCount = groups.reduce((sum, g) => sum + g.all.length, 0);
+  const allTab = `<button type="button" class="dept-tab${workplaceActiveDept ? "" : " active"}" data-dept="">Все отделы <span class="dept-tab-count">${totalCount}</span></button>`;
+  const deptTabs = groups.map((g) =>
+    `<button type="button" class="dept-tab${workplaceActiveDept === g.department ? " active" : ""}" data-dept="${escapeHtml(g.department)}">${escapeHtml(g.department)} <span class="dept-tab-count">${g.all.length}</span></button>`
+  ).join("");
+  return allTab + deptTabs;
+}
+
+function renderWorkplaceDeptGroup(group, { expanded, rows }) {
+  const sortedRows = sortWorkplaceRows(rows, workplaceSortBy);
+  const body = group.all.length
+    ? `<div class="table-wrap wp-table-wrap">${renderWorkplaceTable(sortedRows)}</div><div class="wp-cards">${renderWorkplaceCards(sortedRows)}</div>`
+    : `<div class="empty-state"><p>В этом отделе пока нет рабочих мест.</p></div>`;
+  return `<div class="dept-group">
+    <button type="button" class="dept-group-header" data-action="toggle-dept" data-department="${escapeHtml(group.department)}">
+      <span class="dept-group-heading">
+        <span class="dept-group-title">🏢 ${escapeHtml(group.department)}</span>
+        <span class="dept-group-count">Рабочих мест: ${group.all.length}</span>
+      </span>
+      <span class="dept-group-caret">${expanded ? "▾" : "▸"}</span>
+    </button>
+    ${expanded ? `<div class="dept-group-body">${body}</div>` : ""}
+  </div>`;
+}
+
+function renderWorkplaceTable(sortedRows) {
+  return `<table class="emp-modern-table wp-table">
+    <thead><tr>
+      <th>Рабочее место</th>
+      <th>Объект / локация</th>
+      <th>Сотрудник</th>
+      <th>Оборудование</th>
+      <th></th>
+    </tr></thead>
+    <tbody>
+      ${sortedRows.map(({ workplace, owner }) => {
+        const items = getWorkplaceAssets(workplace.id);
+        const status = getWorkplaceStatus(workplace.id);
+        const equipmentText = items.length
+          ? items.map(({ asset, allocation }) =>
+              `${escapeHtml(asset.name)} <code>${escapeHtml(asset.inventoryNumber || "—")}</code>${allocation.quantity > 1 ? ` ×${allocation.quantity}` : ""}`
+            ).join("<br>")
+          : "Оборудование не назначено";
+        return `<tr data-workplace-id="${escapeHtml(workplace.id)}">
+          <td><strong>${escapeHtml(workplace.name)}</strong><br><code>${escapeHtml(workplace.code || "—")}</code></td>
+          <td>${workplace.site ? `📍 ${escapeHtml(workplace.site)}` : "—"}</td>
+          <td>${owner ? `👤 ${escapeHtml(owner.fullName)}${owner.position ? `<br><span class="muted">${escapeHtml(owner.position)}</span>` : ""}` : "👤 Свободно"}</td>
+          <td>${equipmentText}<br><span class="chip ${status.tone}">${escapeHtml(status.label)}</span></td>
+          <td class="row-actions">
+            <button type="button" class="edit-button" data-action="edit-workplace" data-workplace-id="${escapeHtml(workplace.id)}">Изменить</button>
+            <button type="button" class="danger-button" data-action="delete-workplace" data-workplace-id="${escapeHtml(workplace.id)}">Удалить</button>
+          </td>
+        </tr>`;
+      }).join("")}
+    </tbody>
+  </table>`;
+}
+
+function renderWorkplaceCards(sortedRows) {
+  return sortedRows.map(({ workplace, owner }) => {
+    const status = getWorkplaceStatus(workplace.id);
+    return `<article class="wp-card" data-workplace-id="${escapeHtml(workplace.id)}">
+      <div class="wp-card-title">🖥 ${escapeHtml(workplace.name)}</div>
+      <code>${escapeHtml(workplace.code || "—")}</code>
+      <div class="wp-card-row">${owner ? `👤 ${escapeHtml(owner.fullName)}` : "👤 Свободно"}</div>
+      ${workplace.site ? `<div class="wp-card-row">📍 ${escapeHtml(workplace.site)}</div>` : ""}
+      <div class="wp-card-row"><span class="chip ${status.tone}">${escapeHtml(status.label)}</span></div>
+      <div class="wp-card-actions">
+        <button type="button" class="edit-button" data-action="edit-workplace" data-workplace-id="${escapeHtml(workplace.id)}">Изменить</button>
+        <button type="button" class="danger-button" data-action="delete-workplace" data-workplace-id="${escapeHtml(workplace.id)}">Удалить</button>
       </div>
-      <p class="muted">${workplace.site ? escapeHtml(workplace.site) + " · " : ""}${units} ед. · ${itemsText}</p>
     </article>`;
   }).join("");
 }
@@ -2716,16 +2872,19 @@ function enterWorkplaceEditMode(workplaceId) {
 async function deleteWorkplace(workplaceId) {
   // Удалять место с техникой нельзя: записи о выдаче осиротеют, а
   // количество останется списанным с доступного остатка.
+  const workplace = getWorkplaceById(workplaceId);
+  if (!workplace) return;
   const items = getWorkplaceAssets(workplaceId);
   if (items.length) {
     showToast(`На этом месте числится техника (${items.length} поз.). Сначала верните её на склад.`, "warning");
     return;
   }
-  const confirmed = await showConfirm("Удалить рабочее место?");
+  const confirmed = await showConfirm(`Вы действительно хотите удалить рабочее место «${workplace.name}»?`);
   if (!confirmed) return;
   state.workplaces = state.workplaces.filter((w) => w.id !== workplaceId);
   await persist();
   renderWorkplaces();
+  showToast("Рабочее место удалено.", "success");
 }
 
 // ─── ПЕРЕМЕЩЕНИЯ: ТАБЛИЦА ────────────────────────────────────────
@@ -4753,8 +4912,27 @@ function bindEvents() {
   document.getElementById("workplaceDepartmentSelect")?.addEventListener("change", (event) => {
     event.target.dataset.touched = "1";
   });
+  document.getElementById("workplaceDeptTabs")?.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-dept]");
+    if (!button) return;
+    workplaceActiveDept = button.dataset.dept || "";
+    renderWorkplaces();
+  });
+  document.getElementById("workplaceSearchInput")?.addEventListener("input", debounce(renderWorkplaces));
+  document.getElementById("workplaceSortSelect")?.addEventListener("change", (event) => {
+    workplaceSortBy = event.target.value;
+    renderWorkplaces();
+  });
   document.getElementById("workplacesList")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action]");
+    const toggleButton = event.target.closest('[data-action="toggle-dept"]');
+    if (toggleButton) {
+      const department = toggleButton.dataset.department;
+      if (workplaceExpandedDepts.has(department)) workplaceExpandedDepts.delete(department);
+      else workplaceExpandedDepts.add(department);
+      renderWorkplaces();
+      return;
+    }
+    const button = event.target.closest("button[data-action]");
     if (!button) return;
     const id = button.dataset.workplaceId;
     if (button.dataset.action === "edit-workplace") enterWorkplaceEditMode(id);

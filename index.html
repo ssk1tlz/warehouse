@@ -766,8 +766,18 @@
         <div class="panel">
           <div class="panel-header">
             <h3>Рабочие места</h3>
+            <div class="wp-toolbar">
+              <input id="workplaceSearchInput" class="search" style="max-width:240px" placeholder="🔍 Поиск по рабочим местам…">
+              <select id="workplaceSortSelect" style="max-width:190px">
+                <option value="name">По названию</option>
+                <option value="employee">По сотруднику</option>
+                <option value="location">По локации</option>
+                <option value="equipment">По кол-ву техники</option>
+              </select>
+            </div>
           </div>
-          <div id="workplacesList" class="list"></div>
+          <div id="workplaceDeptTabs" class="dept-tabs"></div>
+          <div id="workplacesList"></div>
         </div>
       </section>
 
