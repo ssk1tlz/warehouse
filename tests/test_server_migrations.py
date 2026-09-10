@@ -132,6 +132,59 @@ def test_init_db_migrates_a_legacy_database_with_orphaned_allocation_rows(tmp_pa
     conn.close()
 
 
+def _write_db_from_before_the_workplaces_department_feature(db_path):
+    """Боевая база в том виде, в каком она была до миграций 033/034: у
+    рабочих мест ещё нет ни отдела, ни кода."""
+    legacy = sqlite3.connect(db_path)
+    legacy.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+    legacy.executescript(
+        "DROP TABLE workplaces;"
+        "CREATE TABLE workplaces ("
+        "  id TEXT PRIMARY KEY,"
+        "  name TEXT NOT NULL,"
+        "  employee_id TEXT REFERENCES employees(id),"
+        "  site TEXT NOT NULL DEFAULT '',"
+        "  notes TEXT NOT NULL DEFAULT ''"
+        ");"
+        "INSERT INTO employees (id, full_name, department) VALUES ('emp_1', 'Цой Марина', 'Бухгалтерия');"
+        "INSERT INTO employees (id, full_name, department) VALUES ('emp_2', 'Ким Олег', NULL);"
+        # Занятый стол, стол сотрудника без отдела и два одноимённых
+        # свободных стола — всё, что в старой базе встречается сплошь и рядом.
+        "INSERT INTO workplaces (id, name, employee_id) VALUES ('w1', 'Стол 1', 'emp_1');"
+        "INSERT INTO workplaces (id, name, employee_id) VALUES ('w2', 'Стол 5', 'emp_2');"
+        "INSERT INTO workplaces (id, name, employee_id) VALUES ('w3', 'Стол 7', NULL);"
+        "INSERT INTO workplaces (id, name, employee_id) VALUES ('w4', 'Стол 7', NULL);"
+    )
+    legacy.commit()
+    legacy.close()
+
+
+def test_migrated_legacy_database_passes_validate_state(tmp_path, monkeypatch):
+    # Регрессия на C1 финального ревью. Десктоп сохраняет состояние целиком,
+    # а validate_state отклоняет рабочее место с пустым отделом и дубли
+    # (название, отдел). Пока миграция 033 только добавляла колонку с
+    # DEFAULT '', первое же сохранение чего угодно после обновления
+    # отклонялось сервером, а reloadFromServer затирал правку — выхода из
+    # этого состояния через интерфейс не было.
+    db_path = tmp_path / "warehouse.db"
+    _write_db_from_before_the_workplaces_department_feature(db_path)
+    monkeypatch.setattr(server, "DB_PATH", db_path)
+    monkeypatch.setattr(server, "BACKUP_DIR", tmp_path / "backups")
+
+    server.init_db()
+
+    state = server.export_state()
+    assert server.validate_state(state) is None, "мигрированная база не проходит собственную проверку сервера"
+    saved = {w["id"]: w for w in state["workplaces"]}
+    assert saved["w1"]["department"] == "Бухгалтерия"  # угадали по хозяину
+    assert saved["w2"]["department"] == "Без отдела"   # у хозяина отдела нет
+    assert saved["w3"]["department"] == "Без отдела"
+    assert {saved["w3"]["name"], saved["w4"]["name"]} == {"Стол 7", "Стол 7 (2)"}
+    assert all(w["code"] for w in state["workplaces"])
+    # И само сохранение (POST /api/state в обход HTTP) теперь проходит.
+    server.import_state(state, actor="tester")
+
+
 def test_init_db_does_not_create_a_backup_for_a_brand_new_database(tmp_path, monkeypatch):
     db_path = tmp_path / "warehouse.db"
     backup_dir = tmp_path / "backups"

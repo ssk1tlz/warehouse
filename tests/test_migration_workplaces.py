@@ -90,16 +90,99 @@ def test_all_three_registered_in_order():
     assert versions == sorted(versions)
 
 
+EMPLOYEES_SCHEMA = """
+CREATE TABLE employees (
+  id TEXT PRIMARY KEY,
+  full_name TEXT NOT NULL,
+  department TEXT NOT NULL DEFAULT ''
+);
+"""
+
+
+def departments(connection):
+    return {row["id"]: row["department"] for row in connection.execute("SELECT id, department FROM workplaces")}
+
+
+def names(connection):
+    return {row["id"]: row["name"] for row in connection.execute("SELECT id, name FROM workplaces")}
+
+
 def test_033_adds_department_column(conn):
     migrations._migrate_029_workplaces_table(conn)
     migrations._migrate_033_workplaces_department(conn)
     assert "department" in columns(conn, "workplaces")
 
 
-def test_033_is_idempotent(conn):
+def test_033_backfills_department_from_the_occupant(conn):
+    # Отдел хозяина стола — лучшая догадка, которая у нас есть.
+    conn.executescript(EMPLOYEES_SCHEMA)
     migrations._migrate_029_workplaces_table(conn)
+    conn.execute("INSERT INTO employees (id, full_name, department) VALUES ('emp_1', 'Цой', 'Бухгалтерия')")
+    conn.execute("INSERT INTO workplaces (id, name, employee_id) VALUES ('w1', 'Стол 2', 'emp_1')")
     migrations._migrate_033_workplaces_department(conn)
+    assert departments(conn) == {"w1": "Бухгалтерия"}
+
+
+def test_033_backfills_free_and_ownerless_workplaces_with_the_literal(conn):
+    # Свободный стол и стол сотрудника без отдела угадать не по чему —
+    # но пустым отдел остаться не может, иначе validate_state заблокирует
+    # первое же сохранение после обновления.
+    conn.executescript(EMPLOYEES_SCHEMA)
+    migrations._migrate_029_workplaces_table(conn)
+    conn.execute("INSERT INTO employees (id, full_name, department) VALUES ('emp_1', 'Цой', '')")
+    conn.execute("INSERT INTO workplaces (id, name, employee_id) VALUES ('w1', 'Стол 1', NULL)")
+    conn.execute("INSERT INTO workplaces (id, name, employee_id) VALUES ('w2', 'Стол 2', 'emp_1')")
     migrations._migrate_033_workplaces_department(conn)
+    assert departments(conn) == {"w1": "Без отдела", "w2": "Без отдела"}
+
+
+def test_033_survives_a_database_without_employees_table(conn):
+    # Самая старая база: таблицы сотрудников ещё нет (её создаёт schema.sql).
+    # Подзапрос по employees в такой базе не должен ронять миграцию.
+    migrations._migrate_029_workplaces_table(conn)
+    conn.execute("INSERT INTO workplaces (id, name) VALUES ('w1', 'Стол 1')")
+    migrations._migrate_033_workplaces_department(conn)
+    assert departments(conn) == {"w1": "Без отдела"}
+
+
+def test_033_separates_same_named_workplaces_landing_in_one_department(conn):
+    # Два одноимённых стола без отдела обречены попасть в «Без отдела»
+    # вместе — и стать дублем, который сервер откажется сохранять.
+    migrations._migrate_029_workplaces_table(conn)
+    conn.execute("INSERT INTO workplaces (id, name) VALUES ('w1', 'Стол 1')")
+    conn.execute("INSERT INTO workplaces (id, name) VALUES ('w2', 'Стол 1')")
+    migrations._migrate_033_workplaces_department(conn)
+    rows = list(conn.execute("SELECT name, department FROM workplaces"))
+    keys = [(row["name"].strip().lower(), row["department"]) for row in rows]
+    assert len(set(keys)) == 2, keys
+    assert names(conn) == {"w1": "Стол 1", "w2": "Стол 1 (2)"}
+
+
+def test_033_picks_a_free_suffix_when_the_obvious_one_is_taken(conn):
+    migrations._migrate_029_workplaces_table(conn)
+    conn.execute("INSERT INTO workplaces (id, name) VALUES ('w1', 'Стол 1')")
+    conn.execute("INSERT INTO workplaces (id, name) VALUES ('w2', 'Стол 1')")
+    conn.execute("INSERT INTO workplaces (id, name) VALUES ('w3', 'Стол 1 (2)')")
+    migrations._migrate_033_workplaces_department(conn)
+    rows = list(conn.execute("SELECT name, department FROM workplaces"))
+    keys = [(row["name"].strip().lower(), row["department"]) for row in rows]
+    assert len(set(keys)) == 3, keys
+
+
+def test_033_is_idempotent(conn):
+    # Миграция теперь не только добавляет колонку, но и заполняет её, поэтому
+    # «идемпотентна» значит в том числе: второй прогон не навешивает
+    # «(2) (2)» на уже разведённые названия и не перетирает отделы.
+    conn.executescript(EMPLOYEES_SCHEMA)
+    migrations._migrate_029_workplaces_table(conn)
+    conn.execute("INSERT INTO employees (id, full_name, department) VALUES ('emp_1', 'Цой', 'Бухгалтерия')")
+    conn.execute("INSERT INTO workplaces (id, name, employee_id) VALUES ('w1', 'Стол 1', 'emp_1')")
+    conn.execute("INSERT INTO workplaces (id, name) VALUES ('w2', 'Стол 1')")
+    conn.execute("INSERT INTO workplaces (id, name) VALUES ('w3', 'Стол 1')")
+    migrations._migrate_033_workplaces_department(conn)
+    first = (names(conn), departments(conn))
+    migrations._migrate_033_workplaces_department(conn)
+    assert (names(conn), departments(conn)) == first
     assert "department" in columns(conn, "workplaces")
 
 

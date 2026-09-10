@@ -365,8 +365,61 @@ def _migrate_032_warranty_reminder_off(c):
     )
 
 
+def _employees_have_department(connection: sqlite3.Connection) -> bool:
+    # Совсем старые базы (до появления schema.sql в нынешнем виде) могут не
+    # иметь ни таблицы сотрудников, ни колонки отдела в ней. Проверка та же,
+    # что в миграциях 015, 016 и 030.
+    table = connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='employees'"
+    ).fetchone()
+    if table is None:
+        return False
+    return "department" in {row["name"] for row in connection.execute("PRAGMA table_info(employees)")}
+
+
 def _migrate_033_workplaces_department(c):
     _add_column_if_missing(c, "workplaces", "department", "department TEXT NOT NULL DEFAULT ''")
+    # Бэкофилл. У рабочих мест, заведённых до этой миграции, отдела нет, а
+    # validate_state отклоняет сохранение состояния с пустым отделом. Десктоп
+    # шлёт состояние целиком, поэтому одна такая строка блокировала бы вообще
+    # любое сохранение после обновления — вплоть до полной невозможности
+    # работать. Чиним в самой миграции, а не разово при старте: тогда это же
+    # лечится и при восстановлении из бэкапа, где миграции гоняются заново.
+    # Сначала пытаемся угадать отдел по хозяину места.
+    if _employees_have_department(c):
+        c.execute(
+            """
+            UPDATE workplaces SET department = COALESCE(
+                (SELECT TRIM(e.department) FROM employees e
+                 WHERE e.id = workplaces.employee_id AND TRIM(e.department) != ''),
+                '')
+            WHERE TRIM(department) = ''
+            """
+        )
+    # Всё, что угадать не вышло, получает явный литерал: пустого отдела после
+    # миграции остаться не должно.
+    c.execute("UPDATE workplaces SET department = 'Без отдела' WHERE TRIM(department) = ''")
+    # Разводим дубли (название, отдел), которые мог создать бэкофилл:
+    # validate_state запрещает одинаковые названия внутри одного отдела, а
+    # миграция не имеет права оставить базу в состоянии, которое сервер потом
+    # откажется сохранять. Два одноимённых стола, попавших в один отдел (оба
+    # ушли в «Без отдела» или у хозяев совпал отдел), надо различить.
+    rows = list(c.execute("SELECT id, name, department FROM workplaces ORDER BY name, id"))
+    seen: set[tuple[str, str]] = set()
+    for row in rows:
+        name = row["name"]
+        department = row["department"].strip()
+        key = (name.strip().lower(), department)
+        if key in seen:
+            # Суффикс подбираем свободный: рядом уже может лежать стол,
+            # который так и называется — «Стол 1 (2)».
+            suffix = 2
+            while (f"{name} ({suffix})".strip().lower(), department) in seen:
+                suffix += 1
+            name = f"{name} ({suffix})"
+            key = (name.strip().lower(), department)
+            c.execute("UPDATE workplaces SET name = ? WHERE id = ?", (name, row["id"]))
+        seen.add(key)
 
 
 def _migrate_034_workplaces_code(connection: sqlite3.Connection) -> None:
