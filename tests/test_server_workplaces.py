@@ -128,6 +128,23 @@ def test_second_new_workplace_in_same_save_gets_next_code(db):
     assert codes == {"w1": "WP-0001", "w2": "WP-0002"}
 
 
+def test_new_workplace_in_a_later_save_continues_the_numbering(db):
+    # Нумерация считается по таблице ДО `DELETE FROM workplaces` в
+    # import_state. Если этот SELECT когда-нибудь переедет после удаления,
+    # счётчик молча начнёт заново с WP-0001 при каждом сохранении.
+    server.import_state(payload(
+        workplaces=[{"id": "w1", "name": "Стол 1", "department": "Бухгалтерия"}],
+    ), actor="tester")
+    server.import_state(payload(
+        workplaces=[
+            {"id": "w1", "name": "Стол 1", "department": "Бухгалтерия"},
+            {"id": "w2", "name": "Стол 2", "department": "Бухгалтерия"},
+        ],
+    ), actor="tester")
+    codes = {w["id"]: w["code"] for w in server.export_state()["workplaces"]}
+    assert codes == {"w1": "WP-0001", "w2": "WP-0002"}
+
+
 def test_validate_state_requires_department():
     error = server.validate_state(payload(
         workplaces=[{"id": "w1", "name": "Стол 2", "department": ""}],
