@@ -43,6 +43,13 @@ def live_server(tmp_path, monkeypatch):
     yield f"http://127.0.0.1:{port}"
     httpd.shutdown()
     thread.join()
+    # shutdown()/join() останавливают только цикл serve_forever: слушающий
+    # сокет остаётся открытым, а уже принятые запросы продолжают работать в
+    # своих потоках. Такой «хвост» успевает выполнить запись уже после того,
+    # как monkeypatch следующего теста перевёл server.DB_PATH на новый tmp —
+    # и портит чужую базу. server_close() закрывает сокет и дожидается всех
+    # потоков-обработчиков (block_on_close=True).
+    httpd.server_close()
 
 
 def _request(base_url, method, path, token=None, json_body=None):
@@ -843,6 +850,9 @@ def live_server_on_all_interfaces(tmp_path, monkeypatch):
     yield port
     httpd.shutdown()
     thread.join()
+    # См. комментарий в live_server: без server_close() слушающий сокет и
+    # потоки-обработчики переживают тест.
+    httpd.server_close()
 
 
 def test_loopback_requests_do_not_need_a_signature(live_server):
