@@ -2595,10 +2595,39 @@ function workplaceDeptLabel(department) {
   return department === WORKPLACE_UNASSIGNED_DEPT ? "Без отдела" : department;
 }
 
+// Индекс «место → его техника» на один рендер списка. Без него поиск,
+// сортировка и отрисовка независимо звали getWorkplaceAssets (это проход
+// по всем позициям) для каждого места — то есть O(мест × позиций), да ещё
+// и по нескольку раз, на каждое нажатие клавиши в поиске. Здесь
+// state.assets обходится ровно один раз.
+function buildWorkplaceAssetsIndex() {
+  const index = new Map();
+  state.assets.forEach((asset) => {
+    // Одна позиция учитывается за местом один раз — как .find() в
+    // getWorkplaceAllocation, который берёт первую подходящую запись.
+    const counted = new Set();
+    asset.allocations.forEach((entry) => {
+      if (entry.employeeId || entry.department || entry.site || !entry.workplaceId) return;
+      if (counted.has(entry.workplaceId)) return;
+      counted.add(entry.workplaceId);
+      if (!(entry.quantity > 0)) return;
+      const items = index.get(entry.workplaceId);
+      if (items) items.push({ asset, allocation: entry });
+      else index.set(entry.workplaceId, [{ asset, allocation: entry }]);
+    });
+  });
+  return index;
+}
+
+function workplaceAssetsFromIndex(assetsIndex, workplaceId) {
+  return assetsIndex.get(workplaceId) || [];
+}
+
 // Статус вычисляется из реальных данных (state.attentionItems + статус
-// актива), а не хранится статичной меткой — см. промпт §10.
-function getWorkplaceStatus(workplaceId) {
-  const items = getWorkplaceAssets(workplaceId);
+// актива), а не хранится статичной меткой — см. промпт §10. На вход идёт
+// уже готовый список техники места (из индекса выше), чтобы не собирать
+// его заново на каждую строку таблицы и карточку.
+function getWorkplaceStatus(items) {
   if (!items.length) return { tone: "muted", label: "Оборудование не назначено" };
   const attentionAssetIds = new Set((state.attentionItems || []).map((item) => item.assetId));
   const needsAttention = items.some(({ asset }) =>
@@ -2609,19 +2638,25 @@ function getWorkplaceStatus(workplaceId) {
     : { tone: "ok", label: "🟢 Всё в порядке" };
 }
 
-function workplaceMatchesQuery(workplace, query) {
+function workplaceMatchesQuery(workplace, query, assetsIndex) {
   const owner = workplace.employeeId ? getEmployeeById(workplace.employeeId) : null;
-  const items = getWorkplaceAssets(workplace.id);
+  const items = workplaceAssetsFromIndex(assetsIndex, workplace.id);
   const assetText = items.map(({ asset }) => `${asset.inventoryNumber} ${asset.name}`).join(" ");
   return matchesSearch(query, workplace.name, workplace.code, workplace.department, workplace.site, owner?.fullName, assetText);
 }
 
-function sortWorkplaceRows(rows, sortBy) {
-  const withMeta = rows.map((workplace) => ({
-    workplace,
-    owner: workplace.employeeId ? getEmployeeById(workplace.employeeId) : null,
-    equipmentCount: getWorkplaceAssets(workplace.id).reduce((sum, e) => sum + e.allocation.quantity, 0),
-  }));
+// items кладём в строку здесь же: таблица, карточки и статус получают
+// готовый список и больше нигде его не пересобирают.
+function sortWorkplaceRows(rows, sortBy, assetsIndex) {
+  const withMeta = rows.map((workplace) => {
+    const items = workplaceAssetsFromIndex(assetsIndex, workplace.id);
+    return {
+      workplace,
+      owner: workplace.employeeId ? getEmployeeById(workplace.employeeId) : null,
+      items,
+      equipmentCount: items.reduce((sum, e) => sum + e.allocation.quantity, 0),
+    };
+  });
   const byName = (a, b) => a.localeCompare(b, "ru");
   switch (sortBy) {
     case "employee":
@@ -2673,9 +2708,13 @@ function renderWorkplaces() {
     workplaceActiveDept = "";
   }
 
+  // Один проход по технике на весь рендер — дальше все места берут свою
+  // технику из этого индекса.
+  const assetsIndex = buildWorkplaceAssetsIndex();
+
   const groups = departmentNames.map((department) => {
     const all = state.workplaces.filter((w) => workplaceDeptKey(w) === department);
-    const matched = query ? all.filter((w) => workplaceMatchesQuery(w, query)) : all;
+    const matched = query ? all.filter((w) => workplaceMatchesQuery(w, query, assetsIndex)) : all;
     return { department, all, matched };
   });
 
@@ -2705,6 +2744,7 @@ function renderWorkplaces() {
     .map((group) => renderWorkplaceDeptGroup(group, {
       expanded: expandedForRender.has(group.department),
       rows: query ? group.matched : group.all,
+      assetsIndex,
     }))
     .join("");
 }
@@ -2718,8 +2758,8 @@ function renderWorkplaceDeptTabs(groups) {
   return allTab + deptTabs;
 }
 
-function renderWorkplaceDeptGroup(group, { expanded, rows }) {
-  const sortedRows = sortWorkplaceRows(rows, workplaceSortBy);
+function renderWorkplaceDeptGroup(group, { expanded, rows, assetsIndex }) {
+  const sortedRows = sortWorkplaceRows(rows, workplaceSortBy, assetsIndex);
   const body = group.all.length
     ? `<div class="table-wrap wp-table-wrap">${renderWorkplaceTable(sortedRows)}</div><div class="wp-cards">${renderWorkplaceCards(sortedRows)}</div>`
     : `<div class="empty-state"><p>В этом отделе пока нет рабочих мест.</p></div>`;
@@ -2745,9 +2785,8 @@ function renderWorkplaceTable(sortedRows) {
       <th></th>
     </tr></thead>
     <tbody>
-      ${sortedRows.map(({ workplace, owner }) => {
-        const items = getWorkplaceAssets(workplace.id);
-        const status = getWorkplaceStatus(workplace.id);
+      ${sortedRows.map(({ workplace, owner, items }) => {
+        const status = getWorkplaceStatus(items);
         const equipmentText = items.length
           ? items.map(({ asset, allocation }) =>
               `${escapeHtml(asset.name)} <code>${escapeHtml(asset.inventoryNumber || "—")}</code>${allocation.quantity > 1 ? ` ×${allocation.quantity}` : ""}`
@@ -2769,8 +2808,8 @@ function renderWorkplaceTable(sortedRows) {
 }
 
 function renderWorkplaceCards(sortedRows) {
-  return sortedRows.map(({ workplace, owner }) => {
-    const status = getWorkplaceStatus(workplace.id);
+  return sortedRows.map(({ workplace, owner, items }) => {
+    const status = getWorkplaceStatus(items);
     return `<article class="wp-card" data-workplace-id="${escapeHtml(workplace.id)}">
       <div class="wp-card-title">🖥 ${escapeHtml(workplace.name)}</div>
       <code>${escapeHtml(workplace.code || "—")}</code>
@@ -2863,6 +2902,14 @@ async function handleWorkplaceSubmit(event) {
   }
   resetWorkplaceForm();
   await persist();
+  // Сохранённое место не должно «исчезнуть»: его отдел может быть свёрнут
+  // (место отрисуется внутри закрытой группы) или отфильтрован активной
+  // вкладкой другого отдела — и то и другое читается как «сохранил, а его
+  // нет». department здесь заведомо непустой (проверка выше), поэтому он
+  // же и есть ключ группы — sentinel «Без отдела» тут невозможен.
+  if (workplaceExpandedDepts) workplaceExpandedDepts.add(department);
+  else workplaceExpandedDepts = new Set([department]);
+  if (workplaceActiveDept && workplaceActiveDept !== department) workplaceActiveDept = "";
   renderWorkplaces();
 }
 
@@ -3400,11 +3447,16 @@ function renderSelects() {
       ? siteList.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("")
       : `<option value="">Нет объектов с техникой</option>`;
   }
-  // Стол показывается вместе с хозяином: «Стол 2 — Цой Марина».
+  // Стол показывается с кодом, отделом и хозяином: «WP-0001 · Стол 2 —
+  // Бухгалтерия — Цой Марина». Одноимённые места в разных отделах
+  // разрешены (дубли проверяются по паре «название + отдел»), поэтому без
+  // кода и отдела два свободных «Стола 1» были бы в списке неразличимы.
   const workplaceOptions = `<option value="">— выберите место —</option>`
     + state.workplaces.map((workplace) => {
       const owner = workplace.employeeId ? getEmployeeById(workplace.employeeId) : null;
-      const label = owner ? `${workplace.name} — ${owner.fullName}` : workplace.name;
+      const label = `${workplace.code ? `${workplace.code} · ` : ""}${workplace.name}`
+        + `${workplace.department ? ` — ${workplace.department}` : ""}`
+        + `${owner ? ` — ${owner.fullName}` : ""}`;
       return `<option value="${escapeHtml(workplace.id)}">${escapeHtml(label)}</option>`;
     }).join("");
   ["issueWorkplaceSelect", "returnWorkplaceSelect", "assetIssueWorkplaceSelect"].forEach((id) => {
