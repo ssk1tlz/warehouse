@@ -2580,6 +2580,21 @@ let workplaceSortBy = "name";
 // ручные клики пользователя между рендерами.
 let workplaceExpandedDepts = null;
 
+// Внутренний ключ группы для мест с пустым department: миграция 033
+// проставляет '' старым записям без бэкофилла реального названия отдела
+// (department стал обязательным только начиная с Task 3). "" уже занят
+// вкладкой "Все отделы" (сброс фильтра) — нужен гарантированно не-пустой
+// sentinel, иначе клик по "Без отдела" был бы неотличим от сброса.
+const WORKPLACE_UNASSIGNED_DEPT = "__unassigned__";
+
+function workplaceDeptKey(workplace) {
+  return workplace.department || WORKPLACE_UNASSIGNED_DEPT;
+}
+
+function workplaceDeptLabel(department) {
+  return department === WORKPLACE_UNASSIGNED_DEPT ? "Без отдела" : department;
+}
+
 // Статус вычисляется из реальных данных (state.attentionItems + статус
 // актива), а не хранится статичной меткой — см. промпт §10.
 function getWorkplaceStatus(workplaceId) {
@@ -2640,14 +2655,26 @@ function renderWorkplaces() {
 
   // Отделы — в порядке state.departments (уже отсортированы сервером по
   // имени), плюс отделы, которых больше нет в справочнике, но за
-  // которыми ещё числятся места (отдел удалили, место осталось).
+  // которыми ещё числятся места (отдел удалили, место осталось), плюс
+  // отдельная группа "Без отдела" в конце — для legacy-мест с пустым
+  // department (см. WORKPLACE_UNASSIGNED_DEPT выше). Показываем эту
+  // группу только когда такие места реально есть, чтобы не засорять
+  // список пустой вкладкой на обычных инсталляциях.
   const departmentNames = state.departments.map((d) => d.name);
   state.workplaces.forEach((w) => {
     if (w.department && !departmentNames.includes(w.department)) departmentNames.push(w.department);
   });
+  if (state.workplaces.some((w) => !w.department)) departmentNames.push(WORKPLACE_UNASSIGNED_DEPT);
+
+  // Если активная вкладка указывала на отдел, который только что исчез
+  // (последнее место без отдела получило отдел, либо отдел удалили) —
+  // откатываемся на "Все отделы", а не показываем пустой экран.
+  if (workplaceActiveDept && !departmentNames.includes(workplaceActiveDept)) {
+    workplaceActiveDept = "";
+  }
 
   const groups = departmentNames.map((department) => {
-    const all = state.workplaces.filter((w) => w.department === department);
+    const all = state.workplaces.filter((w) => workplaceDeptKey(w) === department);
     const matched = query ? all.filter((w) => workplaceMatchesQuery(w, query)) : all;
     return { department, all, matched };
   });
@@ -2686,7 +2713,7 @@ function renderWorkplaceDeptTabs(groups) {
   const totalCount = groups.reduce((sum, g) => sum + g.all.length, 0);
   const allTab = `<button type="button" class="dept-tab${workplaceActiveDept ? "" : " active"}" data-dept="">Все отделы <span class="dept-tab-count">${totalCount}</span></button>`;
   const deptTabs = groups.map((g) =>
-    `<button type="button" class="dept-tab${workplaceActiveDept === g.department ? " active" : ""}" data-dept="${escapeHtml(g.department)}">${escapeHtml(g.department)} <span class="dept-tab-count">${g.all.length}</span></button>`
+    `<button type="button" class="dept-tab${workplaceActiveDept === g.department ? " active" : ""}" data-dept="${escapeHtml(g.department)}">${escapeHtml(workplaceDeptLabel(g.department))} <span class="dept-tab-count">${g.all.length}</span></button>`
   ).join("");
   return allTab + deptTabs;
 }
@@ -2699,7 +2726,7 @@ function renderWorkplaceDeptGroup(group, { expanded, rows }) {
   return `<div class="dept-group">
     <button type="button" class="dept-group-header" data-action="toggle-dept" data-department="${escapeHtml(group.department)}">
       <span class="dept-group-heading">
-        <span class="dept-group-title">🏢 ${escapeHtml(group.department)}</span>
+        <span class="dept-group-title">🏢 ${escapeHtml(workplaceDeptLabel(group.department))}</span>
         <span class="dept-group-count">Рабочих мест: ${group.all.length}</span>
       </span>
       <span class="dept-group-caret">${expanded ? "▾" : "▸"}</span>
