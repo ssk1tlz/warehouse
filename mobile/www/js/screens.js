@@ -547,6 +547,48 @@ async function runEmployeeSearch(query) {
   }
 }
 
+// Экран стола после скана его QR (WHW1:) — только просмотр: сотрудник и
+// полная техника, закреплённая за столом или лично за тем, кто сейчас
+// на нём сидит. Данные читаются из локального кэша в момент открытия
+// экрана (не запекаются в QR) — пересадка сотрудника отражается на
+// следующем скане после ближайшей синхронизации (см. дизайн-спеку).
+async function openWorkplaceScreen(workplaceId) {
+  const workplace = await Db.getWorkplaceById(workplaceId);
+  if (!workplace) {
+    Toast.show('Этот QR не найден в кэше. Подключитесь к сети склада и повторите синхронизацию.', 'error');
+    return;
+  }
+  document.getElementById('workplaceDetailName').textContent = workplace.name;
+  document.getElementById('workplaceDetailMeta').textContent =
+    `${workplace.code || '—'} · ${workplace.department || '—'} · ${workplace.site || '—'}`;
+
+  const occupantEl = document.getElementById('workplaceDetailOccupant');
+  if (workplace.employeeId) {
+    const employees = await Db.listEmployeesById();
+    const employee = employees.get(workplace.employeeId);
+    occupantEl.textContent = employee ? employee.fullName : 'Неизвестный сотрудник';
+  } else {
+    occupantEl.textContent = 'Свободно';
+  }
+
+  const assets = await Db.getAllocationsForWorkplace(workplaceId, workplace.employeeId || '');
+  const listEl = document.getElementById('workplaceAssetsList');
+  listEl.innerHTML = '';
+  if (!assets.length) {
+    const li = document.createElement('li');
+    li.textContent = 'Техники нет';
+    listEl.appendChild(li);
+  } else {
+    for (const asset of assets) {
+      const li = document.createElement('li');
+      const statusText = STATUS_LABELS[asset.status] || asset.status || '';
+      li.textContent = `${asset.name} — ${asset.category || '—'} · С/н ${asset.serialNumber || '—'} · Инв. № ${asset.inventoryNumber || '—'} · ${statusText} · ${asset.quantity} шт.`;
+      listEl.appendChild(li);
+    }
+  }
+  showScreen('screen-workplace-detail');
+}
+
 async function openEmployeeDetailScreen(employeeId) {
   currentEmployeeId = employeeId;
   // High limit (not the 30-result default meant for the browse/search list above) —
@@ -996,6 +1038,7 @@ async function init() {
   document.getElementById('historyAttentionRow')?.addEventListener('click', openAttentionScreen);
   document.getElementById('employeeSearchInput')?.addEventListener('input', (e) => runEmployeeSearch(e.target.value));
   document.getElementById('employeeDetailBackBtn')?.addEventListener('click', openEmployeeSearchScreen);
+  document.getElementById('workplaceDetailBackBtn')?.addEventListener('click', () => showScreen('screen-scan'));
   document.getElementById('inventoryStartBtn')?.addEventListener('click', startInventoryScanning);
   document.getElementById('inventoryFinishBtn')?.addEventListener('click', finishInventoryScanning);
   document.getElementById('inventorySubmitBtn')?.addEventListener('click', submitInventoryResult);
