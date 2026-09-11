@@ -5947,6 +5947,7 @@ function bindEvents() {
     }
   });
   document.getElementById("labelEmployeeSelect")?.addEventListener("change", renderLabelGrid);
+  document.getElementById("labelWorkplaceStickerCheck")?.addEventListener("change", renderLabelGrid);
   document.getElementById("labelOnlySelectedCheck")?.addEventListener("change", renderLabelGrid);
   // «Очистить выбор» сбрасывает всё отмеченное — в отличие от «Снять
   // показанные», которое трогает только то, что сейчас на экране.
@@ -6546,11 +6547,17 @@ let labelSelection = new Map();
 function renderLabelGrid() {
   const grid = document.getElementById("labelGrid");
   if (!grid) return;
+  const target = getLabelTarget();
+  document.getElementById("labelWorkplaceStickerWrap")?.classList.toggle("hidden", target?.kind !== "wp");
+  if (target?.kind === "wp" && document.getElementById("labelWorkplaceStickerCheck")?.checked) {
+    renderWorkplaceLabelCard(target.id);
+    return;
+  }
+
   const assets = getLabelAssets();
   if (!assets.length) {
     // Пустая таблица — не всегда «нет техники»: чаще просто ничего не
     // подошло под фильтр. Говорим, какой именно случай.
-    const target = getLabelTarget();
     const onlySelected = document.getElementById("labelOnlySelectedCheck")?.checked || false;
     const message = onlySelected ? "Пока ничего не выбрано."
       : target && !getLabelTargetAssetIds(target).size
@@ -6607,6 +6614,55 @@ function renderLabelGrid() {
     qtyInput.addEventListener("input", () => {
       if (labelSelection.has(key)) labelSelection.set(key, qtyInput.value);
     });
+  });
+  updateLabelCount();
+}
+
+// Режим «Один общий стикер на стол»: вместо построчного списка техники —
+// одна карточка на сам стол. Счётчик техники — только подпись в
+// интерфейсе (getWorkplaceAssets), на сам стикер список не идёт — в этом
+// весь смысл QR (см. дизайн-спеку).
+function renderWorkplaceLabelCard(workplaceId) {
+  const grid = document.getElementById("labelGrid");
+  const workplace = getWorkplaceById(workplaceId);
+  if (!workplace) {
+    grid.innerHTML = `<div class="empty-state">Рабочее место не найдено.</div>`;
+    updateLabelCount();
+    return;
+  }
+  const key = labelWorkplaceKey(workplaceId);
+  const isSelected = labelSelection.has(key);
+  const qty = labelSelection.get(key) || "1";
+  const assetCount = getWorkplaceAssets(workplaceId).length;
+  grid.innerHTML = `<div class="label-item${isSelected ? " selected" : ""}" data-id="${key}">
+      <input type="checkbox" ${isSelected ? "checked" : ""}>
+      <div class="label-item-info">
+        <div class="label-item-name">${escapeHtml(workplace.name)}</div>
+        <div class="label-item-meta">${escapeHtml(workplace.code || "")} · Техники: ${assetCount}</div>
+      </div>
+      <input type="number" class="label-qty-input" value="${qty}" min="1" max="99" title="Кол-во стикеров">
+    </div>`;
+
+  const item = grid.querySelector(".label-item");
+  const toggle = () => {
+    const cb = item.querySelector("input[type=checkbox]");
+    item.classList.toggle("selected", cb.checked);
+    if (cb.checked) labelSelection.set(key, item.querySelector(".label-qty-input").value);
+    else labelSelection.delete(key);
+    updateLabelCount();
+  };
+  item.addEventListener("click", (e) => {
+    if (e.target.tagName === "INPUT") return;
+    const cb = item.querySelector("input[type=checkbox]");
+    cb.checked = !cb.checked;
+    toggle();
+  });
+  item.querySelector("input[type=checkbox]").addEventListener("change", (e) => { e.stopPropagation(); toggle(); });
+  const qtyInput = item.querySelector(".label-qty-input");
+  qtyInput.addEventListener("click", e => e.stopPropagation());
+  qtyInput.addEventListener("focus", e => e.stopPropagation());
+  qtyInput.addEventListener("input", () => {
+    if (labelSelection.has(key)) labelSelection.set(key, qtyInput.value);
   });
   updateLabelCount();
 }
@@ -6706,8 +6762,15 @@ function getSelectedLabelItems() {
       const asset = getAssetById(key.slice(6));
       if (asset) items.push({ asset, qty });
     }
-    // Ветка "workplace:" добавляется в Task 6 — до него такие ключи в
-    // labelSelection просто не появляются (чекбокс ещё не существует).
+    if (key.startsWith("workplace:")) {
+      const workplace = getWorkplaceById(key.slice(10));
+      if (workplace) {
+        items.push({
+          asset: { id: key, name: workplace.name, __labelKind: "workplace", __workplace: workplace },
+          qty,
+        });
+      }
+    }
   });
   return items;
 }
@@ -6842,7 +6905,9 @@ function fitNameFont(text, maxWidthPx, availHeightPx, maxPt, minPt) {
   return { pt: minPt, lines: wrappedLineCount(text, maxWidthPx, makeTextMeasurer(px, true)) };
 }
 
-function buildLabelHtml(asset, { showInv = true, showQr = true, showLoc = false, width, height }) {
+function buildLabelHtml(asset, opts) {
+  if (asset.__labelKind === 'workplace') return buildWorkplaceLabelHtml(asset.__workplace, opts);
+  const { showInv = true, showQr = true, showLoc = false, width, height } = opts;
   const f = labelFontSizes(height);
   const pad = LABEL_PAD_MM;
   const contentW = Math.max(1, width - pad * 2);
@@ -6908,6 +6973,10 @@ function buildLabelHtml(asset, { showInv = true, showQr = true, showLoc = false,
 // Draw one label onto a canvas context, mirroring buildLabelHtml. Coordinates
 // are in mm; S is the pixels-per-mm scale.
 function drawLabelOnCanvas(ctx, asset, x0mm, y0mm, wMm, hMm, opts, S) {
+  if (asset.__labelKind === 'workplace') {
+    drawWorkplaceLabelOnCanvas(ctx, asset.__workplace, x0mm, y0mm, wMm, hMm, opts, S);
+    return;
+  }
   const { showInv = true, showQr = true, showLoc = false } = opts || {};
   const f = labelFontSizes(hMm);
   const PADmm = LABEL_PAD_MM;
@@ -7004,6 +7073,152 @@ function drawLabelOnCanvas(ctx, asset, x0mm, y0mm, wMm, hMm, opts, S) {
     ctx.font = `${codePx}px Arial, Helvetica, sans-serif`;
     ctx.textAlign = 'center';
     ctx.fillText(String(bcData), x + w / 2, codeTop);
+    ctx.textAlign = 'left';
+  }
+}
+
+// Стикер стола: тот же макет "имя крупно + мелкие строки + QR снизу", что
+// у buildLabelHtml, но поля другие — отдел/объект/сотрудник вместо
+// категории/S-N/владельца, код стола вместо инв./серийного номера. Список
+// техники стола на стикер не идёт — в этом весь смысл QR (WHW1:<id>), см.
+// дизайн-спеку. Зеркало: drawWorkplaceLabelOnCanvas ниже — держать в
+// синхроне вручную, как buildLabelHtml/drawLabelOnCanvas.
+function buildWorkplaceLabelHtml(workplace, { showQr = true, width, height }) {
+  const f = labelFontSizes(height);
+  const pad = LABEL_PAD_MM;
+  const contentW = Math.max(1, width - pad * 2);
+  const qrData = workplace.id ? `WHW1:${workplace.id}` : '';
+  const occupant = workplace.employeeId ? (getEmployeeById(workplace.employeeId)?.fullName || '') : '';
+
+  const deptLine = workplace.department
+    ? `<div style="font-size:${f.small}pt;color:#666;line-height:${SMALL_LINE_H};margin-top:0.5pt;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(workplace.department)}</div>` : '';
+  const siteLine = workplace.site
+    ? `<div style="font-size:${f.small}pt;color:#2563eb;line-height:${SMALL_LINE_H};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(workplace.site)}</div>` : '';
+  const empLine = occupant
+    ? `<div style="font-size:${f.small}pt;color:#000;font-weight:600;line-height:${SMALL_LINE_H};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(occupant)}</div>` : '';
+  const codeLine = (workplace.code && !showQr)
+    ? `<div style="font-size:${f.small}pt;color:#555;line-height:${SMALL_LINE_H}">${escapeHtml(workplace.code)}</div>` : '';
+
+  let bottom = '';
+  let bcBlockMm = 0;
+  if (showQr) {
+    const stripH = Math.max(6, height * 0.34);
+    const qrSize = Math.min(stripH, contentW * 0.4);
+    bcBlockMm = qrSize + (5 + f.code * 1.2 + 1.5) * (25.4 / 72);
+    bottom = `<div style="border-top:0.4pt solid #ccc;margin-top:2pt;padding-top:2pt;text-align:center">
+        ${qrHtml(qrData, qrSize)}
+        <div style="font-size:${f.code}pt;text-align:center;color:#000;margin-top:1.5pt;letter-spacing:0.3px">${escapeHtml(workplace.code || '')}</div>
+      </div>`;
+  }
+
+  const smallLineMm = f.small * SMALL_LINE_H * (25.4 / 72);
+  const smallLinesCount = (deptLine ? 1 : 0) + (siteLine ? 1 : 0) + (empLine ? 1 : 0) + (codeLine ? 1 : 0);
+  const availNameMm = Math.max(smallLineMm, height - pad * 2 - bcBlockMm - smallLinesCount * smallLineMm - 0.5);
+  const fit = fitNameFont(workplace.name || '', contentW * MM2PX, availNameMm * MM2PX, f.name, 4);
+
+  return `<div style="
+    width:${width}mm; height:${height}mm;
+    border:0.5pt solid #d0d0d0;
+    padding:${pad}mm; display:flex; flex-direction:column;
+    overflow:hidden; background:#fff; font-family:Arial,Helvetica,sans-serif;
+    box-sizing:border-box; page-break-inside:avoid;
+  ">
+    <div style="flex:1 1 auto;min-width:0;overflow:hidden">
+      <div style="font-size:${fit.pt}pt;font-weight:700;line-height:${NAME_LINE_H};color:#000;word-break:break-word;overflow-wrap:anywhere">${escapeHtml(workplace.name)}</div>
+      ${deptLine}
+      ${siteLine}
+      ${empLine}
+      ${codeLine}
+    </div>
+    ${bottom}
+  </div>`;
+}
+
+function drawWorkplaceLabelOnCanvas(ctx, workplace, x0mm, y0mm, wMm, hMm, opts, S) {
+  const { showQr = true } = opts || {};
+  const f = labelFontSizes(hMm);
+  const PADmm = LABEL_PAD_MM;
+  const ptToPx = (pt) => pt * 25.4 / 72 * S;
+  const x = x0mm * S, y = y0mm * S, w = wMm * S, h = hMm * S, pad = PADmm * S;
+  const contentWmm = wMm - PADmm * 2;
+  const cw = contentWmm * S;
+
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(x, y, w, h);
+  ctx.lineWidth = Math.max(1, 0.5 * S * 0.3528);
+  ctx.strokeStyle = '#d0d0d0';
+  ctx.strokeRect(x, y, w, h);
+
+  const qrData = workplace.id ? `WHW1:${workplace.id}` : '';
+  const occupant = workplace.employeeId ? (getEmployeeById(workplace.employeeId)?.fullName || '') : '';
+  const hasDept = !!workplace.department;
+  const hasSite = !!workplace.site;
+  const hasEmp = !!occupant;
+  const hasCode = !!(workplace.code && !showQr);
+
+  const codePx = ptToPx(f.code);
+  const stripHmm = Math.max(6, hMm * 0.34);
+  const qrSizeMm = Math.min(stripHmm, contentWmm * 0.4);
+  const bcBlockMm = showQr ? qrSizeMm + (5 + f.code * 1.2 + 1.5) * (25.4 / 72) : 0;
+  const slh = ptToPx(f.small) * SMALL_LINE_H;
+  const smallMm = f.small * SMALL_LINE_H * (25.4 / 72);
+  const smallCount = (hasDept ? 1 : 0) + (hasSite ? 1 : 0) + (hasEmp ? 1 : 0) + (hasCode ? 1 : 0);
+  const availNameMm = Math.max(smallMm, hMm - PADmm * 2 - bcBlockMm - smallCount * smallMm - 0.5);
+
+  let nPt = f.name, nameLines = [''];
+  for (; nPt >= 4; nPt -= 0.25) {
+    const fpx = ptToPx(nPt);
+    const lines = wrapTextLines(workplace.name || '', cw, makeTextMeasurer(fpx, true));
+    nameLines = lines;
+    if (lines.length * fpx * NAME_LINE_H <= availNameMm * S) break;
+  }
+  const nFpx = ptToPx(nPt);
+
+  ctx.textBaseline = 'top';
+  ctx.textAlign = 'left';
+  let ty = y + pad;
+  ctx.fillStyle = '#000';
+  ctx.font = `700 ${nFpx}px Arial, Helvetica, sans-serif`;
+  for (const line of nameLines) { ctx.fillText(line, x + pad, ty); ty += nFpx * NAME_LINE_H; }
+
+  ctx.font = `${ptToPx(f.small)}px Arial, Helvetica, sans-serif`;
+  const small = (txt, color) => {
+    ctx.fillStyle = color;
+    ctx.fillText(clipToWidth(txt, cw, (s) => ctx.measureText(s).width), x + pad, ty);
+    ty += slh;
+  };
+  if (hasDept) small(workplace.department, '#666');
+  if (hasSite) small(workplace.site, '#2563eb');
+  if (hasEmp) {
+    ctx.font = `700 ${ptToPx(f.small)}px Arial, Helvetica, sans-serif`;
+    small(occupant, '#000');
+    ctx.font = `${ptToPx(f.small)}px Arial, Helvetica, sans-serif`;
+  }
+  if (hasCode) small(workplace.code, '#555');
+
+  if (showQr) {
+    const codeTop = y + h - pad - codePx;
+    const qrBottom = codeTop - 0.5 * S;
+    const qrPx = qrSizeMm * S;
+    const qrTop = qrBottom - qrPx;
+    const sepY = qrTop - 1.5 * S;
+    ctx.strokeStyle = '#ccc'; ctx.lineWidth = Math.max(1, 0.4 * S * 0.3528);
+    ctx.beginPath(); ctx.moveTo(x + pad, sepY); ctx.lineTo(x + w - pad, sepY); ctx.stroke();
+
+    const { n, modules } = qrModuleGrid(qrData);
+    const cellPx = qrPx / n;
+    const qrLeft = x + pad + (cw - qrPx) / 2;
+    ctx.fillStyle = '#000';
+    for (let r = 0; r < n; r++) {
+      for (let c = 0; c < n; c++) {
+        if (modules[r][c]) ctx.fillRect(qrLeft + c * cellPx, qrTop + r * cellPx, cellPx, cellPx);
+      }
+    }
+
+    ctx.fillStyle = '#000';
+    ctx.font = `${codePx}px Arial, Helvetica, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText(String(workplace.code || ''), x + w / 2, codeTop);
     ctx.textAlign = 'left';
   }
 }
@@ -7174,7 +7389,7 @@ function printLabels() {
   </body></html>`);
   pw.document.close();
 
-  markLabelsPrinted([...new Set(labels.map((a) => a.id))]);
+  markLabelsPrinted([...new Set(labels.filter((a) => a.__labelKind !== "workplace").map((a) => a.id))]);
 }
 
 async function markLabelsPrinted(assetIds) {
@@ -7192,8 +7407,8 @@ async function markLabelsPrinted(assetIds) {
 }
 
 function exportLabelsExcel() {
-  const items = getSelectedLabelItems();
-  if (!items.length) { showToast('Выберите хотя бы одну позицию.', 'warning'); return; }
+  const items = getSelectedLabelItems().filter(({ asset }) => asset.__labelKind !== "workplace");
+  if (!items.length) { showToast('Выберите хотя бы одну позицию техники (стикеры столов в Excel не выводятся).', 'warning'); return; }
 
   const rows = [];
   items.forEach(({ asset, qty }) => {
