@@ -427,9 +427,13 @@ function hydrateState(parsed) {
     // находится. asset.allocations ниже приезжает с сервера уже как их
     // проекция; локально она пересчитывается syncAllocations() после
     // каждой операции, чтобы экран не ждал сохранения.
+    // Нет ключа вовсе — это JSON-бэкап, сделанный до слоя выдач. Пустой
+    // список здесь обнулил бы всю выданную технику: сервер при сохранении
+    // пересчитывает проекцию из выдач. Поэтому выдачи восстанавливаются
+    // из allocations бэкапа.
     assignments: Array.isArray(parsed.assignments)
       ? parsed.assignments.map(normalizeAssignment)
-      : [],
+      : AssetOps.assignmentsFromAllocations(parsed.assets || []).map(normalizeAssignment),
     assets: Array.isArray(parsed.assets) ? parsed.assets.map(normalizeAsset) : [],
     movements: Array.isArray(parsed.movements) ? parsed.movements : [],
     auditLog: parsed.auditLog || [],
@@ -748,7 +752,11 @@ function createAssignment({ employeeId = null, workplaceId = "", department = ""
     department,
     site,
     status: "active",
-    issuedAt: issuedAt || today(),
+    // Пустая дата — законное «неизвестно» (выдача при добавлении
+    // техники задним числом). Вызывающий код, которому дата нужна,
+    // передаёт её сам — подставлять сегодняшнюю здесь значило бы
+    // выдумать дату выдачи.
+    issuedAt: issuedAt || "",
     returnedAt: null,
     actNumber,
     notes,
@@ -1118,17 +1126,31 @@ function readAssetIssueRequest(addedQuantity) {
   };
 }
 
-// Те же три эффекта, что и у окна выдачи (см. handleIssueSubmit):
-// запись в allocations, отметка в аудите и движение с номером акта.
+// Те же эффекты, что и у окна выдачи (см. handleIssueSubmit): выдача
+// ASSIGN-NNNN, отметка в аудите и движение с номером акта.
 function issueAssetOnCreate(asset, request) {
   const employee = request.employeeId ? getEmployeeById(request.employeeId) : null;
-  AssetOps.mergeAllocation(asset.allocations, {
+  const actNumber = getNextActNumber();
+  const assignment = createAssignment({
     employeeId: request.employeeId,
+    workplaceId: request.workplaceId
+      || (request.employeeId ? getEmployeeWorkplace(request.employeeId)?.id : "")
+      || "",
     department: request.department,
     site: request.site,
-    workplaceId: request.workplaceId,
-    quantity: request.quantity,
+    issuedAt: request.date,
+    actNumber,
+    notes: request.notes || "Выдано при добавлении техники",
   });
+  addAssignmentItem(assignment, {
+    assetId: asset.id,
+    quantity: request.quantity,
+    scope: request.workplaceId && !request.employeeId ? "workplace" : "personal",
+  });
+  // Проекция — прямо в переданную карточку: она может быть ещё не
+  // добавлена в state.assets, и syncAllocations её бы не увидел.
+  asset.allocations = AssetOps.projectAllocations(state.assignments)[asset.id] || [];
+  syncAllocations();
   addAuditEntry("asset", asset.id, "issue", {
     employee: employee?.fullName,
     department: employee?.department || request.department,
@@ -1142,7 +1164,8 @@ function issueAssetOnCreate(asset, request) {
     department: request.department,
     site: request.site,
     workplaceId: request.workplaceId,
-    actNumber: getNextActNumber(),
+    actNumber,
+    assignmentId: assignment.id,
     quantity: request.quantity,
     date: request.date,
     // Пустой комментарий — не ошибка: полю необязательное, тогда в
@@ -1195,6 +1218,8 @@ function resetAssetForm() {
   document.getElementById("assetIssueSection")?.classList.remove("hidden");
   resetAssetIssueBlock();
   renderAssetPhotoPreview({ id: "", photoUrl: "" });
+  const holderPanel = document.getElementById("assetHolderPanel");
+  if (holderPanel) { holderPanel.classList.add("hidden"); holderPanel.innerHTML = ""; }
 }
 
 function resetEmployeeForm() {
@@ -2298,16 +2323,17 @@ function openEmployeeDetailsModal(employeeId) {
   `;
 
   const holdingsRoot = body.querySelector(".emp-profile-assets-sec");
-  if (holdingsRoot) holdingsRoot.addEventListener("click", handleHoldingsClick(employee.id, ""));
+  if (holdingsRoot) holdingsRoot.addEventListener("click", handleHoldingsClick(() => openEmployeeDetailsModal(employee.id)));
 
   overlay.classList.remove("hidden");
 }
 
-// Клики по позициям в карточке сотрудника: открыть технику или снять
-// её с получателя. Делегируется на тело карточки — список
-// перерисовывается целиком, вешать обработчики на каждую строку
-// пришлось бы заново после каждой операции.
-function handleHoldingsClick(employeeId, workplaceId) {
+// Клики по позициям в карточке сотрудника или стола: открыть технику или
+// снять её с получателя. Делегируется на тело карточки — список
+// перерисовывается целиком, и вешать обработчик на каждую строку
+// пришлось бы заново после каждой операции. reopen перерисовывает ту
+// карточку, из которой пришёл клик.
+function handleHoldingsClick(reopen) {
   return (event) => {
     const button = event.target.closest("button[data-action]");
     if (!button) return;
@@ -2315,17 +2341,70 @@ function handleHoldingsClick(employeeId, workplaceId) {
     if (!assetId) return;
     if (button.dataset.action === "open-asset") {
       closeEmployeeDetailsModal();
+      closeWorkplaceDetailsModal();
       activateView("inventory");
       enterAssetEditMode(assetId);
     }
     if (button.dataset.action === "remove-holding") {
-      removeHolding(assetId, { employeeId, workplaceId }).then(() => {
-        if (employeeId && document.getElementById("employeeDetailsOverlay")?.classList.contains("hidden") === false) {
-          openEmployeeDetailsModal(employeeId);
-        }
-      });
+      const recipient = {
+        employeeId: button.dataset.employeeId || "",
+        workplaceId: button.dataset.workplaceId || "",
+        department: button.dataset.department || "",
+        site: button.dataset.site || "",
+      };
+      removeHolding(assetId, recipient).then((removed) => { if (removed) reopen(); });
     }
   };
+}
+
+// ─── КАРТОЧКА РАБОЧЕГО МЕСТА (§9 ТЗ) ─────────────────────────────
+// Та же техника, что в карточке сидящего за столом сотрудника: обе
+// читают одни и те же выдачи, а не свои копии.
+function openWorkplaceDetailsModal(workplaceId) {
+  const workplace = getWorkplaceById(workplaceId);
+  const overlay = document.getElementById("workplaceDetailsOverlay");
+  const body = document.getElementById("workplaceProfileBody");
+  if (!workplace || !overlay || !body) return;
+  const owner = workplace.employeeId ? getEmployeeById(workplace.employeeId) : null;
+  const holdings = getWorkplaceAssets(workplace.id);
+  body.innerHTML = `
+    <div class="emp-profile-header">
+      <div>
+        <div class="emp-profile-title">${escapeHtml(workplace.name)}</div>
+        <div class="emp-profile-subtitle">${escapeHtml(workplace.code || "—")} · ${escapeHtml(workplace.department || "Без отдела")}</div>
+      </div>
+    </div>
+    <div class="emp-profile-grid">
+      <div class="emp-profile-field">
+        <div class="emp-profile-field-label">Сотрудник</div>
+        <div class="emp-profile-field-value">${owner
+          ? `<button type="button" class="held-item-open" data-action="open-employee" data-employee-id="${escapeHtml(owner.id)}"><span>${escapeHtml(owner.fullName)}</span></button>`
+          : "Свободно"}</div>
+      </div>
+      <div class="emp-profile-field">
+        <div class="emp-profile-field-label">Объект / локация</div>
+        <div class="emp-profile-field-value">${escapeHtml(workplace.site || "—")}</div>
+      </div>
+    </div>
+    <div class="emp-profile-assets-sec">
+      <h4>Закреплённая техника (${holdings.length} поз.)</h4>
+      ${holdings.length
+        ? renderHoldingsListDetailed(holdings, { workplaceId: workplace.id })
+        : `<div class="empty-state" style="padding:20px"><p>На этом месте техники нет</p></div>`}
+    </div>`;
+  const section = body.querySelector(".emp-profile-assets-sec");
+  if (section) section.addEventListener("click", handleHoldingsClick(() => openWorkplaceDetailsModal(workplace.id)));
+  body.querySelector('[data-action="open-employee"]')?.addEventListener("click", () => {
+    closeWorkplaceDetailsModal();
+    openEmployeeDetailsModal(owner.id);
+  });
+  const closeButton = document.getElementById("closeWorkplaceDetailsBtn");
+  if (closeButton) closeButton.onclick = closeWorkplaceDetailsModal;
+  overlay.classList.remove("hidden");
+}
+
+function closeWorkplaceDetailsModal() {
+  document.getElementById("workplaceDetailsOverlay")?.classList.add("hidden");
 }
 
 function closeEmployeeDetailsModal() {
@@ -2599,7 +2678,11 @@ async function handleSiteSubmit(e) {
       // keep employee/allocation references in sync with the renamed object
       if (oldName !== name) {
         state.employees.forEach((emp) => { if (emp.site === oldName) emp.site = name; });
-        state.assets.forEach((a) => a.allocations.forEach((al) => { if (al.site === oldName) al.site = name; }));
+        // Объект переименовывается в выдачах, а allocations — лишь их
+        // проекция: правка в проекции была бы стёрта следующим
+        // syncAllocations() или сервером при сохранении.
+        state.assignments.forEach((a) => { if (a.site === oldName) a.site = name; });
+        syncAllocations();
         state.movements.forEach((m) => { if (m.site === oldName) m.site = name; });
       }
       addAuditEntry("site", siteId, "update", { name });
@@ -2687,55 +2770,50 @@ function getEmployeeHoldings(employeeId) {
 }
 
 /**
- * Снимает позицию с сотрудника или со стола: закрывает выдачу и
+ * Снимает позицию с её фактического получателя: закрывает выдачу и
  * возвращает технику на склад. Сам объект техники не трогается — он
  * участвует в истории, и удалять его нельзя (§11 ТЗ). Пропадает
  * одновременно у сотрудника и у стола, потому что источник один.
  */
-async function removeHolding(assetId, { employeeId = "", workplaceId = "" } = {}) {
+async function removeHolding(assetId, recipient = {}) {
   const asset = getAssetById(assetId);
-  if (!asset) return;
-  const holder = employeeId ? getEmployeeById(employeeId) : getWorkplaceById(workplaceId);
-  const holderName = holder ? (holder.fullName || holder.name) : "получателя";
-  const confirmed = await showConfirm(
-    `Снять «${asset.name}» с ${holderName} и вернуть на склад?`,
-  );
-  if (!confirmed) return;
-
-  const holdings = employeeId
-    ? AssetOps.holdingsForEmployee(state.assignments, employeeId, "")
-    : AssetOps.holdingsForWorkplace(state.assignments, workplaceId);
-  const quantity = holdings
-    .filter((entry) => entry.assetId === assetId)
-    .reduce((sum, entry) => sum + entry.quantity, 0);
+  if (!asset) return false;
+  const quantity = AssetOps.heldQuantity(state.assignments, assetId, recipient);
   if (quantity <= 0) {
     showToast("Эта техника уже не числится за получателем.", "warning");
-    return;
+    return false;
   }
+  const holderName = recipient.employeeId
+    ? getEmployeeById(recipient.employeeId)?.fullName
+    : recipient.workplaceId ? getWorkplaceById(recipient.workplaceId)?.name
+    : recipient.department || recipient.site;
+  const confirmed = await showConfirm(
+    `Снять «${asset.name}» (${quantity} шт.) с получателя «${holderName || "—"}» и вернуть на склад?`,
+  );
+  if (!confirmed) return false;
 
   const date = today();
-  const actNumber = getNextActNumber();
+  let touched;
   try {
-    const touched = AssetOps.returnFromAssignments(state.assignments, {
-      assetId, quantity, date,
-      employeeId: employeeId || "",
-      workplaceId: employeeId ? "" : workplaceId,
-    });
-    addMovement({
-      type: "return", assetId, employeeId: employeeId || null,
-      workplaceId: employeeId ? "" : workplaceId,
-      actNumber, quantity, date, notes: "Снято с получателя",
-      assignmentId: touched[0]?.id || "",
-    });
+    touched = AssetOps.returnFromAssignments(state.assignments, { assetId, quantity, date, ...recipient });
   } catch (error) {
     showToast(error.message, "error");
-    return;
+    return false;
   }
+  addMovement({
+    type: "return", assetId,
+    employeeId: recipient.employeeId || null,
+    department: recipient.department || "", site: recipient.site || "",
+    workplaceId: recipient.workplaceId || "",
+    actNumber: getNextActNumber(), quantity, date, notes: "Снято с получателя",
+    assignmentId: touched[0]?.id || "",
+  });
   syncAllocations();
-  addAuditEntry("asset", assetId, "return", { employee: holderName, quantity });
+  addAuditEntry("asset", assetId, "return", { holder: holderName, quantity });
   await persist();
   render();
   showToast(`«${asset.name}» возвращена на склад.`, "success");
+  return true;
 }
 
 // Общая отрисовка списка «инв.№ / название / кол-во» для обоих мест
@@ -2771,8 +2849,14 @@ function renderHoldingsListDetailed(entries, recipient) {
     const scopeChip = scope === "workplace"
       ? `<span class="chip">На месте</span>`
       : `<span class="chip ok">Лично</span>`;
-    const removeButton = (recipient.employeeId || recipient.workplaceId)
-      ? `<button type="button" class="danger-button" data-requires-role="admin,storekeeper" data-action="remove-holding" data-asset-id="${escapeHtml(asset.id)}">Снять</button>`
+    // Снимать надо с того, за кем позиция числится на самом деле: в
+    // общем списке сотрудника есть и столовая техника, и «с сотрудника»
+    // её не снять — она закреплена за местом.
+    const holder = assignment ? AssetOps.assignmentRecipient(assignment, scope) : null;
+    const removeButton = (recipient.employeeId || recipient.workplaceId) && holder
+      ? `<button type="button" class="danger-button" data-requires-role="admin,storekeeper" data-action="remove-holding" data-asset-id="${escapeHtml(asset.id)}"`
+        + ` data-employee-id="${escapeHtml(holder.employeeId || "")}" data-workplace-id="${escapeHtml(holder.workplaceId || "")}"`
+        + ` data-department="${escapeHtml(holder.department || "")}" data-site="${escapeHtml(holder.site || "")}">Снять</button>`
       : "";
     return `<li>
       <button type="button" class="held-item-open" data-action="open-asset" data-asset-id="${escapeHtml(asset.id)}" title="Открыть карточку техники">
@@ -3013,7 +3097,7 @@ function renderWorkplaceTable(sortedRows) {
           <td>${owner ? `👤 ${escapeHtml(owner.fullName)}${owner.position ? `<br><span class="muted">${escapeHtml(owner.position)}</span>` : ""}` : "👤 Свободно"}</td>
           <td>${equipmentText}<br><span class="chip ${status.tone}">${escapeHtml(status.label)}</span></td>
           <td class="row-actions">
-            <button type="button" class="edit-button" data-action="edit-workplace" data-workplace-id="${escapeHtml(workplace.id)}">Изменить</button>
+            <button type="button" class="secondary" data-action="view-workplace" data-workplace-id="${escapeHtml(workplace.id)}">Карточка</button><button type="button" class="edit-button" data-action="edit-workplace" data-workplace-id="${escapeHtml(workplace.id)}">Изменить</button>
             <button type="button" class="danger-button" data-action="delete-workplace" data-workplace-id="${escapeHtml(workplace.id)}">Удалить</button>
           </td>
         </tr>`;
@@ -3032,7 +3116,7 @@ function renderWorkplaceCards(sortedRows) {
       ${workplace.site ? `<div class="wp-card-row">📍 ${escapeHtml(workplace.site)}</div>` : ""}
       <div class="wp-card-row"><span class="chip ${status.tone}">${escapeHtml(status.label)}</span></div>
       <div class="wp-card-actions">
-        <button type="button" class="edit-button" data-action="edit-workplace" data-workplace-id="${escapeHtml(workplace.id)}">Изменить</button>
+        <button type="button" class="secondary" data-action="view-workplace" data-workplace-id="${escapeHtml(workplace.id)}">Карточка</button><button type="button" class="edit-button" data-action="edit-workplace" data-workplace-id="${escapeHtml(workplace.id)}">Изменить</button>
         <button type="button" class="danger-button" data-action="delete-workplace" data-workplace-id="${escapeHtml(workplace.id)}">Удалить</button>
       </div>
     </article>`;
@@ -3088,6 +3172,85 @@ function moveEmployeeAssignmentsToWorkplace(employeeId, workplaceId) {
   return moved;
 }
 
+// Диалог с несколькими вариантами. showConfirm умеет только «да/нет», а
+// при смене сотрудника за столом вариантов три (§15 ТЗ). Закрытие без
+// выбора означает «ничего не менять» — resolve(null).
+function showChoice(message, options) {
+  return new Promise((resolve) => {
+    const overlay = document.getElementById("choiceOverlay");
+    const text = document.getElementById("choiceMessage");
+    const buttons = document.getElementById("choiceButtons");
+    if (!overlay || !text || !buttons) { resolve(null); return; }
+    text.textContent = message;
+    buttons.innerHTML = "";
+    const finish = (value) => { overlay.classList.add("hidden"); buttons.innerHTML = ""; resolve(value); };
+    options.forEach((option) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = option.danger ? "confirm-danger-btn" : "secondary";
+      button.textContent = option.label;
+      button.addEventListener("click", () => finish(option.value));
+      buttons.appendChild(button);
+    });
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "ghost";
+    cancel.textContent = "Отмена";
+    cancel.addEventListener("click", () => finish(null));
+    buttons.appendChild(cancel);
+    overlay.classList.remove("hidden");
+  });
+}
+
+/**
+ * За стол сел другой сотрудник, а на столе стоит закреплённая за ним
+ * техника (§15 ТЗ). Автоматически ничего не переносим — техника может
+ * физически остаться на месте. Спрашиваем: оставить, передать новому
+ * сотруднику лично или вернуть на склад.
+ */
+async function resolveDeskEquipmentOnHandover(workplace, newEmployeeId) {
+  const deskItems = AssetOps.holdingsForWorkplace(state.assignments, workplace.id)
+    .filter((holding) => holding.scope === "workplace");
+  if (!deskItems.length) return;
+  const newEmployee = getEmployeeById(newEmployeeId);
+  const list = deskItems
+    .map((holding) => {
+      const asset = getAssetById(holding.assetId);
+      return asset ? `${asset.inventoryNumber || "—"} — ${asset.name}` : "";
+    })
+    .filter(Boolean)
+    .join("\n");
+  const choice = await showChoice(
+    `На месте «${workplace.name}» уже находится техника:\n${list}\n\nЧто сделать?`,
+    [
+      { value: "keep", label: "Оставить технику на столе" },
+      { value: "transfer", label: `Передать: ${newEmployee?.fullName || "новому сотруднику"}` },
+      { value: "return", label: "Вернуть технику на склад", danger: true },
+    ],
+  );
+  if (choice !== "transfer" && choice !== "return") return;
+
+  const date = today();
+  const actNumber = getNextActNumber();
+  const transfer = choice === "transfer"
+    ? createAssignment({ employeeId: newEmployeeId, workplaceId: workplace.id, issuedAt: date, actNumber, notes: "Передано при смене сотрудника за столом" })
+    : null;
+  deskItems.forEach((holding) => {
+    const touched = AssetOps.returnFromAssignments(state.assignments, {
+      assetId: holding.assetId, quantity: holding.quantity, date, workplaceId: workplace.id,
+    });
+    addMovement({ type: "return", assetId: holding.assetId, workplaceId: workplace.id, actNumber, quantity: holding.quantity, date,
+      notes: transfer ? "Передано новому сотруднику за столом" : "Возвращено при смене сотрудника за столом",
+      assignmentId: touched[0]?.id || "" });
+    if (transfer) {
+      addAssignmentItem(transfer, { assetId: holding.assetId, quantity: holding.quantity, scope: "personal" });
+      addMovement({ type: "issue", assetId: holding.assetId, employeeId: newEmployeeId, workplaceId: workplace.id, actNumber, quantity: holding.quantity, date,
+        notes: "Передано при смене сотрудника за столом", assignmentId: transfer.id });
+    }
+  });
+  syncAllocations();
+}
+
 async function handleWorkplaceSubmit(event) {
   event.preventDefault();
   const formData = new FormData(event.currentTarget);
@@ -3134,6 +3297,7 @@ async function handleWorkplaceSubmit(event) {
       if (previousOwner) moveEmployeeAssignmentsToWorkplace(previousOwner, "");
       moveEmployeeAssignmentsToWorkplace(employeeId, workplace.id);
       syncAllocations();
+      if (employeeId) await resolveDeskEquipmentOnHandover(workplace, employeeId);
     }
     if (fieldsChanged) {
       addAuditEntry("workplace", workplace.id, "update", { name, department, site, notes });
@@ -3505,8 +3669,32 @@ function createOperationItemRow(kind) {
       else addReturnItemRow();
     }
   });
-  row.append(picker, qty, removeBtn);
+  if (kind === "issue") {
+    // Чем закрепить позицию, решается построчно (§6 ТЗ): монитор обычно
+    // остаётся на столе, ноутбук уезжает с человеком. Выбор виден только
+    // при выдаче сотруднику, у которого есть рабочее место.
+    const scopeSelect = document.createElement("select");
+    scopeSelect.className = "issue-scope-select hidden";
+    scopeSelect.title = "Лично — уезжает с сотрудником; На место — остаётся на рабочем месте";
+    scopeSelect.innerHTML = '<option value="personal">Лично</option><option value="workplace">На место</option>';
+    row.append(picker, qty, scopeSelect, removeBtn);
+  } else {
+    row.append(picker, qty, removeBtn);
+  }
   return row;
+}
+
+// Показывает выбор «лично / на место» только там, где он имеет смысл:
+// выдача сотруднику, у которого есть стол.
+function syncIssueScopeControls() {
+  const target = document.querySelector('input[name="issueTarget"]:checked')?.value || "employee";
+  const employeeId = target === "employee" ? (dom.issueEmployeeSelect?.value || "") : "";
+  const hasDesk = Boolean(employeeId && getEmployeeWorkplace(employeeId));
+  dom.issueItems?.querySelectorAll(".issue-scope-select").forEach((select) => {
+    select.classList.toggle("hidden", !hasDesk);
+    if (!hasDesk) select.value = "personal";
+  });
+  dom.issueItems?.classList.toggle("with-scope", hasDesk);
 }
 
 // Предвыбранная позиция приходит из комплектов и из кнопки «Выдать» в
@@ -3526,6 +3714,7 @@ function addIssueItemRow(selectedAssetId = "", quantity = 1) {
   row.querySelector(".issue-quantity-input").value = Math.max(1, Number(quantity || 1));
   dom.issueItems.appendChild(row);
   presetPickerAsset(row, selectedAssetId);
+  syncIssueScopeControls();
 }
 
 function addReturnItemRow(selectedAssetId = "", quantity = 1) {
@@ -3599,6 +3788,7 @@ function updateReturnAssetOptions() {
 // Что уже числится за выбранным получателем выдачи. Видно сразу при
 // выборе сотрудника — чтобы не выдать вторую мышь тому, у кого она есть.
 function renderIssueEmployeeAssets() {
+  syncIssueScopeControls();
   const box = document.getElementById("issueEmployeeAssets");
   if (!box) return;
   const target = document.querySelector('input[name="issueTarget"]:checked')?.value || "employee";
@@ -4209,6 +4399,61 @@ function addMovement({ type, assetId, employeeId = null, department = "", site =
   state.movements.push({ id: createId("mov"), type, assetId, employeeId, department, site, workplaceId, actNumber, quantity, date, notes, assignmentId });
 }
 
+// Блок «Где сейчас» в карточке техники (§10 ТЗ): у кого числится, на
+// каком столе, по какой операции, и вся история выдач. Всё — из тех же
+// выдач, что видят карточки сотрудника и стола.
+function renderAssetHolderPanel(asset) {
+  const panel = document.getElementById("assetHolderPanel");
+  if (!panel) return;
+  const events = AssetOps.assetHistory(state.assignments, asset.id);
+  const current = [];
+  state.assignments.forEach((assignment) => {
+    (assignment.items || []).forEach((item) => {
+      if (item.assetId === asset.id && AssetOps.activeQuantity(item) > 0) current.push({ assignment, item });
+    });
+  });
+  if (!events.length && !current.length) {
+    panel.classList.add("hidden");
+    panel.innerHTML = "";
+    return;
+  }
+  const statusText = statusLabels[getAssetStatus(asset)] || asset.status;
+  const currentHtml = current.length
+    ? current.map(({ assignment, item }) => {
+        const employee = assignment.employeeId ? getEmployeeById(assignment.employeeId) : null;
+        const workplace = assignment.workplaceId ? getWorkplaceById(assignment.workplaceId) : null;
+        const department = employee?.department || assignment.department || "";
+        const fields = [
+          ["Сотрудник", employee ? employee.fullName : "—"],
+          ["Отдел", department || "—"],
+          ["Стол", workplace ? `${workplace.name}${workplace.code ? ` · ${workplace.code}` : ""}` : "—"],
+          ["Операция", assignment.code || (assignment.actNumber ? `Акт №${assignment.actNumber}` : "—")],
+          ["Дата выдачи", assignment.issuedAt ? formatDate(assignment.issuedAt) : "Неизвестно"],
+          ["Закреплено", item.scope === "workplace" ? "За рабочим местом" : "Лично"],
+        ];
+        if (AssetOps.activeQuantity(item) > 1) fields.push(["Количество", `${AssetOps.activeQuantity(item)} шт.`]);
+        return `<dl class="holder-grid">${fields.map(([label, value]) =>
+          `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`).join("")}</dl>`;
+      }).join("")
+    : `<p class="muted">Текущего владельца нет — техника на складе.</p>`;
+  const historyHtml = events.length
+    ? `<ol class="holder-history">${events.map((event) => {
+        const when = event.date ? formatDate(event.date) : "Дата неизвестна";
+        const what = event.kind === "issue"
+          ? `Выдано: ${holderLabel(event.assignment) || "—"}`
+          : "Возвращено на склад";
+        const qty = event.quantity > 1 ? ` · ${event.quantity} шт.` : "";
+        const code = event.assignment.code ? ` · ${event.assignment.code}` : "";
+        return `<li><time>${escapeHtml(when)}</time><span>${escapeHtml(what + qty + code)}</span></li>`;
+      }).join("")}</ol>`
+    : "";
+  panel.innerHTML = `
+    <div class="holder-head"><h4>Где сейчас</h4><span class="chip ${statusTone(getAssetStatus(asset))}">${escapeHtml(statusText)}</span></div>
+    ${currentHtml}
+    ${historyHtml ? `<h4 class="holder-history-title">История</h4>${historyHtml}` : ""}`;
+  panel.classList.remove("hidden");
+}
+
 function enterAssetEditMode(assetId) {
   const asset = getAssetById(assetId);
   if (!asset) return;
@@ -4234,6 +4479,7 @@ function enterAssetEditMode(assetId) {
   // отдельное окно выдачи, где видно текущий остаток.
   document.getElementById("assetIssueSection")?.classList.add("hidden");
   renderAssetPhotoPreview(asset);
+  renderAssetHolderPanel(asset);
   dom.assetFormTitle.textContent = "Редактировать технику";
   dom.assetSubmitBtn.textContent = "Сохранить изменения";
   dom.assetCancelBtn.classList.remove("hidden");
@@ -4245,11 +4491,23 @@ function enterEmployeeEditMode(employeeId) {
 }
 
 // ─── CRUD: УДАЛЕНИЕ И СОХРАНЕНИЕ АКТИВОВ/СОТРУДНИКОВ ─────────────
+// Участвовала ли техника хоть в одной выдаче — активной или закрытой.
+// Такую удалять нельзя (§17 ТЗ): вместе с ней ушла бы история, кто и
+// когда ей пользовался, а позиция выдачи без техники сорвала бы
+// сохранение. Выбывшую технику списывают, а не удаляют.
+function hasAssignmentHistory(assetId) {
+  return state.assignments.some((assignment) => (assignment.items || []).some((item) => item.assetId === assetId));
+}
+
 async function deleteAsset(assetId) {
   const asset = getAssetById(assetId);
   if (!asset) return;
   if (getAllocatedQuantity(asset) > 0) {
     showToast('Нельзя удалить технику, пока она числится за сотрудниками.', 'warning');
+    return;
+  }
+  if (hasAssignmentHistory(asset.id)) {
+    showToast('У этой техники есть история выдач — удаление стёрло бы её. Если техника выбыла, оформите списание.', 'warning');
     return;
   }
   const confirmed = await showConfirm(`Удалить позицию "${asset.name}"?`);
@@ -4536,6 +4794,8 @@ async function handleIssueSubmit(event) {
     return;
   }
   const aggregated = new Map();
+  // Те же позиции, разложенные по виду закрепления (§6 ТЗ).
+  const byScope = new Map();
   for (const row of rows) {
     const assetId = row.querySelector(".issue-asset-select")?.value;
     const quantity = Math.max(1, Number(row.querySelector(".issue-quantity-input")?.value || 1));
@@ -4548,6 +4808,10 @@ async function handleIssueSubmit(event) {
       return;
     }
     aggregated.set(assetId, (aggregated.get(assetId) || 0) + quantity);
+    const rowScope = row.querySelector(".issue-scope-select")?.value === "workplace" ? "workplace" : "personal";
+    const scoped = byScope.get(rowScope) || new Map();
+    scoped.set(assetId, (scoped.get(assetId) || 0) + quantity);
+    byScope.set(rowScope, scoped);
   }
   if (!aggregated.size) {
     showToast('Добавьте хотя бы одну позицию для выдачи.', 'warning');
@@ -4586,25 +4850,36 @@ async function handleIssueSubmit(event) {
   // человека, и стол, поэтому карточка стола покажет ту же технику без
   // отдельной записи для него.
   const employeeWorkplace = employeeId ? getEmployeeWorkplace(employeeId) : null;
-  // scope не смешивается в одной выдаче: личное закреплено за человеком и
-  // уезжает с ним при пересадке, столовое — за местом и остаётся при
-  // смене сотрудника (§13 и §15 ТЗ). Форма адресует выдачу целиком
-  // одному получателю, поэтому и вид закрепления у неё один.
-  const scope = workplaceId && !employeeId ? "workplace" : "personal";
-  const assignment = createAssignment({
-    employeeId,
-    workplaceId: workplaceId || employeeWorkplace?.id || "",
-    department: departmentName,
-    site: siteName,
-    issuedAt: issueDate,
-    actNumber,
-    notes: issueNotes,
-  });
-  for (const [assetId, quantity] of aggregated.entries()) {
-    const asset = getAssetById(assetId);
-    addAssignmentItem(assignment, { assetId, quantity, scope });
-    addAuditEntry("asset", assetId, "issue", { employee: employee?.fullName, department: employee?.department || departmentName, site: siteName, quantity });
-    addMovement({ type: "issue", assetId: asset.id, employeeId: employeeId || null, department: departmentName, site: siteName, workplaceId, actNumber, quantity, date: issueDate, notes: issueNotes, assignmentId: assignment.id });
+  const deskId = workplaceId || employeeWorkplace?.id || "";
+  // Виды закрепления не смешиваются в одной выдаче: личное закреплено за
+  // человеком и уезжает с ним при пересадке, столовое — за местом и
+  // остаётся при смене сотрудника (§13 и §15 ТЗ). Поэтому форма даёт до
+  // двух выдач под одним актом: личную (сотрудник + его стол) и
+  // столовую (только стол). Выдача «на рабочее место» — целиком столовая.
+  const groups = new Map();
+  for (const [rowScope, items] of byScope.entries()) {
+    const scope = workplaceId && !employeeId ? "workplace"
+      : rowScope === "workplace" && deskId ? "workplace" : "personal";
+    const group = groups.get(scope) || new Map();
+    items.forEach((quantity, assetId) => group.set(assetId, (group.get(assetId) || 0) + quantity));
+    groups.set(scope, group);
+  }
+  for (const [scope, items] of groups.entries()) {
+    const assignment = createAssignment({
+      employeeId: scope === "workplace" ? null : employeeId,
+      workplaceId: deskId,
+      department: departmentName,
+      site: siteName,
+      issuedAt: issueDate,
+      actNumber,
+      notes: issueNotes,
+    });
+    for (const [assetId, quantity] of items.entries()) {
+      const asset = getAssetById(assetId);
+      addAssignmentItem(assignment, { assetId, quantity, scope });
+      addAuditEntry("asset", assetId, "issue", { employee: employee?.fullName, department: employee?.department || departmentName, site: siteName, quantity });
+      addMovement({ type: "issue", assetId: asset.id, employeeId: scope === "workplace" ? null : (employeeId || null), department: departmentName, site: siteName, workplaceId: scope === "workplace" ? deskId : workplaceId, actNumber, quantity, date: issueDate, notes: issueNotes, assignmentId: assignment.id });
+    }
   }
   syncAllocations();
   // Очищаем только позиции: получатель и дата остаются, потому что
@@ -5171,6 +5446,8 @@ async function bulkDeleteAssets() {
   if (!confirmed) return;
   const blocked = ids.filter((id) => { const a = getAssetById(id); return a && getAllocatedQuantity(a) > 0; });
   if (blocked.length) { showToast(`${blocked.length} позиций нельзя удалить (числятся за сотрудниками).`, "warning"); return; }
+  const withHistory = ids.filter((id) => hasAssignmentHistory(id));
+  if (withHistory.length) { showToast(`${withHistory.length} позиций нельзя удалить: у них есть история выдач. Выбывшую технику оформляют списанием.`, "warning"); return; }
   ids.forEach((id) => {
     addAuditEntry("asset", id, "delete", { name: getAssetById(id)?.name });
     state.assets = state.assets.filter((a) => a.id !== id);
@@ -5321,6 +5598,7 @@ function bindEvents() {
     const button = event.target.closest("button[data-action]");
     if (!button) return;
     const id = button.dataset.workplaceId;
+    if (button.dataset.action === "view-workplace") openWorkplaceDetailsModal(id);
     if (button.dataset.action === "edit-workplace") enterWorkplaceEditMode(id);
     if (button.dataset.action === "delete-workplace") deleteWorkplace(id);
   });

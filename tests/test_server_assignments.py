@@ -294,3 +294,82 @@ def test_rejects_an_item_pointing_at_unknown_equipment(db):
         ])],
     ))
     assert error and "ghost" in error
+
+
+# ─── Сохранение без ключа assignments: вкладка до обновления ───────
+# Мобильный клиент POST /api/state не шлёт вовсе, так что без ключа
+# assignments приходит только вкладка браузера, открытая до обновления
+# программы. Её allocations могут расходиться с выдачами — и сохранить
+# их как есть значило бы рассинхронизировать базу. Поэтому выдачи
+# сверяются с присланным состоянием по правилу «состояние главнее».
+
+def test_state_without_assignments_closes_what_the_old_tab_returned(db):
+    server.import_state(payload(
+        employees=[{"id": "emp_1", "fullName": "Иванов Иван"}],
+        assets=[asset()],
+        assignments=[assignment()],
+    ), actor="tester")
+    # Старая вкладка вернула ноутбук и шлёт allocations без выдач.
+    server.import_state(payload(
+        employees=[{"id": "emp_1", "fullName": "Иванов Иван"}],
+        assets=[asset(allocations=[])],
+    ), actor="old-tab")
+
+    state = server.export_state()
+    assert state["assets"][0]["allocations"] == []
+    assert state["assignments"][0]["status"] == "returned"
+
+    # И следующее полное сохранение ничего не воскрешает.
+    server.import_state(state, actor="tester")
+    assert server.export_state()["assets"][0]["allocations"] == []
+
+
+def test_state_without_assignments_recovers_what_the_old_tab_issued(db):
+    server.import_state(payload(
+        employees=[{"id": "emp_1", "fullName": "Иванов Иван"}],
+        assets=[asset(allocations=[{"employeeId": "emp_1", "department": "", "site": "",
+                                    "workplaceId": "", "quantity": 1}])],
+    ), actor="old-tab")
+
+    state = server.export_state()
+    assert len(state["assignments"]) == 1
+    assert state["assignments"][0]["employeeId"] == "emp_1"
+
+    server.import_state(state, actor="tester")
+    assert server.export_state()["assets"][0]["allocations"][0]["employeeId"] == "emp_1"
+
+
+# ─── Связь «движение → выдача» переживает сохранение ───────────────
+
+def test_movement_keeps_its_assignment_across_a_desktop_save(db):
+    server.import_state(payload(
+        employees=[{"id": "emp_1", "fullName": "Иванов Иван"}],
+        assets=[asset()],
+        assignments=[assignment()],
+        movements=[{"id": "mov_1", "type": "issue", "assetId": "a1", "employeeId": "emp_1",
+                    "quantity": 1, "date": "2026-09-10", "assignmentId": "asg_1"}],
+    ), actor="tester")
+
+    assert server.export_state()["movements"][0]["assignmentId"] == "asg_1"
+
+
+def test_old_tab_save_keeps_the_links_it_does_not_know_about(db):
+    # Вкладка до обновления не знает поля assignmentId. Если бы импорт
+    # писал только присланное, связь, проставленная миграцией 036,
+    # стиралась бы первым же её сохранением.
+    server.import_state(payload(
+        employees=[{"id": "emp_1", "fullName": "Иванов Иван"}],
+        assets=[asset()],
+        assignments=[assignment()],
+        movements=[{"id": "mov_1", "type": "issue", "assetId": "a1", "employeeId": "emp_1",
+                    "quantity": 1, "date": "2026-09-10", "assignmentId": "asg_1"}],
+    ), actor="tester")
+    server.import_state(payload(
+        employees=[{"id": "emp_1", "fullName": "Иванов Иван"}],
+        assets=[asset(allocations=[{"employeeId": "emp_1", "department": "", "site": "",
+                                    "workplaceId": "", "quantity": 1}])],
+        movements=[{"id": "mov_1", "type": "issue", "assetId": "a1", "employeeId": "emp_1",
+                    "quantity": 1, "date": "2026-09-10"}],
+    ), actor="old-tab")
+
+    assert server.export_state()["movements"][0]["assignmentId"] == "asg_1"

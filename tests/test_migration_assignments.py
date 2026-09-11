@@ -511,6 +511,24 @@ def test_036_numbers_recovered_assignments_after_the_historical_ones(db):
     assert codes == {"emp_1": "ASSIGN-0001", "emp_2": "ASSIGN-0002"}
 
 
+def test_036_normalizes_an_employee_and_site_recipient(db):
+    # Старый мобильный клиент писал выдачу с сотрудником И объектом.
+    # Выдачу с двумя хозяевами отвергнет серверная валидация, и первое
+    # же сохранение с десктопа после обновления упало бы — поэтому
+    # побеждает сотрудник, как и при поиске записи в find_employee_allocation.
+    add_asset(db, "a1", "NB-0042")
+    add_employee(db, "emp_1")
+    add_movement(db, "mov_1", "a1", 1, "2026-09-01", employee_id="emp_1", site="SiteA")
+    add_allocation(db, "a1", 1, employee_id="emp_1", site="SiteA")
+
+    migrations._migrate_036_assignments_backfill(db)
+
+    row = db.execute("SELECT employee_id, department, site FROM assignments").fetchone()
+    assert (row["employee_id"], row["department"], row["site"]) == ("emp_1", "", "")
+    allocation = db.execute("SELECT employee_id, site, quantity FROM asset_allocations").fetchone()
+    assert (allocation["employee_id"], allocation["site"], allocation["quantity"]) == ("emp_1", "", 1)
+
+
 def test_036_is_idempotent(db):
     add_asset(db, "a1", "NB-0042")
     add_employee(db, "emp_1")

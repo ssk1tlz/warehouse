@@ -556,13 +556,28 @@ def _movement_sort_value(movement_id: str, date: str) -> int:
 
 
 def _recipient_key(row) -> tuple[str, str, str, str]:
-    """Получатель выдачи — четвёрка, по которой сходятся движение и состояние."""
-    return (
-        row["employee_id"] or "",
-        row["department"] or "",
-        row["site"] or "",
-        row["workplace_id"] or "",
-    )
+    """Получатель выдачи — четвёрка, по которой сходятся движение и состояние.
+
+    Нормализуется до одного получателя: старый мобильный клиент писал
+    выдачу с сотрудником И объектом, а выдачу с двумя хозяевами
+    отвергает серверная валидация — первое же сохранение с десктопа
+    после обновления упало бы. Побеждает сотрудник, как и при поиске
+    записи в find_employee_allocation. Правило совпадает с
+    normalize_recipient в assignment_store.py; здесь оно продублировано
+    намеренно — миграция не должна зависеть от кода, который будет
+    меняться после неё.
+    """
+    employee_id = row["employee_id"] or ""
+    department = row["department"] or ""
+    site = row["site"] or ""
+    workplace_id = row["workplace_id"] or ""
+    if employee_id:
+        return (employee_id, "", "", "")
+    if department:
+        return ("", department, "", "")
+    if site:
+        return ("", "", site, "")
+    return ("", "", "", workplace_id)
 
 
 _RECOVERED_NOTE = "Восстановлено при миграции: исходная операция выдачи неизвестна."
@@ -794,6 +809,19 @@ def _migrate_036_assignments_backfill(connection: sqlite3.Connection) -> None:
         raise MigrationDataError(
             "Проекция выдач не совпала с asset_allocations: "
             f"было {sorted(original.items(), key=str)}, стало {sorted(projected.items(), key=str)}"
+        )
+
+    # Проекция сошлась с исходным состоянием с точностью до нормализации
+    # получателя — переписываем asset_allocations по ней. Для обычных
+    # строк ничего не меняется; строка «сотрудник + объект» становится
+    # строкой сотрудника, и база сразу согласована с выдачами, а не
+    # только после первого сохранения с десктопа.
+    connection.execute("DELETE FROM asset_allocations")
+    for (asset_id, employee_id, department, site, workplace_id), quantity in sorted(projected.items(), key=str):
+        connection.execute(
+            "INSERT INTO asset_allocations (asset_id, employee_id, department, site, "
+            "workplace_id, quantity) VALUES (?, ?, ?, ?, ?, ?)",
+            (asset_id, employee_id or None, department, site, workplace_id, quantity),
         )
 
 

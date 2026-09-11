@@ -15,6 +15,8 @@ import sqlite3
 import time
 from datetime import datetime, timezone
 
+import assignment_store
+
 
 class MobileActionError(Exception):
     """Raised for any rejected action; `message` is safe to show the user."""
@@ -92,33 +94,46 @@ def _load_allocations(connection: sqlite3.Connection, asset_id: str) -> list[sql
     ))
 
 
-def _adjust_allocation(
-    connection: sqlite3.Connection, asset_id: str, existing: sqlite3.Row, delta: int
-) -> None:
-    """Apply `delta` to an allocation row previously matched by
-    find_employee_allocation/find_department_allocation/find_site_allocation.
+def _today() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
 
-    Always filters the UPDATE/DELETE by the matched row's OWN identity
-    (employee_id/department/site) instead of re-deriving that identity from
-    raw input — so this can never target the wrong row, even when an
-    allocation has more than one identity field set at once (e.g. both
-    employeeId and site). Deletes the row once the resulting quantity is
-    <= 0; otherwise updates it in place. `delta` may be positive (credit)
-    or negative (debit).
+
+def _employee_workplace(connection: sqlite3.Connection, employee_id: str | None) -> str:
+    """Стол сотрудника — подставляется в выдачу сам, как на десктопе (§6 ТЗ)."""
+    if not employee_id:
+        return ""
+    row = connection.execute(
+        "SELECT id FROM workplaces WHERE employee_id = ? ORDER BY id LIMIT 1", (employee_id,)
+    ).fetchone()
+    return row["id"] if row else ""
+
+
+def _prepare_asset(connection: sqlite3.Connection, asset_id: str, date: str) -> None:
+    """Сверяет выдачи этой техники с asset_allocations перед операцией.
+
+    asset_allocations могли измениться в обход выдач: старая база,
+    ручная правка, вкладка браузера до обновления. Сверка по правилу
+    «состояние главнее» (assignment_store.reconcile_asset) и немедленный
+    пересчёт проекции дают дальше работать с одним согласованным
+    источником: и проверки количеств ниже, и закрытие позиций видят одно
+    и то же. Строка «сотрудник + объект» старого мобильного клиента на
+    этом шаге становится строкой сотрудника.
     """
-    remaining = existing["quantity"] + delta
-    if remaining > 0:
-        connection.execute(
-            "UPDATE asset_allocations SET quantity = ? "
-            "WHERE asset_id = ? AND employee_id IS ? AND department = ? AND site = ?",
-            (remaining, asset_id, existing["employee_id"], existing["department"], existing["site"]),
-        )
-    else:
-        connection.execute(
-            "DELETE FROM asset_allocations "
-            "WHERE asset_id = ? AND employee_id IS ? AND department = ? AND site = ?",
-            (asset_id, existing["employee_id"], existing["department"], existing["site"]),
-        )
+    assignment_store.reconcile_asset(connection, asset_id, date)
+    assignment_store.rebuild_asset_allocations(connection, asset_id)
+
+
+def _insert_movement(
+    connection: sqlite3.Connection, kind: str, asset_id: str, *, employee_id=None,
+    department: str = "", site: str = "", quantity: int, date: str, notes: str,
+    assignment_id: str = "",
+) -> None:
+    connection.execute(
+        "INSERT INTO movements (id, type, asset_id, employee_id, department, site, act_number, "
+        "quantity, date, notes, assignment_id) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)",
+        (_new_movement_id(), kind, asset_id, employee_id, department, site, quantity,
+         date, notes, assignment_id),
+    )
 
 
 def apply_issue(connection: sqlite3.Connection, action: dict) -> None:
@@ -127,10 +142,12 @@ def apply_issue(connection: sqlite3.Connection, action: dict) -> None:
     department = action.get("department") or ""
     site = action.get("site") or ""
     quantity = max(1, int(action.get("quantity") or 1))
+    date = action.get("date") or _today()
 
     if not employee_id and not department and not site:
         raise MobileActionError("Выберите сотрудника, отдел или объект.")
 
+    _prepare_asset(connection, asset["id"], date)
     allocations = _load_allocations(connection, asset["id"])
     available = get_available_quantity(asset, allocations)
     if quantity > available:
@@ -138,31 +155,22 @@ def apply_issue(connection: sqlite3.Connection, action: dict) -> None:
             f'Нельзя выдать {quantity} шт. По позиции "{asset["name"]}" доступно: {available}.'
         )
 
-    if employee_id:
-        existing = find_employee_allocation(allocations, employee_id)
-    elif site:
-        existing = find_site_allocation(allocations, site)
-    else:
-        existing = find_department_allocation(allocations, department)
-
-    if existing is not None:
-        connection.execute(
-            "UPDATE asset_allocations SET quantity = quantity + ? "
-            "WHERE asset_id = ? AND employee_id IS ? AND department = ? AND site = ?",
-            (quantity, asset["id"], existing["employee_id"], existing["department"], existing["site"]),
-        )
-    else:
-        connection.execute(
-            "INSERT INTO asset_allocations (asset_id, employee_id, department, site, quantity) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (asset["id"], employee_id, department, site, quantity),
-        )
-
-    connection.execute(
-        "INSERT INTO movements (id, type, asset_id, employee_id, department, site, act_number, "
-        "quantity, date, notes) VALUES (?, 'issue', ?, ?, ?, ?, NULL, ?, ?, ?)",
-        (_new_movement_id(), asset["id"], employee_id, department, site, quantity,
-         action.get("date") or datetime.now(timezone.utc).date().isoformat(), action.get("notes") or ""),
+    # Одна операция — одна выдача ASSIGN-NNNN, как на десктопе. Получатель
+    # нормализуется: сотрудник, присланный вместе с объектом, остаётся
+    # сотрудником — выдачу с двумя хозяевами отвергла бы валидация.
+    recipient = assignment_store.normalize_recipient(employee_id, department, site, "")
+    assignment_id = assignment_store.create_assignment(
+        connection,
+        employee_id=recipient[0], department=recipient[1], site=recipient[2],
+        workplace_id=_employee_workplace(connection, recipient[0]),
+        issued_at=date, notes=action.get("notes") or "",
+        items=[{"asset_id": asset["id"], "quantity": quantity, "scope": "personal"}],
+    )
+    assignment_store.rebuild_asset_allocations(connection, asset["id"])
+    _insert_movement(
+        connection, "issue", asset["id"], employee_id=employee_id, department=department,
+        site=site, quantity=quantity, date=date, notes=action.get("notes") or "",
+        assignment_id=assignment_id,
     )
 
 
@@ -172,10 +180,12 @@ def apply_return(connection: sqlite3.Connection, action: dict) -> None:
     department = action.get("department") or ""
     site = action.get("site") or ""
     quantity = max(1, int(action.get("quantity") or 1))
+    date = action.get("date") or _today()
 
     if not employee_id and not department and not site:
         raise MobileActionError("Выберите сотрудника, отдел или объект.")
 
+    _prepare_asset(connection, asset["id"], date)
     allocations = _load_allocations(connection, asset["id"])
     if employee_id:
         existing = find_employee_allocation(allocations, employee_id)
@@ -194,13 +204,19 @@ def apply_return(connection: sqlite3.Connection, action: dict) -> None:
             f'Нельзя вернуть {quantity} шт. По позиции "{asset["name"]}" числится: {existing["quantity"]}.'
         )
 
-    _adjust_allocation(connection, asset["id"], existing, -quantity)
-
-    connection.execute(
-        "INSERT INTO movements (id, type, asset_id, employee_id, department, site, act_number, "
-        "quantity, date, notes) VALUES (?, 'return', ?, ?, ?, ?, NULL, ?, ?, ?)",
-        (_new_movement_id(), asset["id"], employee_id, department, site, quantity,
-         action.get("date") or datetime.now(timezone.utc).date().isoformat(), action.get("notes") or ""),
+    # Возврат закрывает позиции выдачи, а не правит проекцию: строка
+    # остаётся в истории с returned_quantity (§12 ТЗ).
+    touched = assignment_store.close_items(
+        connection, asset["id"], quantity, date,
+        recipient=assignment_store.normalize_recipient(
+            existing["employee_id"], existing["department"], existing["site"], existing["workplace_id"],
+        ),
+    )
+    assignment_store.rebuild_asset_allocations(connection, asset["id"])
+    _insert_movement(
+        connection, "return", asset["id"], employee_id=employee_id, department=department,
+        site=site, quantity=quantity, date=date, notes=action.get("notes") or "",
+        assignment_id=touched[0] if touched else "",
     )
 
 
@@ -209,17 +225,22 @@ def apply_repair(connection: sqlite3.Connection, action: dict) -> None:
     source_type = action.get("sourceType") or "warehouse"
     employee_id = action.get("employeeId") or None
     quantity = max(1, int(action.get("quantity") or 1))
-    allocations = _load_allocations(connection, asset["id"])
+    date = action.get("date") or _today()
 
     if source_type == "warehouse":
+        allocations = _load_allocations(connection, asset["id"])
         available = get_available_quantity(asset, allocations)
         if quantity > available:
             raise MobileActionError(
                 f'Нельзя отправить в ремонт {quantity} шт. Доступно на складе: {available}.'
             )
     else:
+        # Проверка до любой записи: без сотрудника find_employee_allocation
+        # совпал бы с чужой строкой объекта (см. тесты Finding 1a).
         if not employee_id:
             raise MobileActionError("Выберите сотрудника, у которого забираете технику.")
+        _prepare_asset(connection, asset["id"], date)
+        allocations = _load_allocations(connection, asset["id"])
         existing = find_employee_allocation(allocations, employee_id)
         if existing is None:
             raise MobileActionError("У выбранного сотрудника нет этой техники.")
@@ -227,18 +248,20 @@ def apply_repair(connection: sqlite3.Connection, action: dict) -> None:
             raise MobileActionError(
                 f'Нельзя отправить в ремонт {quantity} шт. У сотрудника числится: {existing["quantity"]}.'
             )
-        _adjust_allocation(connection, asset["id"], existing, -quantity)
+        assignment_store.close_items(
+            connection, asset["id"], quantity, date, recipient=(employee_id, "", "", ""),
+        )
+        assignment_store.rebuild_asset_allocations(connection, asset["id"])
 
-    repair_date = asset["repair_date"] or (action.get("date") or datetime.now(timezone.utc).date().isoformat())
+    repair_date = asset["repair_date"] or date
     connection.execute(
         "UPDATE assets SET repair_quantity = repair_quantity + ?, repair_date = ? WHERE id = ?",
         (quantity, repair_date, asset["id"]),
     )
-    connection.execute(
-        "INSERT INTO movements (id, type, asset_id, employee_id, department, site, act_number, "
-        "quantity, date, notes) VALUES (?, 'repair', ?, ?, '', '', NULL, ?, ?, ?)",
-        (_new_movement_id(), asset["id"], employee_id if source_type == "employee" else None, quantity,
-         action.get("date") or datetime.now(timezone.utc).date().isoformat(), action.get("notes") or ""),
+    _insert_movement(
+        connection, "repair", asset["id"],
+        employee_id=employee_id if source_type == "employee" else None,
+        quantity=quantity, date=date, notes=action.get("notes") or "",
     )
 
 
@@ -247,6 +270,7 @@ def apply_repair_return(connection: sqlite3.Connection, action: dict) -> None:
     target_type = action.get("targetType") or "warehouse"
     employee_id = action.get("employeeId") or None
     quantity = max(1, int(action.get("quantity") or 1))
+    date = action.get("date") or _today()
 
     in_repair = int(asset["repair_quantity"] or 0)
     if quantity > in_repair:
@@ -263,23 +287,24 @@ def apply_repair_return(connection: sqlite3.Connection, action: dict) -> None:
         (remaining_in_repair, new_repair_date, asset["id"]),
     )
 
+    assignment_id = ""
     if target_type == "employee":
-        allocations = _load_allocations(connection, asset["id"])
-        existing = find_employee_allocation(allocations, employee_id)
-        if existing is not None:
-            _adjust_allocation(connection, asset["id"], existing, quantity)
-        else:
-            connection.execute(
-                "INSERT INTO asset_allocations (asset_id, employee_id, department, site, quantity) "
-                "VALUES (?, ?, '', '', ?)",
-                (asset["id"], employee_id, quantity),
-            )
+        # Техника возвращается к человеку — это событие со своей датой и
+        # номером, в истории оно видно как отдельная выдача.
+        _prepare_asset(connection, asset["id"], date)
+        assignment_id = assignment_store.create_assignment(
+            connection, employee_id=employee_id,
+            workplace_id=_employee_workplace(connection, employee_id),
+            issued_at=date, notes="Возврат из ремонта",
+            items=[{"asset_id": asset["id"], "quantity": quantity, "scope": "personal"}],
+        )
+        assignment_store.rebuild_asset_allocations(connection, asset["id"])
 
-    connection.execute(
-        "INSERT INTO movements (id, type, asset_id, employee_id, department, site, act_number, "
-        "quantity, date, notes) VALUES (?, 'repair_return', ?, ?, '', '', NULL, ?, ?, ?)",
-        (_new_movement_id(), asset["id"], employee_id if target_type == "employee" else None, quantity,
-         action.get("date") or datetime.now(timezone.utc).date().isoformat(), action.get("notes") or ""),
+    _insert_movement(
+        connection, "repair_return", asset["id"],
+        employee_id=employee_id if target_type == "employee" else None,
+        quantity=quantity, date=date, notes=action.get("notes") or "",
+        assignment_id=assignment_id,
     )
 
 

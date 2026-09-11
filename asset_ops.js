@@ -363,12 +363,112 @@ function syncAssignmentStatus(assignment, date = '') {
   return assignment;
 }
 
+
+
+/**
+ * История техники по её выдачам (§10 и §14 ТЗ): кому и когда выдавали,
+ * когда вернули. Передача другому сотруднику видна как возврат и новая
+ * выдача — старая запись не переписывается.
+ *
+ * date — то, что показывается (пустая строка — «неизвестно»); порядок
+ * задаёт sortKey: у возврата без даты он берётся от его же выдачи,
+ * иначе недатированный возврат вставал бы перед собственной выдачей.
+ */
+function assetHistory(assignments, assetId) {
+  const events = [];
+  (assignments || []).forEach((assignment) => {
+    (assignment?.items || []).forEach((item) => {
+      if (item.assetId !== assetId) return;
+      const issuedAt = assignment.issuedAt || '';
+      events.push({ kind: 'issue', date: issuedAt, sortKey: issuedAt, quantity: Number(item.quantity || 0), assignment, item });
+      const returned = Number(item.returnedQuantity || 0);
+      if (returned > 0) {
+        const returnedAt = item.returnedAt || assignment.returnedAt || '';
+        events.push({ kind: 'return', date: returnedAt, sortKey: returnedAt || issuedAt, quantity: returned, assignment, item });
+      }
+    });
+  });
+  const order = { issue: 0, return: 1 };
+  return events.sort((a, b) => a.sortKey.localeCompare(b.sortKey) || order[a.kind] - order[b.kind]);
+}
+
+/**
+ * Сколько единиц числится именно за этим получателем. Кнопке «Снять»
+ * нужен фактический получатель строки: у сотрудника в общем списке
+ * есть и столовая техника, и снять её «с сотрудника» нельзя — она
+ * числится за местом.
+ */
+function heldQuantity(assignments, assetId, recipient = {}) {
+  return collectHoldings(assignments, (assignment, item, actual) => (
+    item.assetId === assetId && matchesReturnTarget(actual, recipient)
+  )).reduce((sum, holding) => sum + holding.quantity, 0);
+}
+
+const RECOVERED_NOTE = 'Восстановлено по текущему состоянию: исходная операция выдачи неизвестна.';
+
+/**
+ * Восстанавливает выдачи из одних allocations — для JSON-бэкапа,
+ * сделанного до слоя выдач. Без этого импорт такого файла дал бы
+ * assignments: [], сервер при сохранении пересчитал бы проекцию из
+ * пустоты, и вся выданная техника обнулилась бы.
+ *
+ * Позиции одного получателя собираются в одну выдачу — это одна и та
+ * же неизвестная операция. Дата не выдумывается: пустая строка
+ * честнее правдоподобной. Правило выбора получателя — как у
+ * normalize_recipient в assignment_store.py: сотрудник побеждает.
+ */
+function assignmentsFromAllocations(assets) {
+  const byRecipient = new Map();
+  const stamp = Date.now();
+  (assets || []).forEach((asset) => {
+    (asset?.allocations || []).forEach((entry) => {
+      const quantity = Number(entry?.quantity || 0);
+      if (!(quantity > 0) || !asset.id) return;
+      const employeeId = entry.employeeId || null;
+      const department = employeeId ? '' : String(entry.department || '');
+      const site = employeeId || department ? '' : String(entry.site || '');
+      const workplaceId = employeeId || department || site ? '' : String(entry.workplaceId || '');
+      if (!employeeId && !department && !site && !workplaceId) return;
+      const key = JSON.stringify([employeeId, department, site, workplaceId]);
+      let assignment = byRecipient.get(key);
+      if (!assignment) {
+        assignment = {
+          id: `asg_${stamp}_rec${byRecipient.size + 1}`,
+          code: '',
+          employeeId,
+          workplaceId,
+          department,
+          site,
+          status: 'active',
+          issuedAt: '',
+          returnedAt: null,
+          actNumber: null,
+          notes: RECOVERED_NOTE,
+          createdBy: '',
+          items: [],
+        };
+        byRecipient.set(key, assignment);
+      }
+      assignment.items.push({
+        id: `${assignment.id}_i${assignment.items.length + 1}`,
+        assetId: asset.id,
+        quantity,
+        returnedQuantity: 0,
+        scope: workplaceId && !employeeId ? 'workplace' : 'personal',
+        returnedAt: null,
+      });
+    });
+  });
+  return [...byRecipient.values()];
+}
+
 const AssetOps = {
   mergeAllocation, searchAssets, movementSortValue, movementCreatedAt,
   singleEmployeeId, normalizeFullName, findSimilarEmployees,
   activeQuantity, assignmentRecipient, assignmentSortValue, projectAllocations,
   holdingsForEmployee, holdingsForWorkplace, activeHolder,
-  returnFromAssignments, syncAssignmentStatus,
+  returnFromAssignments, syncAssignmentStatus, assignmentsFromAllocations,
+  assetHistory, heldQuantity,
 };
 
 if (typeof module !== 'undefined' && module.exports) {

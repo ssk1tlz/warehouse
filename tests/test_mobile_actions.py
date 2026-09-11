@@ -273,17 +273,21 @@ def test_apply_repair_from_employee_with_site_allocation_reduces_it(conn):
         "assetId": "ast_1", "employeeId": "emp_1", "department": "", "site": "SiteA",
         "quantity": 3, "date": "2026-08-22", "notes": "",
     })
+    # С переходом на выдачи получатель нормализуется: сотрудник,
+    # присланный вместе с объектом, остаётся сотрудником (выдачу с двумя
+    # хозяевами отвергла бы серверная валидация). Суть регрессии та же —
+    # количество обязано уменьшиться, а не остаться 3.
     alloc = conn.execute(
         "SELECT employee_id, site, quantity FROM asset_allocations WHERE asset_id='ast_1'"
     ).fetchone()
-    assert alloc["employee_id"] == "emp_1" and alloc["site"] == "SiteA" and alloc["quantity"] == 3
+    assert alloc["employee_id"] == "emp_1" and alloc["site"] == "" and alloc["quantity"] == 3
 
     mobile_actions.apply_repair(conn, {
         "assetId": "ast_1", "sourceType": "employee", "employeeId": "emp_1",
         "quantity": 1, "date": "2026-08-22", "notes": "",
     })
     alloc = conn.execute(
-        "SELECT quantity FROM asset_allocations WHERE asset_id='ast_1' AND employee_id='emp_1' AND site='SiteA'"
+        "SELECT quantity FROM asset_allocations WHERE asset_id='ast_1' AND employee_id='emp_1'"
     ).fetchone()
     assert alloc["quantity"] == 2  # correctly reduced, not silently left at 3
     asset = conn.execute("SELECT repair_quantity FROM assets WHERE id='ast_1'").fetchone()
@@ -340,10 +344,13 @@ def test_apply_repair_return_credits_employee_with_site_allocation(conn):
         "assetId": "ast_1", "targetType": "employee", "employeeId": "emp_1",
         "quantity": 1, "date": "2026-08-22", "notes": "",
     })
+    # Наследственная строка «сотрудник + объект» нормализуется сверкой в
+    # строку сотрудника; суть регрессии — единицы зачислены, а не потеряны.
     alloc = conn.execute(
-        "SELECT quantity FROM asset_allocations WHERE asset_id='ast_1' AND employee_id='emp_1' AND site='SiteA'"
+        "SELECT site, quantity FROM asset_allocations WHERE asset_id='ast_1' AND employee_id='emp_1'"
     ).fetchone()
     assert alloc["quantity"] == 3  # correctly credited back, not left at 2
+    assert alloc["site"] == ""
     asset = conn.execute("SELECT repair_quantity FROM assets WHERE id='ast_1'").fetchone()
     assert asset["repair_quantity"] == 0
 

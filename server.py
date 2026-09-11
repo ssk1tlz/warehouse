@@ -27,7 +27,11 @@ else:
 
 import asset_codes
 import assignment_codes
+import assignment_store
 import workplace_codes
+# Правило проекции выдач общее с mobile_actions.py: мобильный клиент
+# пишет в базу в обход POST /api/state и обязан считать так же.
+from assignment_store import assignment_recipient, project_allocations
 import mobile_actions
 import migrations
 import auth
@@ -350,70 +354,6 @@ VALID_MOVEMENT_TYPES = {"purchase", "issue", "return", "repair", "repair_return"
 STATE_LOCK = threading.Lock()
 
 
-
-def assignment_recipient(assignment: dict, scope: str = "personal") -> tuple:
-    """Кому адресуется позиция выдачи в терминах asset_allocations.
-
-    Выдача знает обоих — человека и стол. Проекция обязана выбрать
-    одного, потому что весь существующий код чтения (getEmployeeAllocation
-    в app.js, find_employee_allocation в mobile_actions.py) ждёт запись
-    ровно с одним заполненным полем. Выбирает scope позиции: личная
-    техника числится за человеком и уезжает с ним, столовая — за местом
-    и остаётся там при смене сотрудника.
-
-    Объединённый список «человек + его стол» собирается на фронтенде по
-    связи workplaces.employee_id, а не подменой этой записи: строка с
-    двумя заполненными полями сразу сломала бы и возврат, и мобильный
-    клиент.
-    """
-    employee_id = assignment.get("employeeId") or None
-    workplace_id = assignment.get("workplaceId") or ""
-    department = (assignment.get("department") or "").strip()
-    site = (assignment.get("site") or "").strip()
-    if scope == "workplace" and workplace_id:
-        return (None, "", "", workplace_id)
-    if employee_id:
-        return (employee_id, "", "", "")
-    if department:
-        return (None, department, "", "")
-    if site:
-        return (None, "", site, "")
-    return (None, "", "", workplace_id)
-
-
-def project_allocations(assignments: list) -> dict[str, list[dict]]:
-    """Активные остатки выдач в виде asset_allocations: техника -> записи.
-
-    Активна та часть позиции, которую ещё не вернули: quantity минус
-    returned_quantity. Возврат не удаляет строку (§12 ТЗ), поэтому
-    закрытая позиция просто перестаёт попадать в проекцию — и техника
-    исчезает у сотрудника, у стола и снова видна на складе разом.
-    """
-    totals: dict[str, dict[tuple, int]] = {}
-    for assignment in assignments or []:
-        for item in assignment.get("items") or []:
-            try:
-                quantity = int(item.get("quantity") or 0)
-                returned = int(item.get("returnedQuantity") or 0)
-            except (TypeError, ValueError):
-                continue
-            active = quantity - returned
-            if active <= 0:
-                continue
-            asset_id = item.get("assetId")
-            if not asset_id:
-                continue
-            key = assignment_recipient(assignment, item.get("scope") or "personal")
-            bucket = totals.setdefault(asset_id, {})
-            bucket[key] = bucket.get(key, 0) + active
-    projected: dict[str, list[dict]] = {}
-    for asset_id, bucket in totals.items():
-        projected[asset_id] = [
-            {"employeeId": key[0], "department": key[1], "site": key[2],
-             "workplaceId": key[3], "quantity": quantity}
-            for key, quantity in sorted(bucket.items(), key=lambda pair: str(pair[0]))
-        ]
-    return projected
 
 
 def validate_state(payload: dict) -> str | None:
@@ -788,7 +728,7 @@ def export_state() -> dict:
             )
 
         movements = [dict(row) for row in connection.execute(
-            "SELECT id, type, asset_id AS assetId, employee_id AS employeeId, department, site, workplace_id AS workplaceId, act_number AS actNumber, quantity, date, notes FROM movements ORDER BY date DESC, id DESC"
+            "SELECT id, type, asset_id AS assetId, employee_id AS employeeId, department, site, workplace_id AS workplaceId, act_number AS actNumber, quantity, date, notes, assignment_id AS assignmentId FROM movements ORDER BY date DESC, id DESC"
         )]
 
         audit = []
@@ -891,6 +831,14 @@ def import_state(payload: dict, actor: str) -> dict:
             for row in connection.execute("SELECT id, code FROM assignments")
         }
         next_assignment_num = assignment_codes.next_number(connection)
+        # Связь «движение → выдача» тоже считывается до DELETE: вкладка,
+        # открытая до обновления, не знает поля assignmentId, и без
+        # этого первое же её сохранение стёрло бы связи, которые
+        # проставила миграция 036.
+        old_movement_links = {
+            row["id"]: row["assignment_id"] or ""
+            for row in connection.execute("SELECT id, assignment_id FROM movements")
+        }
         # None означает «клиент ничего не знает о выдачах» (мобильный
         # клиент, старая версия десктопа). Тогда таблицы выдач не
         # трогаем вовсе и сохраняем присланные allocations как раньше —
@@ -1089,15 +1037,42 @@ def import_state(payload: dict, actor: str) -> dict:
                     ),
                 )
 
+        if assignments_payload is None:
+            # Состояние без выдач присылает только вкладка, открытая до
+            # обновления программы (мобильный клиент POST /api/state не
+            # шлёт вовсе). Её allocations записаны выше как есть; выдачи
+            # приводятся к ним по правилу «состояние главнее» — иначе
+            # база осталась бы с двумя расходящимися источниками правды.
+            known_assets = [asset.get("id") for asset in assets if asset.get("id")]
+            # Технику, которую вкладка удалила, вместе с её позициями:
+            # вкладка удалила и её движения, а позиция без техники сорвала
+            # бы валидацию следующего полного сохранения.
+            if known_assets:
+                placeholders = ",".join("?" for _ in known_assets)
+                connection.execute(
+                    f"DELETE FROM assignment_items WHERE asset_id NOT IN ({placeholders})",
+                    known_assets,
+                )
+            else:
+                connection.execute("DELETE FROM assignment_items")
+            connection.execute(
+                "DELETE FROM assignments WHERE id NOT IN (SELECT assignment_id FROM assignment_items)"
+            )
+            reconcile_date = datetime.now(timezone.utc).date().isoformat()
+            for asset_id in known_assets:
+                assignment_store.reconcile_asset(connection, asset_id, reconcile_date)
+                assignment_store.rebuild_asset_allocations(connection, asset_id)
+
         for movement in movements:
             connection.execute(
-                "INSERT INTO movements (id, type, asset_id, employee_id, department, site, workplace_id, act_number, quantity, date, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO movements (id, type, asset_id, employee_id, department, site, workplace_id, act_number, quantity, date, notes, assignment_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     movement.get("id"), movement.get("type") or "purchase", movement.get("assetId"),
                     movement.get("employeeId") or None, movement.get("department") or "",
                     movement.get("site") or "", movement.get("workplaceId") or "",
                     movement.get("actNumber"), int(movement.get("quantity") or 0),
                     movement.get("date") or "", movement.get("notes") or "",
+                    movement.get("assignmentId") or old_movement_links.get(movement.get("id"), ""),
                 ),
             )
 

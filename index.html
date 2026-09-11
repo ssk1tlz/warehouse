@@ -169,6 +169,8 @@
           </div>
           <form id="assetForm" class="asset-form">
             <input type="hidden" name="assetId">
+            <!-- «Где сейчас» и история выдач (§10 ТЗ): видно только в режиме правки. -->
+            <div id="assetHolderPanel" class="asset-holder-panel hidden" aria-live="polite"></div>
 
             <div class="form-grid-top">
               <div class="form-card">
@@ -1338,6 +1340,17 @@
     </div>
   </div>
 
+  <!-- Карточка рабочего места (§9 ТЗ): та же техника, что у сотрудника за ним. -->
+  <div id="workplaceDetailsOverlay" class="modal-overlay hidden">
+    <div class="operation-modal wide">
+      <div class="modal-header">
+        <h3>Карточка рабочего места</h3>
+        <button type="button" class="modal-close" id="closeWorkplaceDetailsBtn">Закрыть</button>
+      </div>
+      <div class="emp-profile-body" id="workplaceProfileBody"></div>
+    </div>
+  </div>
+
   <template id="emptyStateTemplate">
     <div class="empty-state">
       <svg width="48" height="48" fill="none" viewBox="0 0 48 48" style="opacity:0.3;margin-bottom:8px"><rect x="6" y="10" width="36" height="28" rx="4" stroke="currentColor" stroke-width="2"/><path d="M6 18h36M18 18v20M30 18v20" stroke="currentColor" stroke-width="1.5" opacity="0.5"/></svg>
@@ -1347,6 +1360,15 @@
 
   <!-- Toast container -->
   <div id="toastContainer" class="toast-container"></div>
+
+  <!-- Выбор из нескольких вариантов: смена сотрудника за столом (§15 ТЗ). -->
+  <div id="choiceOverlay" class="confirm-overlay hidden">
+    <div class="confirm-dialog">
+      <div class="confirm-title">Техника на рабочем месте</div>
+      <p id="choiceMessage"></p>
+      <div class="confirm-actions choice-actions" id="choiceButtons"></div>
+    </div>
+  </div>
 
   <!-- Confirm modal -->
   <div id="confirmOverlay" class="confirm-overlay hidden">

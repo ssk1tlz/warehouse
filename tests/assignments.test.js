@@ -229,3 +229,89 @@ test('снятие расходится по нескольким выдачам
   assert.equal(older.items[0].returnedQuantity, 1, 'старая выдача закрывается первой');
   assert.equal(newer.items[0].returnedQuantity, 1);
 });
+
+// ─── восстановление выдач из старого бэкапа ──────────────────────
+// JSON-бэкап, сделанный до слоя выдач, несёт только allocations. Без
+// восстановления hydrateState получил бы assignments: [], сервер при
+// сохранении пересчитал бы проекцию из пустоты — и вся выданная техника
+// обнулилась бы одним нажатием «Импорт».
+
+const { assignmentsFromAllocations } = require('../asset_ops.js');
+
+test('из allocations старого бэкапа восстанавливаются выдачи', () => {
+  const assets = [
+    { id: 'nb', allocations: [{ employeeId: 'emp_1', department: '', site: '', workplaceId: '', quantity: 1 }] },
+    { id: 'mon', allocations: [{ employeeId: null, department: '', site: '', workplaceId: 'wp_7', quantity: 1 }] },
+  ];
+  const recovered = assignmentsFromAllocations(assets);
+  assert.deepEqual(projectAllocations(recovered), {
+    nb: [{ employeeId: 'emp_1', department: '', site: '', workplaceId: '', quantity: 1 }],
+    mon: [{ employeeId: null, department: '', site: '', workplaceId: 'wp_7', quantity: 1 }],
+  });
+});
+
+test('позиции одного получателя собираются в одну восстановленную выдачу', () => {
+  const assets = [
+    { id: 'nb', allocations: [{ employeeId: 'emp_1', department: '', site: '', workplaceId: '', quantity: 1 }] },
+    { id: 'kb', allocations: [{ employeeId: 'emp_1', department: '', site: '', workplaceId: '', quantity: 2 }] },
+  ];
+  const recovered = assignmentsFromAllocations(assets);
+  assert.equal(recovered.length, 1);
+  assert.equal(recovered[0].items.length, 2);
+});
+
+test('восстановленная выдача без даты и с пометкой', () => {
+  const recovered = assignmentsFromAllocations([
+    { id: 'nb', allocations: [{ employeeId: 'emp_1', department: '', site: '', workplaceId: '', quantity: 1 }] },
+  ]);
+  assert.equal(recovered[0].issuedAt, '');
+  assert.equal(recovered[0].status, 'active');
+  assert.match(recovered[0].notes, /неизвестна/);
+});
+
+test('без выданной техники восстанавливать нечего', () => {
+  assert.deepEqual(assignmentsFromAllocations([{ id: 'nb', allocations: [] }]), []);
+});
+
+// ─── история техники (§10, §14) ──────────────────────────────────
+
+const { assetHistory, heldQuantity } = require('../asset_ops.js');
+
+test('история: выдача и возврат по порядку', () => {
+  const source = assignment({ issuedAt: '2026-09-10', items: [item({ returnedQuantity: 1, returnedAt: '2026-09-15' })] });
+  const events = assetHistory([source], 'a1');
+  assert.deepEqual(events.map((e) => [e.date, e.kind]), [['2026-09-10', 'issue'], ['2026-09-15', 'return']]);
+});
+
+test('история: передача другому видна как возврат и новая выдача (§14)', () => {
+  const toIvanov = assignment({ issuedAt: '2026-09-10', status: 'returned',
+    items: [item({ returnedQuantity: 1, returnedAt: '2026-09-15' })] });
+  const toPetrov = assignment({ id: 'asg_2', code: 'ASSIGN-0002', employeeId: 'emp_2', issuedAt: '2026-09-20',
+    items: [item({ id: 'asgi_2' })] });
+  const events = assetHistory([toPetrov, toIvanov], 'a1');
+  assert.deepEqual(
+    events.map((e) => [e.kind, e.assignment.employeeId]),
+    [['issue', 'emp_1'], ['return', 'emp_1'], ['issue', 'emp_2']],
+  );
+});
+
+test('история: частичный возврат показывает возвращённое количество', () => {
+  const source = assignment({ items: [item({ quantity: 5, returnedQuantity: 2, returnedAt: null })] });
+  const back = assetHistory([source], 'a1').find((e) => e.kind === 'return');
+  assert.equal(back.quantity, 2);
+});
+
+test('история: чужая техника в историю не попадает', () => {
+  assert.deepEqual(assetHistory([assignment()], 'другая'), []);
+});
+
+// ─── сколько держит конкретный получатель ────────────────────────
+
+test('держит ровно тот получатель, которому адресована позиция', () => {
+  const personal = assignment({ workplaceId: 'wp_7', items: [item({ quantity: 2 })] });
+  const atDesk = assignment({ id: 'asg_2', employeeId: null, workplaceId: 'wp_7',
+    items: [item({ id: 'asgi_2', scope: 'workplace' })] });
+  const all = [personal, atDesk];
+  assert.equal(heldQuantity(all, 'a1', { employeeId: 'emp_1' }), 2);
+  assert.equal(heldQuantity(all, 'a1', { workplaceId: 'wp_7' }), 1, 'столовая — отдельно от личной');
+});
