@@ -962,9 +962,10 @@ async function init() {
 
   document.getElementById('scanBtn').addEventListener('click', async () => {
     try {
-      const assetId = await Scanner.scanOnce();
-      if (!assetId) return; // cancelled or not a warehouse QR
-      await openAssetScreen(assetId);
+      const result = await Scanner.scanOnce();
+      if (!result) return; // cancelled or not a warehouse QR
+      if (result.kind === 'workplace') await openWorkplaceScreen(result.id);
+      else await openAssetScreen(result.id);
     } catch (error) {
       Toast.show(describeScanError(error, 'Не удалось выполнить сканирование.'), 'error');
     }

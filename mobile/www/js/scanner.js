@@ -45,7 +45,7 @@ async function scan(parse, notRecognizedMessage) {
 }
 
 function scanOnce() {
-  return scan(parseWarehouseQr, 'Это не похоже на этикетку склада — QR не распознан.');
+  return scan(parseWarehouseTarget, 'Это не похоже на этикетку склада — QR не распознан.');
 }
 
 function scanConnectQr() {
