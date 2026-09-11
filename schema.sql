@@ -71,6 +71,9 @@ CREATE TABLE IF NOT EXISTS movements (
   quantity INTEGER NOT NULL DEFAULT 0,
   date TEXT NOT NULL,
   notes TEXT,
+  -- Операция выдачи, к которой относится движение (миграция 035).
+  -- Пустая строка у движений, не связанных с выдачей: покупка, правка.
+  assignment_id TEXT NOT NULL DEFAULT '',
   FOREIGN KEY (asset_id) REFERENCES assets(id),
   FOREIGN KEY (employee_id) REFERENCES employees(id)
 );
@@ -167,3 +170,53 @@ CREATE TABLE IF NOT EXISTS workplaces (
   -- (workplace_codes.py), клиент не редактирует. См. миграцию 034.
   code TEXT NOT NULL DEFAULT ''
 );
+
+-- Операция выдачи: связывает получателя, дату и несколько единиц
+-- техники одним номером ASSIGN-NNNN (миграция 035). Единственный
+-- источник правды о том, у кого что находится; asset_allocations —
+-- её проекция, а не самостоятельное хранилище.
+CREATE TABLE IF NOT EXISTS assignments (
+  id TEXT PRIMARY KEY,
+  -- ASSIGN-NNNN, назначается сервером (assignment_codes.py). Это номер
+  -- ОПЕРАЦИИ, а не техники: инвентарный номер живёт в
+  -- assets.inventory_number и при выдаче не меняется.
+  code TEXT NOT NULL DEFAULT '',
+  -- Получатель. Отдел и объект — самостоятельные получатели и ни с чем
+  -- не сочетаются. Сотрудник и стол сочетаются между собой: выдача
+  -- бывает на человека, на человека и его стол, и на один только стол —
+  -- последнее нужно, когда сотрудник ушёл, а техника осталась на месте.
+  employee_id TEXT,
+  workplace_id TEXT NOT NULL DEFAULT '',
+  department TEXT NOT NULL DEFAULT '',
+  site TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'active',
+  issued_at TEXT NOT NULL,
+  returned_at TEXT,
+  -- Номер акта остаётся: по нему печатаются существующие акты.
+  act_number INTEGER,
+  notes TEXT NOT NULL DEFAULT '',
+  created_by TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS assignment_items (
+  id TEXT PRIMARY KEY,
+  assignment_id TEXT NOT NULL,
+  asset_id TEXT NOT NULL,
+  quantity INTEGER NOT NULL DEFAULT 1,
+  -- Возврат не удаляет строку, а наращивает это число: позиция закрыта,
+  -- когда returned_quantity = quantity. Так история переживает возврат.
+  returned_quantity INTEGER NOT NULL DEFAULT 0,
+  -- personal — едет с человеком при пересадке;
+  -- workplace — остаётся столу при смене сотрудника.
+  scope TEXT NOT NULL DEFAULT 'personal',
+  returned_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_assignment_items_assignment
+  ON assignment_items (assignment_id);
+CREATE INDEX IF NOT EXISTS idx_assignment_items_asset
+  ON assignment_items (asset_id);
+CREATE INDEX IF NOT EXISTS idx_assignments_employee
+  ON assignments (employee_id);
+CREATE INDEX IF NOT EXISTS idx_assignments_workplace
+  ON assignments (workplace_id);

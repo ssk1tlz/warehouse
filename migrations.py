@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Callable
 
 import asset_codes
+import assignment_codes
 import workplace_codes
 
 Migration = tuple[int, str, "Callable[[sqlite3.Connection], None]"]
@@ -437,6 +438,365 @@ def _migrate_034_workplaces_code(connection: sqlite3.Connection) -> None:
         )
         next_num += 1
 
+def _migrate_035_assignments_tables(connection: sqlite3.Connection) -> None:
+    """Слой выдач: операция ASSIGN-NNNN и её позиции.
+
+    До этой миграции текущее состояние (asset_allocations) и история
+    (movements) были двумя независимыми списками: состояние знало, за кем
+    техника числится, история — когда её выдали, но связать одно с другим
+    можно было только угадыванием по совпадению получателя. Отсюда и
+    расхождения в боевой базе. Теперь правда одна — assignment_items, а
+    asset_allocations становится её проекцией (миграция 036).
+
+    Отдельная таблица позиций, а не колонка в movements: одна операция
+    выдачи несёт несколько единиц техники (§5 ТЗ), и возвращают их
+    поштучно и вразнобой — returned_quantity живёт у позиции, а не у
+    операции.
+    """
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS assignments (
+          id TEXT PRIMARY KEY,
+          -- ASSIGN-NNNN, назначается сервером (assignment_codes.py).
+          -- Это номер ОПЕРАЦИИ, а не техники: инвентарный номер живёт в
+          -- assets.inventory_number и при выдаче не меняется.
+          code TEXT NOT NULL DEFAULT '',
+          -- Получатель. Отдел и объект — самостоятельные получатели и
+          -- ни с чем не сочетаются. Сотрудник и стол сочетаются между
+          -- собой: выдача бывает на человека, на человека и его стол,
+          -- и на один только стол — последнее нужно, когда сотрудник
+          -- ушёл, а техника осталась на месте (§15 ТЗ). Проверяется в
+          -- validate_state.
+          employee_id TEXT,
+          workplace_id TEXT NOT NULL DEFAULT '',
+          department TEXT NOT NULL DEFAULT '',
+          site TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'active',
+          issued_at TEXT NOT NULL,
+          returned_at TEXT,
+          -- Номер акта остаётся: по нему печатаются существующие акты,
+          -- и старые движения ссылаются именно на него.
+          act_number INTEGER,
+          notes TEXT NOT NULL DEFAULT '',
+          created_by TEXT NOT NULL DEFAULT ''
+        );
+
+        CREATE TABLE IF NOT EXISTS assignment_items (
+          id TEXT PRIMARY KEY,
+          assignment_id TEXT NOT NULL,
+          asset_id TEXT NOT NULL,
+          quantity INTEGER NOT NULL DEFAULT 1,
+          -- Возврат не удаляет строку, а наращивает это число (§12 ТЗ):
+          -- позиция закрыта, когда returned_quantity = quantity.
+          returned_quantity INTEGER NOT NULL DEFAULT 0,
+          -- personal — едет с человеком при пересадке;
+          -- workplace — остаётся столу при смене сотрудника.
+          scope TEXT NOT NULL DEFAULT 'personal',
+          returned_at TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_assignment_items_assignment
+          ON assignment_items (assignment_id);
+        CREATE INDEX IF NOT EXISTS idx_assignment_items_asset
+          ON assignment_items (asset_id);
+        CREATE INDEX IF NOT EXISTS idx_assignments_employee
+          ON assignments (employee_id);
+        CREATE INDEX IF NOT EXISTS idx_assignments_workplace
+          ON assignments (workplace_id);
+        """
+    )
+    _add_column_if_missing(
+        connection, "movements", "assignment_id",
+        "assignment_id TEXT NOT NULL DEFAULT ''",
+    )
+    # employee_id есть в schema.sql, но не во всех живых базах: в самых
+    # старых движение хранило только технику, а получателя не хранило
+    # вовсе, и ни одна прежняя миграция колонку не добавляла. Бэкофилл
+    # 036 читает её у каждого движения — без этой строки он падает на
+    # такой базе, и приложение не стартует.
+    _add_column_if_missing(connection, "movements", "employee_id", "employee_id TEXT")
+
+
+class MigrationDataError(RuntimeError):
+    """Данные, которые нельзя перенести без потерь.
+
+    Поднимается из миграции до того, как run_migrations успеет
+    закоммитить: транзакция откатывается, база остаётся на прежней
+    версии схемы, и приложение продолжает работать по-старому. Это
+    лучше, чем стартовать на схеме, где часть техники потерялась.
+    """
+
+
+def _table_exists(connection: sqlite3.Connection, table: str) -> bool:
+    return connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+    ).fetchone() is not None
+
+
+_MOVEMENT_ID_RE = re.compile(r"^mov_(\d+)_")
+
+
+def _movement_sort_value(movement_id: str, date: str) -> int:
+    """Момент движения в миллисекундах — для порядка, не для показа.
+
+    Тот же приём, что у AssetOps.movementSortValue в asset_ops.js, и по
+    той же причине: у выдачи «Выдать сразу» дата пустая (технику часто
+    заводят задним числом), а момент создания записи зашит в её id вида
+    ``mov_<timestamp>_<rand>``. Без этого запаса все недатированные
+    выдачи сортируются как самые ранние и слипаются в начало нумерации.
+    """
+    if date:
+        try:
+            parsed = datetime.strptime(date[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            return int(parsed.timestamp() * 1000)
+        except ValueError:
+            pass
+    match = _MOVEMENT_ID_RE.match(str(movement_id or ""))
+    return int(match.group(1)) if match else 0
+
+
+def _recipient_key(row) -> tuple[str, str, str, str]:
+    """Получатель выдачи — четвёрка, по которой сходятся движение и состояние."""
+    return (
+        row["employee_id"] or "",
+        row["department"] or "",
+        row["site"] or "",
+        row["workplace_id"] or "",
+    )
+
+
+_RECOVERED_NOTE = "Восстановлено при миграции: исходная операция выдачи неизвестна."
+
+
+def _migrate_036_assignments_backfill(connection: sqlite3.Connection) -> None:
+    """Собирает выдачи ASSIGN-NNNN из движений и текущего состояния.
+
+    Источников два, и они не равны в правах. Движения (`movements`)
+    рассказывают, что когда-то произошло; состояние
+    (`asset_allocations`) говорит, как дела обстоят сейчас. Расходятся
+    они регулярно — правки задним числом, ручной импорт, возвраты без
+    движения. Поэтому **состояние главнее**: сколько единиц числится за
+    получателем сейчас, столько и останется активными; остаток истории
+    закрывается как возвращённый, начиная со старых выдач.
+
+    Обратный случай — за получателем числится техника, которой не
+    объясняет ни одно движение — встречается в старых базах и в
+    восстановленных бэкапах. Уронить на нём миграцию нельзя: приложение
+    просто не стартует. Выбросить строку тоже нельзя: это потеря
+    техники, ровно то, что §22 запрещает. Поэтому недостача
+    восстанавливается отдельной выдачей с пустой датой и пометкой
+    _RECOVERED_NOTE — правдоподобную дату не выдумываем.
+
+    MigrationDataError остаётся только на последнюю проверку: если
+    итоговая проекция не сошлась с исходным состоянием, значит, ошибка в
+    самой миграции, и коммитить такое нельзя.
+    """
+    if not _table_exists(connection, "assignments"):
+        return
+    if not _table_exists(connection, "asset_allocations") or not _table_exists(connection, "movements"):
+        return
+    if connection.execute("SELECT COUNT(*) FROM assignments").fetchone()[0]:
+        return
+
+    issues = list(connection.execute(
+        "SELECT id, asset_id, employee_id, department, site, workplace_id, "
+        "act_number, quantity, date FROM movements WHERE type = 'issue' "
+        "ORDER BY date, act_number, id"
+    ))
+    allocations = list(connection.execute(
+        "SELECT asset_id, employee_id, department, site, workplace_id, quantity "
+        "FROM asset_allocations WHERE quantity > 0"
+    ))
+    if not issues and not allocations:
+        return
+
+    # ── Группировка движений в операции ───────────────────────────
+    # Ключ — номер акта ВМЕСТЕ с получателем, а не один номер: акт мог
+    # быть проставлен двум разным людям (ручная правка, старый импорт),
+    # и слить их в одну выдачу значило бы приписать технику чужому.
+    groups: dict[tuple, dict] = {}
+    for row in issues:
+        recipient = _recipient_key(row)
+        key = (row["act_number"] or 0,) + recipient
+        group = groups.get(key)
+        if group is None:
+            group = groups[key] = {
+                "date": "",
+                "sort": None,
+                "act_number": row["act_number"],
+                "recipient": recipient,
+                "movements": [],
+                "quantities": {},
+                "notes": "",
+            }
+        group["movements"].append(row["id"])
+        # issued_at — самая ранняя НАСТОЯЩАЯ дата акта: если часть
+        # движений датирована, а часть нет, пустая строка не должна
+        # вытеснить известную дату.
+        date = row["date"] or ""
+        if date and (not group["date"] or date < group["date"]):
+            group["date"] = date
+        sort_value = _movement_sort_value(row["id"], date)
+        if group["sort"] is None or sort_value < group["sort"]:
+            group["sort"] = sort_value
+        asset_id = row["asset_id"]
+        group["quantities"][asset_id] = (
+            group["quantities"].get(asset_id, 0) + max(1, int(row["quantity"] or 1))
+        )
+
+    ordered = sorted(groups.values(), key=lambda g: (g["sort"] or 0, g["act_number"] or 0))
+    items: list[dict] = []
+
+    def add_items(group: dict, sequence_id: str) -> None:
+        employee_id, _department, _site, workplace_id = group["recipient"]
+        # Выдача на стол без человека — техника закреплена за местом и
+        # переживает смену сотрудника; всё остальное личное.
+        scope = "workplace" if workplace_id and not employee_id else "personal"
+        for index, (asset_id, quantity) in enumerate(sorted(group["quantities"].items()), start=1):
+            items.append({
+                "id": f"asgi_{sequence_id}_{index:03d}",
+                "assignment_id": group["id"],
+                "asset_id": asset_id,
+                "quantity": quantity,
+                "returned_quantity": 0,
+                "returned_at": None,
+                "scope": scope,
+                "group": group,
+            })
+
+    for sequence, group in enumerate(ordered, start=1):
+        group["id"] = f"asg_mig_{sequence:05d}"
+        add_items(group, f"mig_{sequence:05d}")
+
+    # ── Сверка с текущим состоянием ───────────────────────────────
+    outstanding: dict[tuple, int] = {}
+    for row in allocations:
+        key = (row["asset_id"],) + _recipient_key(row)
+        outstanding[key] = outstanding.get(key, 0) + int(row["quantity"] or 0)
+
+    returns: dict[tuple, list[str]] = {}
+    for row in connection.execute(
+        "SELECT asset_id, employee_id, department, site, workplace_id, date "
+        "FROM movements WHERE type = 'return' ORDER BY date"
+    ):
+        returns.setdefault((row["asset_id"],) + _recipient_key(row), []).append(row["date"] or "")
+
+    items_by_key: dict[tuple, list[dict]] = {}
+    for item in items:
+        items_by_key.setdefault((item["asset_id"],) + item["group"]["recipient"], []).append(item)
+
+    # Получатель -> {техника: сколько не объяснено движениями}.
+    recovered: dict[tuple, dict[str, int]] = {}
+
+    def recover(key: tuple, quantity: int) -> None:
+        asset_id, recipient = key[0], key[1:]
+        bucket = recovered.setdefault(recipient, {})
+        bucket[asset_id] = bucket.get(asset_id, 0) + quantity
+
+    for key, bucket in items_by_key.items():
+        # Свежие выдачи остаются активными, старые закрываются: если
+        # ноутбук выдавали дважды, «на руках» он по свежему акту (§14).
+        bucket.sort(key=lambda i: (i["group"]["sort"] or 0, i["group"]["act_number"] or 0), reverse=True)
+        remaining = outstanding.pop(key, 0)
+        last_return = returns.get(key, [""])[-1] or None
+        for item in bucket:
+            active = min(remaining, item["quantity"])
+            item["returned_quantity"] = item["quantity"] - active
+            remaining -= active
+            if item["returned_quantity"] >= item["quantity"]:
+                item["returned_at"] = last_return
+        if remaining > 0:
+            recover(key, remaining)
+
+    for key, quantity in outstanding.items():
+        recover(key, quantity)
+
+    # Восстановленные выдачи идут в конец нумерации: даты у них нет, и
+    # место в хронологии определить нечем.
+    for sequence, (recipient, quantities) in enumerate(sorted(recovered.items(), key=str), start=1):
+        group = {
+            "id": f"asg_rec_{sequence:05d}",
+            "date": "",
+            "sort": None,
+            "act_number": None,
+            "recipient": recipient,
+            "movements": [],
+            "quantities": quantities,
+            "notes": _RECOVERED_NOTE,
+        }
+        ordered.append(group)
+        add_items(group, f"rec_{sequence:05d}")
+
+    next_number = assignment_codes.next_number(connection)
+    for group in ordered:
+        group["code"] = assignment_codes.assign_code(next_number)
+        next_number += 1
+
+    # ── Запись ────────────────────────────────────────────────────
+    items_by_assignment: dict[str, list[dict]] = {}
+    for item in items:
+        items_by_assignment.setdefault(item["assignment_id"], []).append(item)
+
+    for group in ordered:
+        bucket = items_by_assignment.get(group["id"], [])
+        closed = bool(bucket) and all(
+            item["returned_quantity"] >= item["quantity"] for item in bucket
+        )
+        returned_dates = [item["returned_at"] for item in bucket if item["returned_at"]]
+        employee_id, department, site, workplace_id = group["recipient"]
+        connection.execute(
+            "INSERT INTO assignments (id, code, employee_id, workplace_id, department, "
+            "site, status, issued_at, returned_at, act_number, notes, created_by) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '')",
+            (
+                group["id"], group["code"], employee_id or None, workplace_id,
+                department, site,
+                "returned" if closed else "active",
+                group["date"],
+                max(returned_dates) if (closed and returned_dates) else None,
+                group["act_number"],
+                group["notes"],
+            ),
+        )
+        for movement_id in group["movements"]:
+            connection.execute(
+                "UPDATE movements SET assignment_id = ? WHERE id = ?",
+                (group["id"], movement_id),
+            )
+
+    for item in items:
+        connection.execute(
+            "INSERT INTO assignment_items (id, assignment_id, asset_id, quantity, "
+            "returned_quantity, scope, returned_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                item["id"], item["assignment_id"], item["asset_id"], item["quantity"],
+                item["returned_quantity"], item["scope"], item["returned_at"],
+            ),
+        )
+
+    # ── Проверка §22: проекция обязана совпасть с исходным состоянием ──
+    projected: dict[tuple, int] = {}
+    for row in connection.execute(
+        "SELECT ai.asset_id, a.employee_id, a.department, a.site, a.workplace_id, "
+        "SUM(ai.quantity - ai.returned_quantity) AS quantity "
+        "FROM assignment_items ai JOIN assignments a ON a.id = ai.assignment_id "
+        "WHERE ai.quantity > ai.returned_quantity "
+        "GROUP BY ai.asset_id, a.employee_id, a.department, a.site, a.workplace_id"
+    ):
+        projected[(row["asset_id"],) + _recipient_key(row)] = int(row["quantity"])
+
+    original: dict[tuple, int] = {}
+    for row in allocations:
+        key = (row["asset_id"],) + _recipient_key(row)
+        original[key] = original.get(key, 0) + int(row["quantity"] or 0)
+
+    if projected != original:
+        raise MigrationDataError(
+            "Проекция выдач не совпала с asset_allocations: "
+            f"было {sorted(original.items(), key=str)}, стало {sorted(projected.items(), key=str)}"
+        )
+
+
 MIGRATIONS: list[Migration] = [
     (1, "assets.repair_quantity", _migrate_001),
     (2, "assets.retired_quantity", _migrate_002),
@@ -472,6 +832,8 @@ MIGRATIONS: list[Migration] = [
     (32, "assets.warranty_reminder_off", _migrate_032_warranty_reminder_off),
     (33, "workplaces.department", _migrate_033_workplaces_department),
     (34, "workplaces.code: бэкофилл WP-NNNN", _migrate_034_workplaces_code),
+    (35, "assignments + assignment_items", _migrate_035_assignments_tables),
+    (36, "assignments: бэкофилл ASSIGN-NNNN из движений", _migrate_036_assignments_backfill),
 ]
 
 

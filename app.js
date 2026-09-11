@@ -4,6 +4,7 @@ const EMPTY_STATE = {
   departments: [],
   sites: [],
   workplaces: [],
+  assignments: [],
   assets: [],
   movements: [],
   auditLog: [],
@@ -314,6 +315,34 @@ function matchesSearch(query, ...values) {
   return values.some((value) => normalizeSearchValue(value).includes(query));
 }
 
+// Выдача ASSIGN-NNNN: получатель, дата и несколько единиц техники одной
+// операцией. code принадлежит серверу (assignment_codes.py) — клиент его
+// только показывает, как и WP-NNNN у рабочих мест.
+function normalizeAssignment(assignment) {
+  return {
+    id: assignment.id || createId("asg"),
+    code: assignment.code || "",
+    employeeId: assignment.employeeId || null,
+    workplaceId: assignment.workplaceId || "",
+    department: assignment.department || "",
+    site: assignment.site || "",
+    status: assignment.status === "returned" ? "returned" : "active",
+    issuedAt: assignment.issuedAt || "",
+    returnedAt: assignment.returnedAt || null,
+    actNumber: assignment.actNumber || null,
+    notes: assignment.notes || "",
+    createdBy: assignment.createdBy || "",
+    items: (Array.isArray(assignment.items) ? assignment.items : []).map((item) => ({
+      id: item.id || createId("asgi"),
+      assetId: item.assetId,
+      quantity: Math.max(1, Number(item.quantity || 1)),
+      returnedQuantity: Math.max(0, Number(item.returnedQuantity || 0)),
+      scope: item.scope === "workplace" ? "workplace" : "personal",
+      returnedAt: item.returnedAt || null,
+    })),
+  };
+}
+
 function normalizeAsset(asset) {
   return {
     id: asset.id || createId("asset"),
@@ -394,6 +423,13 @@ function hydrateState(parsed) {
       site: entry.site || "",
       notes: entry.notes || "",
     })),
+    // Выдачи — единственный источник правды о том, у кого что
+    // находится. asset.allocations ниже приезжает с сервера уже как их
+    // проекция; локально она пересчитывается syncAllocations() после
+    // каждой операции, чтобы экран не ждал сохранения.
+    assignments: Array.isArray(parsed.assignments)
+      ? parsed.assignments.map(normalizeAssignment)
+      : [],
     assets: Array.isArray(parsed.assets) ? parsed.assets.map(normalizeAsset) : [],
     movements: Array.isArray(parsed.movements) ? parsed.movements : [],
     auditLog: parsed.auditLog || [],
@@ -682,6 +718,81 @@ function getLocationLabel(value) {
   if (location.type === "warehouse") return "Склад";
   const employee = getEmployeeById(location.employeeId);
   return employee ? employee.fullName : "Неизвестный сотрудник";
+}
+
+// ─── ВЫДАЧИ ─────────────────────────────────────────────────────
+// Пересчитывает asset.allocations из выдач. Вызывается после КАЖДОЙ
+// операции, меняющей выдачи, и это единственное место, где allocations
+// вообще меняются: у сотрудника, у стола, на складе и в карточке
+// техники теперь физически нечему разъехаться — все они читают одну
+// проекцию одних и тех же выдач.
+//
+// Ровно то же считает сервер при импорте (project_allocations в
+// server.py), совпадение проверяется tests/test_assignments_js_parity.py.
+function syncAllocations() {
+  const projected = AssetOps.projectAllocations(state.assignments);
+  state.assets.forEach((asset) => {
+    asset.allocations = projected[asset.id] || [];
+  });
+}
+
+// Заводит операцию выдачи. Номер ASSIGN-NNNN не придумываем: его
+// присвоит сервер при сохранении и вернёт в следующем состоянии —
+// как WP-NNNN у рабочих мест.
+function createAssignment({ employeeId = null, workplaceId = "", department = "", site = "", issuedAt = "", actNumber = null, notes = "" } = {}) {
+  const assignment = {
+    id: createId("asg"),
+    code: "",
+    employeeId: employeeId || null,
+    workplaceId: workplaceId || "",
+    department,
+    site,
+    status: "active",
+    issuedAt: issuedAt || today(),
+    returnedAt: null,
+    actNumber,
+    notes,
+    createdBy: "",
+    items: [],
+  };
+  state.assignments.push(assignment);
+  return assignment;
+}
+
+function addAssignmentItem(assignment, { assetId, quantity, scope = "personal" }) {
+  const item = {
+    id: createId("asgi"),
+    assetId,
+    quantity: Math.max(1, Number(quantity || 1)),
+    returnedQuantity: 0,
+    scope: scope === "workplace" ? "workplace" : "personal",
+    returnedAt: null,
+  };
+  assignment.items.push(item);
+  return item;
+}
+
+function getAssignmentById(assignmentId) {
+  return state.assignments.find((entry) => entry.id === assignmentId) || null;
+}
+
+// Активная выдача, по которой техника числится прямо сейчас — для
+// сообщения «уже выдана: Иванов, Стол №7» вместо «доступно: 0».
+function getActiveHolder(assetId) {
+  return AssetOps.activeHolder(state.assignments, assetId);
+}
+
+// Человекочитаемая подпись держателя для сообщений и карточек.
+function holderLabel(assignment) {
+  if (!assignment) return "";
+  const parts = [];
+  const employee = assignment.employeeId ? getEmployeeById(assignment.employeeId) : null;
+  if (employee) parts.push(employee.fullName);
+  const workplace = assignment.workplaceId ? getWorkplaceById(assignment.workplaceId) : null;
+  if (workplace) parts.push(workplace.name);
+  if (assignment.department) parts.push(assignment.department);
+  if (assignment.site) parts.push(assignment.site);
+  return parts.join(" · ");
 }
 
 function getAssetStatus(asset) {
@@ -2115,23 +2226,24 @@ function openEmployeeDetailsModal(employeeId) {
     ? `<span class="emp-status-badge inactive">Уволен / Неактивен</span>`
     : `<span class="emp-status-badge active">Активен</span>`;
 
-  // Техника делится на два списка: то, что стоит на рабочем месте
-  // сотрудника (остаётся столу при увольнении), и то, что числится
-  // лично за ним (при увольнении возвращается на склад).
-  const { personal, workplace, atWorkplace } = getEmployeeHoldings(employee.id);
-  const totalCount = personal.length + atWorkplace.length;
+  // Один список, а не два: для пользователя это одна и та же «техника у
+  // Иванова» (§8 и §19 ТЗ). Разница между личной и столовой не исчезла —
+  // она помечена у каждой позиции и решает её судьбу при пересадке и
+  // увольнении, — но складывать два списка в уме больше не нужно.
+  const { holdings, workplace } = getEmployeeHoldings(employee.id);
+  const totalCount = holdings.length;
 
   let assetsHtml = `<div class="empty-state" style="padding:20px"><p>Техники за сотрудником нет</p></div>`;
   if (totalCount > 0) {
-    assetsHtml =
-      (workplace
-        ? `<div class="held-title">На рабочем месте — ${escapeHtml(workplace.name)}</div>`
-          + (atWorkplace.length ? renderHoldingsListDetailed(atWorkplace, { workplaceId: workplace.id }) : `<div class="held-title empty">Техники на месте нет</div>`)
-        : "")
-      + (personal.length
-        ? `<div class="held-title"${workplace ? ' style="margin-top:14px"' : ""}>Лично на руках</div>` + renderHoldingsListDetailed(personal, { employeeId: employee.id })
-        : "");
+    assetsHtml = renderHoldingsListDetailed(holdings, { employeeId: employee.id });
   }
+  const workplaceHtml = workplace
+    ? `<div class="emp-profile-field"><div class="emp-profile-field-label">Рабочее место</div>`
+      + `<div class="emp-profile-field-value">${escapeHtml(workplace.name)}`
+      + (workplace.code ? ` · <code>${escapeHtml(workplace.code)}</code>` : "")
+      + `</div></div>`
+    : `<div class="emp-profile-field"><div class="emp-profile-field-label">Рабочее место</div>`
+      + `<div class="emp-profile-field-value">Не назначено</div></div>`;
 
   body.innerHTML = `
     <div class="emp-profile-header">
@@ -2152,6 +2264,7 @@ function openEmployeeDetailsModal(employeeId) {
         <div class="emp-profile-field-label">Отдел</div>
         <div class="emp-profile-field-value">${escapeHtml(employee.department || "—")}</div>
       </div>
+      ${workplaceHtml}
       <div class="emp-profile-field">
         <div class="emp-profile-field-label">Должность</div>
         <div class="emp-profile-field-value">${escapeHtml(employee.position || "—")}</div>
@@ -2184,7 +2297,35 @@ function openEmployeeDetailsModal(employeeId) {
     </div>
   `;
 
+  const holdingsRoot = body.querySelector(".emp-profile-assets-sec");
+  if (holdingsRoot) holdingsRoot.addEventListener("click", handleHoldingsClick(employee.id, ""));
+
   overlay.classList.remove("hidden");
+}
+
+// Клики по позициям в карточке сотрудника: открыть технику или снять
+// её с получателя. Делегируется на тело карточки — список
+// перерисовывается целиком, вешать обработчики на каждую строку
+// пришлось бы заново после каждой операции.
+function handleHoldingsClick(employeeId, workplaceId) {
+  return (event) => {
+    const button = event.target.closest("button[data-action]");
+    if (!button) return;
+    const assetId = button.dataset.assetId;
+    if (!assetId) return;
+    if (button.dataset.action === "open-asset") {
+      closeEmployeeDetailsModal();
+      activateView("inventory");
+      enterAssetEditMode(assetId);
+    }
+    if (button.dataset.action === "remove-holding") {
+      removeHolding(assetId, { employeeId, workplaceId }).then(() => {
+        if (employeeId && document.getElementById("employeeDetailsOverlay")?.classList.contains("hidden") === false) {
+          openEmployeeDetailsModal(employeeId);
+        }
+      });
+    }
+  };
 }
 
 function closeEmployeeDetailsModal() {
@@ -2501,22 +2642,100 @@ function handleSiteDelete(siteId) {
 }
 
 // ─── РАБОЧИЕ МЕСТА ──────────────────────────────────────────────
-// Техника, числящаяся за столом.
-function getWorkplaceAssets(workplaceId) {
-  return state.assets
-    .map((asset) => ({ asset, allocation: getWorkplaceAllocation(asset, workplaceId) }))
-    .filter((entry) => entry.allocation && entry.allocation.quantity > 0);
+// Позиция выдачи в том виде, в каком её ждут списки и карточки.
+// allocation оставлен ради существующего кода отрисовки: он читает
+// оттуда только quantity, а количество здесь — активный остаток
+// позиции, то есть ровно то же число, что попадёт в проекцию.
+function toHoldingEntry(holding) {
+  const asset = getAssetById(holding.assetId);
+  if (!asset) return null;
+  return {
+    asset,
+    allocation: { quantity: holding.quantity },
+    assignment: holding.assignment,
+    item: holding.item,
+    scope: holding.scope,
+  };
 }
 
-// Техника сотрудника делится надвое: то, что числится лично за ним, и
-// то, что стоит на его рабочем месте. При увольнении первое возвращается
-// на склад, второе остаётся на месте — поэтому списки разные.
+// Техника, числящаяся за столом: и закреплённая за самим местом, и
+// личная того, кто за ним сидит. Тот же список, что видит сотрудник —
+// потому что читается та же выдача, а не отдельная копия для стола
+// (§9 и §24 ТЗ).
+function getWorkplaceAssets(workplaceId) {
+  return AssetOps.holdingsForWorkplace(state.assignments, workplaceId)
+    .map(toHoldingEntry)
+    .filter(Boolean);
+}
+
+// Вся техника сотрудника одним списком. Разница между личной и
+// столовой никуда не делась — она в scope у каждой позиции и решает
+// судьбу техники при пересадке и увольнении, — но для пользователя это
+// одна и та же «техника у Иванова», и показывать её двумя таблицами
+// значит заставлять его складывать их в уме.
 function getEmployeeHoldings(employeeId) {
-  const personal = state.assets
-    .map((asset) => ({ asset, allocation: getEmployeeAllocation(asset, employeeId) }))
-    .filter((entry) => entry.allocation && entry.allocation.quantity > 0);
   const workplace = getEmployeeWorkplace(employeeId);
-  return { personal, workplace, atWorkplace: workplace ? getWorkplaceAssets(workplace.id) : [] };
+  const holdings = AssetOps.holdingsForEmployee(state.assignments, employeeId, workplace?.id || "")
+    .map(toHoldingEntry)
+    .filter(Boolean);
+  return {
+    workplace,
+    holdings,
+    personal: holdings.filter((entry) => entry.scope === "personal"),
+    atWorkplace: holdings.filter((entry) => entry.scope === "workplace"),
+  };
+}
+
+/**
+ * Снимает позицию с сотрудника или со стола: закрывает выдачу и
+ * возвращает технику на склад. Сам объект техники не трогается — он
+ * участвует в истории, и удалять его нельзя (§11 ТЗ). Пропадает
+ * одновременно у сотрудника и у стола, потому что источник один.
+ */
+async function removeHolding(assetId, { employeeId = "", workplaceId = "" } = {}) {
+  const asset = getAssetById(assetId);
+  if (!asset) return;
+  const holder = employeeId ? getEmployeeById(employeeId) : getWorkplaceById(workplaceId);
+  const holderName = holder ? (holder.fullName || holder.name) : "получателя";
+  const confirmed = await showConfirm(
+    `Снять «${asset.name}» с ${holderName} и вернуть на склад?`,
+  );
+  if (!confirmed) return;
+
+  const holdings = employeeId
+    ? AssetOps.holdingsForEmployee(state.assignments, employeeId, "")
+    : AssetOps.holdingsForWorkplace(state.assignments, workplaceId);
+  const quantity = holdings
+    .filter((entry) => entry.assetId === assetId)
+    .reduce((sum, entry) => sum + entry.quantity, 0);
+  if (quantity <= 0) {
+    showToast("Эта техника уже не числится за получателем.", "warning");
+    return;
+  }
+
+  const date = today();
+  const actNumber = getNextActNumber();
+  try {
+    const touched = AssetOps.returnFromAssignments(state.assignments, {
+      assetId, quantity, date,
+      employeeId: employeeId || "",
+      workplaceId: employeeId ? "" : workplaceId,
+    });
+    addMovement({
+      type: "return", assetId, employeeId: employeeId || null,
+      workplaceId: employeeId ? "" : workplaceId,
+      actNumber, quantity, date, notes: "Снято с получателя",
+      assignmentId: touched[0]?.id || "",
+    });
+  } catch (error) {
+    showToast(error.message, "error");
+    return;
+  }
+  syncAllocations();
+  addAuditEntry("asset", assetId, "return", { employee: holderName, quantity });
+  await persist();
+  render();
+  showToast(`«${asset.name}» возвращена на склад.`, "success");
 }
 
 // Общая отрисовка списка «инв.№ / название / кол-во» для обоих мест
@@ -2527,48 +2746,40 @@ function renderHoldingsList(entries) {
   ).join("") + `</ul>`;
 }
 
-// Последняя по свежести операция «Выдача» этой техники этому
-// получателю — сотруднику лично или его рабочему месту (§2 ТЗ: для
-// каждой единицы техники нужна дата выдачи, операция и комментарий, а
-// у allocation этих данных нет — только в журнале движений).
-// AssetOps.movementSortValue — тот же порядок, что чинит видимость
-// выдач в «Операциях» (часть 1): запись без даты не считается «самой
-// старой», а сортируется по моменту создания.
-function findLatestIssueMovement(assetId, { employeeId = null, workplaceId = null } = {}) {
-  const candidates = state.movements.filter((m) =>
-    m.type === "issue" && m.assetId === assetId &&
-    (employeeId ? m.employeeId === employeeId : Boolean(workplaceId) && m.workplaceId === workplaceId)
-  );
-  if (!candidates.length) return null;
-  return [...candidates].sort((a, b) => AssetOps.movementSortValue(b) - AssetOps.movementSortValue(a))[0];
-}
-
-// Подробный список техники для карточки сотрудника (§2 ТЗ): дата
-// выдачи, текущий статус и операция, в результате которой техника
-// оказалась у получателя, плюс комментарий, если он был указан.
+// Подробный список техники для карточки сотрудника и стола: дата
+// выдачи, текущий статус и операция ASSIGN-NNNN, по которой техника
+// оказалась у получателя, плюс комментарий, если он был указан. Всё
+// это лежит в самой выдаче — подбирать подходящее движение по журналу
+// (чем занималась findLatestIssueMovement до слоя выдач) больше не
+// нужно, а на технике, выданной дважды, подбор ещё и ошибался.
 // В отличие от renderHoldingsList (используется ещё и в панели
 // «уже на руках» при выдаче — там нужен краткий список, не подробный
 // аудит), эта функция используется только на карточке сотрудника.
 function renderHoldingsListDetailed(entries, recipient) {
-  return `<ul class="held-list">` + entries.map(({ asset, allocation }) => {
-    const movement = findLatestIssueMovement(asset.id, recipient);
-    const dateText = movement ? movementDateLabel(movement) : "Неизвестно";
-    const opText = movement
-      ? `${movementLabels[movement.type] || movement.type}${movement.actNumber ? ` · Акт №${movement.actNumber}` : ""}`
-      : "—";
+  return `<ul class="held-list">` + entries.map((entry) => {
+    const { asset, allocation, assignment, scope } = entry;
+    // Дата и номер берутся у самой выдачи, а не подбираются по журналу:
+    // раньше подходящее движение приходилось угадывать по совпадению
+    // получателя, и на технике, выданной дважды, угадывалось неверно.
+    const dateText = assignment?.issuedAt ? formatDate(assignment.issuedAt) : "Неизвестно";
+    const opText = assignment?.code
+      || (assignment?.actNumber ? `Акт №${assignment.actNumber}` : "—");
     const statusText = statusLabels[getAssetStatus(asset)] || asset.status;
-    const noteText = movement?.notes ? ` · ${escapeHtml(movement.notes)}` : "";
-    // Составная подпись вместо одного «Выдано:»: на рабочем месте дата
-    // относится к столу, а не к текущему хозяину (стол мог сменить
-    // владельца без новой выдачи), и когда движение покрывает не всё
-    // количество записи (частями довыдавали), дата тоже только «последняя»,
-    // а не «когда пришло всё».
-    const verb = movement && movement.quantity < allocation.quantity ? "Последняя выдача" : "Выдано";
-    const target = recipient.workplaceId ? " на место" : "";
-    const issueLabel = `${verb}${target}`;
+    const noteText = assignment?.notes ? ` · ${escapeHtml(assignment.notes)}` : "";
+    // Чем позиция закреплена, видно прямо в строке: столовая техника
+    // остаётся на месте при смене сотрудника, личная уезжает с ним.
+    const scopeChip = scope === "workplace"
+      ? `<span class="chip">На месте</span>`
+      : `<span class="chip ok">Лично</span>`;
+    const removeButton = (recipient.employeeId || recipient.workplaceId)
+      ? `<button type="button" class="danger-button" data-requires-role="admin,storekeeper" data-action="remove-holding" data-asset-id="${escapeHtml(asset.id)}">Снять</button>`
+      : "";
     return `<li>
-      <code>${escapeHtml(asset.inventoryNumber || "—")}</code><span>${escapeHtml(asset.name)}</span><b>${allocation.quantity} шт.</b>
-      <div class="held-item-meta">${escapeHtml(issueLabel)}: ${escapeHtml(dateText)} · ${escapeHtml(opText)} · Статус: ${escapeHtml(statusText)}${noteText}</div>
+      <button type="button" class="held-item-open" data-action="open-asset" data-asset-id="${escapeHtml(asset.id)}" title="Открыть карточку техники">
+        <code>${escapeHtml(asset.inventoryNumber || "—")}</code><span>${escapeHtml(asset.name)}</span>
+      </button>
+      <b>${allocation.quantity} шт.</b>${scopeChip}${removeButton}
+      <div class="held-item-meta">Выдано: ${escapeHtml(dateText)} · ${escapeHtml(opText)} · Статус: ${escapeHtml(statusText)}${noteText}</div>
     </li>`;
   }).join("") + `</ul>`;
 }
@@ -2602,18 +2813,22 @@ function workplaceDeptLabel(department) {
 // state.assets обходится ровно один раз.
 function buildWorkplaceAssetsIndex() {
   const index = new Map();
-  state.assets.forEach((asset) => {
-    // Одна позиция учитывается за местом один раз — как .find() в
-    // getWorkplaceAllocation, который берёт первую подходящую запись.
-    const counted = new Set();
-    asset.allocations.forEach((entry) => {
-      if (entry.employeeId || entry.department || entry.site || !entry.workplaceId) return;
-      if (counted.has(entry.workplaceId)) return;
-      counted.add(entry.workplaceId);
-      if (!(entry.quantity > 0)) return;
-      const items = index.get(entry.workplaceId);
-      if (items) items.push({ asset, allocation: entry });
-      else index.set(entry.workplaceId, [{ asset, allocation: entry }]);
+  // Один проход по выдачам вместо обхода всей техники на каждое место.
+  // Читаются те же выдачи, что и в карточке сотрудника, поэтому список
+  // стола не может разойтись со списком того, кто за ним сидит.
+  state.assignments.forEach((assignment) => {
+    (assignment.items || []).forEach((item) => {
+      const quantity = AssetOps.activeQuantity(item);
+      if (quantity <= 0) return;
+      const recipient = AssetOps.assignmentRecipient(assignment, item.scope);
+      const workplaceId = recipient.workplaceId || assignment.workplaceId;
+      if (!workplaceId) return;
+      const asset = getAssetById(item.assetId);
+      if (!asset) return;
+      const entry = { asset, allocation: { quantity }, assignment, item, scope: item.scope };
+      const items = index.get(workplaceId);
+      if (items) items.push(entry);
+      else index.set(workplaceId, [entry]);
     });
   });
   return index;
@@ -2846,6 +3061,33 @@ function renderWorkplaceFormSelects() {
   }
 }
 
+/**
+ * Пересадка сотрудника (§13 ТЗ): активные выдачи переезжают за ним на
+ * новый стол. Переносить каждую единицу руками не нужно — меняется одно
+ * поле у выдачи, и техника сама пропадает со старого места и
+ * появляется на новом, потому что оба стола читают одни и те же выдачи.
+ *
+ * Столовые выдачи (scope = 'workplace') не трогаются: они закреплены за
+ * МЕСТОМ, а не за человеком, и остаются там при смене сотрудника (§15).
+ * Именно поэтому виды закрепления не смешиваются в одной выдаче — иначе
+ * пришлось бы разрывать операцию надвое прямо здесь.
+ */
+function moveEmployeeAssignmentsToWorkplace(employeeId, workplaceId) {
+  if (!employeeId) return 0;
+  let moved = 0;
+  state.assignments.forEach((assignment) => {
+    if (assignment.status !== "active" || assignment.employeeId !== employeeId) return;
+    if ((assignment.workplaceId || "") === (workplaceId || "")) return;
+    const boundToDesk = (assignment.items || []).some(
+      (item) => item.scope === "workplace" && AssetOps.activeQuantity(item) > 0,
+    );
+    if (boundToDesk) return;
+    assignment.workplaceId = workplaceId || "";
+    moved += 1;
+  });
+  return moved;
+}
+
 async function handleWorkplaceSubmit(event) {
   event.preventDefault();
   const formData = new FormData(event.currentTarget);
@@ -2886,6 +3128,12 @@ async function handleWorkplaceSubmit(event) {
         from: previousOwner ? getEmployeeById(previousOwner)?.fullName : "свободно",
         to: employeeId ? getEmployeeById(employeeId)?.fullName : "свободно",
       });
+      // Личная техника прежнего хозяина уезжает с ним — за столом она
+      // не числилась, стол лишь показывал её, пока человек тут сидел.
+      // Столовая остаётся на месте: её и должен унаследовать новый.
+      if (previousOwner) moveEmployeeAssignmentsToWorkplace(previousOwner, "");
+      moveEmployeeAssignmentsToWorkplace(employeeId, workplace.id);
+      syncAllocations();
     }
     if (fieldsChanged) {
       addAuditEntry("workplace", workplace.id, "update", { name, department, site, notes });
@@ -2897,6 +3145,10 @@ async function handleWorkplaceSubmit(event) {
     // реальный WP-NNNN (см. server.py import_state).
     const workplace = { id: createId("wp"), name, code: "", department, employeeId, site, notes };
     state.workplaces.push(workplace);
+    if (employeeId) {
+      moveEmployeeAssignmentsToWorkplace(employeeId, workplace.id);
+      syncAllocations();
+    }
     addAuditEntry("workplace", workplace.id, "create", { name, department });
     showToast("Рабочее место успешно создано.", "success");
   }
@@ -3953,8 +4205,8 @@ async function doPersist() {
   }
 }
 
-function addMovement({ type, assetId, employeeId = null, department = "", site = "", workplaceId = "", quantity = 0, date, notes = "", actNumber = null }) {
-  state.movements.push({ id: createId("mov"), type, assetId, employeeId, department, site, workplaceId, actNumber, quantity, date, notes });
+function addMovement({ type, assetId, employeeId = null, department = "", site = "", workplaceId = "", quantity = 0, date, notes = "", actNumber = null, assignmentId = "" }) {
+  state.movements.push({ id: createId("mov"), type, assetId, employeeId, department, site, workplaceId, actNumber, quantity, date, notes, assignmentId });
 }
 
 function enterAssetEditMode(assetId) {
@@ -4309,18 +4561,52 @@ async function handleIssueSubmit(event) {
     }
     const available = getAvailableQuantity(asset);
     if (quantity > available) {
-      showToast(`Нельзя выдать ${quantity} шт. По позиции "${asset.name}" доступно: ${available}.`, 'warning');
+      // §7 ТЗ: «доступно: 0» не объясняет, что произошло. Называем
+      // текущего держателя — сотрудника и стол — чтобы было видно, у
+      // кого технику забирать.
+      const holder = available <= 0 ? getActiveHolder(asset.id) : null;
+      const where = holder ? holderLabel(holder.assignment) : "";
+      showToast(
+        where
+          ? `Техника «${asset.name}» уже выдана: ${where}${holder.assignment.code ? ` · ${holder.assignment.code}` : ""}.`
+          : `Нельзя выдать ${quantity} шт. По позиции "${asset.name}" доступно: ${available}.`,
+        'warning',
+      );
       return;
     }
   }
   const actNumber = getNextActNumber();
   const employee = employeeId ? getEmployeeById(employeeId) : null;
+  const issueDate = formData.get("date") || today();
+  const issueNotes = String(formData.get("notes") || "").trim();
+  // Вся форма — ОДНА операция выдачи: несколько единиц техники под одним
+  // номером ASSIGN-NNNN (§5 ТЗ), ровно как их уже объединяет акт.
+  //
+  // Рабочее место сотрудника подставляется само (§6 ТЗ): выдача знает и
+  // человека, и стол, поэтому карточка стола покажет ту же технику без
+  // отдельной записи для него.
+  const employeeWorkplace = employeeId ? getEmployeeWorkplace(employeeId) : null;
+  // scope не смешивается в одной выдаче: личное закреплено за человеком и
+  // уезжает с ним при пересадке, столовое — за местом и остаётся при
+  // смене сотрудника (§13 и §15 ТЗ). Форма адресует выдачу целиком
+  // одному получателю, поэтому и вид закрепления у неё один.
+  const scope = workplaceId && !employeeId ? "workplace" : "personal";
+  const assignment = createAssignment({
+    employeeId,
+    workplaceId: workplaceId || employeeWorkplace?.id || "",
+    department: departmentName,
+    site: siteName,
+    issuedAt: issueDate,
+    actNumber,
+    notes: issueNotes,
+  });
   for (const [assetId, quantity] of aggregated.entries()) {
     const asset = getAssetById(assetId);
-    AssetOps.mergeAllocation(asset.allocations, { employeeId, department: departmentName, site: siteName, workplaceId, quantity });
+    addAssignmentItem(assignment, { assetId, quantity, scope });
     addAuditEntry("asset", assetId, "issue", { employee: employee?.fullName, department: employee?.department || departmentName, site: siteName, quantity });
-    addMovement({ type: "issue", assetId: asset.id, employeeId: employeeId || null, department: departmentName, site: siteName, workplaceId, actNumber, quantity, date: formData.get("date") || today(), notes: String(formData.get("notes") || "").trim() });
+    addMovement({ type: "issue", assetId: asset.id, employeeId: employeeId || null, department: departmentName, site: siteName, workplaceId, actNumber, quantity, date: issueDate, notes: issueNotes, assignmentId: assignment.id });
   }
+  syncAllocations();
   // Очищаем только позиции: получатель и дата остаются, потому что
   // одному человеку обычно выдают несколько вещей подряд. Панель
   // «уже на руках» тут же показывает, что выдача прошла.
@@ -4397,13 +4683,20 @@ async function handleReturnSubmit(event) {
     }
   }
   const actNumber = getNextActNumber();
+  const returnDate = formData.get("date") || today();
+  const returnNotes = String(formData.get("notes") || "").trim();
   for (const [assetId, quantity] of aggregated.entries()) {
     const asset = getAssetById(assetId);
-    const allocation = findAlloc(asset);
-    allocation.quantity -= quantity;
-    asset.allocations = asset.allocations.filter((entry) => entry.quantity > 0);
-    addMovement({ type: "return", assetId: asset.id, employeeId: employeeId || null, department: departmentName, site: siteName, workplaceId, actNumber, quantity, date: formData.get("date") || today(), notes: String(formData.get("notes") || "").trim() });
+    // Возврат закрывает позиции выдачи, а не правит проекцию: строка
+    // остаётся в истории с returnedQuantity, и техника исчезает у
+    // сотрудника, у стола и снова видна на складе одним движением (§12).
+    const touched = AssetOps.returnFromAssignments(state.assignments, {
+      assetId, quantity, date: returnDate,
+      employeeId, workplaceId, department: departmentName, site: siteName,
+    });
+    addMovement({ type: "return", assetId: asset.id, employeeId: employeeId || null, department: departmentName, site: siteName, workplaceId, actNumber, quantity, date: returnDate, notes: returnNotes, assignmentId: touched[0]?.id || "" });
   }
+  syncAllocations();
   resetOperationForms();
   await persist();
 }
@@ -4432,8 +4725,13 @@ async function handleRepairSubmit(event) {
       showToast(`Нельзя отправить в ремонт ${quantity} шт. У сотрудника числится: ${allocation.quantity}.`, 'warning');
       return;
     }
-    allocation.quantity -= quantity;
-    asset.allocations = asset.allocations.filter((entry) => entry.quantity > 0);
+    // Через выдачу, а не правкой проекции: иначе следующий
+    // syncAllocations() вернул бы снятое количество обратно.
+    AssetOps.returnFromAssignments(state.assignments, {
+      assetId: asset.id, quantity, date: formData.get("date") || today(),
+      employeeId: source.employeeId,
+    });
+    syncAllocations();
   }
   asset.repairQuantity = Number(asset.repairQuantity || 0) + quantity;
   if (!asset.repairDate) asset.repairDate = formData.get("date") || today();
@@ -4471,11 +4769,19 @@ async function handleRepairReturnSubmit(event) {
   }
   asset.repairQuantity = inRepair - quantity;
   if (asset.repairQuantity <= 0) asset.repairDate = "";
+  let repairAssignment = null;
   if (target.type === "employee") {
-    // Через общую функцию, а не вручную: иначе здесь появляется второе
-    // определение формы записи о выдаче — эта ветка создавала её без
-    // полей department, site и workplaceId.
-    AssetOps.mergeAllocation(asset.allocations, { employeeId: target.employeeId, quantity });
+    // Отдельная операция выдачи, а не дописка в проекцию: техника
+    // возвращается к человеку — это событие, у которого есть дата и
+    // номер, и в истории оно должно быть видно как выдача.
+    repairAssignment = createAssignment({
+      employeeId: target.employeeId,
+      workplaceId: getEmployeeWorkplace(target.employeeId)?.id || "",
+      issuedAt: formData.get("date") || today(),
+      notes: "Возврат из ремонта",
+    });
+    addAssignmentItem(repairAssignment, { assetId: asset.id, quantity, scope: "personal" });
+    syncAllocations();
   }
   const targetLabel = getLocationLabel(targetValue);
   const userNotes = String(formData.get("notes") || "").trim();
@@ -4486,6 +4792,7 @@ async function handleRepairReturnSubmit(event) {
     quantity,
     date: formData.get("date") || today(),
     notes: userNotes ? `Куда: ${targetLabel}. ${userNotes}` : `Куда: ${targetLabel}`,
+    assignmentId: repairAssignment?.id || "",
   });
   event.currentTarget.reset();
   event.currentTarget.elements.quantity.value = 1;

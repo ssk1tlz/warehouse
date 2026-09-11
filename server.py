@@ -26,6 +26,7 @@ else:
     _ACT_IMPORT_ERROR = ""
 
 import asset_codes
+import assignment_codes
 import workplace_codes
 import mobile_actions
 import migrations
@@ -349,6 +350,72 @@ VALID_MOVEMENT_TYPES = {"purchase", "issue", "return", "repair", "repair_return"
 STATE_LOCK = threading.Lock()
 
 
+
+def assignment_recipient(assignment: dict, scope: str = "personal") -> tuple:
+    """Кому адресуется позиция выдачи в терминах asset_allocations.
+
+    Выдача знает обоих — человека и стол. Проекция обязана выбрать
+    одного, потому что весь существующий код чтения (getEmployeeAllocation
+    в app.js, find_employee_allocation в mobile_actions.py) ждёт запись
+    ровно с одним заполненным полем. Выбирает scope позиции: личная
+    техника числится за человеком и уезжает с ним, столовая — за местом
+    и остаётся там при смене сотрудника.
+
+    Объединённый список «человек + его стол» собирается на фронтенде по
+    связи workplaces.employee_id, а не подменой этой записи: строка с
+    двумя заполненными полями сразу сломала бы и возврат, и мобильный
+    клиент.
+    """
+    employee_id = assignment.get("employeeId") or None
+    workplace_id = assignment.get("workplaceId") or ""
+    department = (assignment.get("department") or "").strip()
+    site = (assignment.get("site") or "").strip()
+    if scope == "workplace" and workplace_id:
+        return (None, "", "", workplace_id)
+    if employee_id:
+        return (employee_id, "", "", "")
+    if department:
+        return (None, department, "", "")
+    if site:
+        return (None, "", site, "")
+    return (None, "", "", workplace_id)
+
+
+def project_allocations(assignments: list) -> dict[str, list[dict]]:
+    """Активные остатки выдач в виде asset_allocations: техника -> записи.
+
+    Активна та часть позиции, которую ещё не вернули: quantity минус
+    returned_quantity. Возврат не удаляет строку (§12 ТЗ), поэтому
+    закрытая позиция просто перестаёт попадать в проекцию — и техника
+    исчезает у сотрудника, у стола и снова видна на складе разом.
+    """
+    totals: dict[str, dict[tuple, int]] = {}
+    for assignment in assignments or []:
+        for item in assignment.get("items") or []:
+            try:
+                quantity = int(item.get("quantity") or 0)
+                returned = int(item.get("returnedQuantity") or 0)
+            except (TypeError, ValueError):
+                continue
+            active = quantity - returned
+            if active <= 0:
+                continue
+            asset_id = item.get("assetId")
+            if not asset_id:
+                continue
+            key = assignment_recipient(assignment, item.get("scope") or "personal")
+            bucket = totals.setdefault(asset_id, {})
+            bucket[key] = bucket.get(key, 0) + active
+    projected: dict[str, list[dict]] = {}
+    for asset_id, bucket in totals.items():
+        projected[asset_id] = [
+            {"employeeId": key[0], "department": key[1], "site": key[2],
+             "workplaceId": key[3], "quantity": quantity}
+            for key, quantity in sorted(bucket.items(), key=lambda pair: str(pair[0]))
+        ]
+    return projected
+
+
 def validate_state(payload: dict) -> str | None:
     """Basic server-side validation. Returns error message or None."""
     if not isinstance(payload, dict):
@@ -356,6 +423,13 @@ def validate_state(payload: dict) -> str | None:
     for emp in payload.get("employees", []):
         if not emp.get("id") or not emp.get("fullName", "").strip():
             return "Each employee must have an id and fullName."
+    assignments = payload.get("assignments")
+    _projected_allocations = None
+    if assignments is not None:
+        error = _validate_assignments(assignments, payload.get("assets", []))
+        if error:
+            return error
+        _projected_allocations = project_allocations(assignments)
     for asset in payload.get("assets", []):
         if not asset.get("id") or not asset.get("name", "").strip():
             return "Each asset must have an id and name."
@@ -366,7 +440,15 @@ def validate_state(payload: dict) -> str | None:
         if not isinstance(qty, (int, float)) or qty < 0:
             return f"Invalid quantity for asset {asset.get('name')}."
         allocated = 0
-        for alloc in asset.get("allocations") or []:
+        # Когда клиент прислал выдачи, считаем по ним: asset.allocations
+        # с этого момента лишь проекция, и доверять ей нельзя —
+        # старый клиент мог прислать устаревшую копию.
+        asset_allocations = (
+            _projected_allocations.get(asset.get("id"), [])
+            if _projected_allocations is not None
+            else (asset.get("allocations") or [])
+        )
+        for alloc in asset_allocations:
             alloc_qty = alloc.get("quantity", 0)
             if not isinstance(alloc_qty, (int, float)) or alloc_qty < 0:
                 return f"Некорректное количество в выдаче по позиции «{asset.get('name')}»."
@@ -456,6 +538,74 @@ def init_db() -> None:
             f"{available or '  (нет резервных копий)'}\n"
             "Скопируйте один из файлов поверх warehouse.db вручную и запустите сервер снова."
         )
+
+
+
+def _validate_assignments(assignments: list, assets: list) -> str | None:
+    """Правила, без которых выдача перестаёт быть единым источником правды."""
+    if not isinstance(assignments, list):
+        return "Список выдач должен быть массивом."
+    known_assets = {asset.get("id") for asset in assets or []}
+    seen_ids = set()
+    for assignment in assignments:
+        assignment_id = assignment.get("id")
+        if not assignment_id:
+            return "У каждой выдачи должен быть id."
+        if assignment_id in seen_ids:
+            return f"Выдача {assignment_id} встречается дважды."
+        seen_ids.add(assignment_id)
+        label = assignment.get("code") or assignment_id
+
+        employee_id = assignment.get("employeeId") or ""
+        workplace_id = assignment.get("workplaceId") or ""
+        department = (assignment.get("department") or "").strip()
+        site = (assignment.get("site") or "").strip()
+        if not (employee_id or workplace_id or department or site):
+            return f"У выдачи {label} не указан получатель: сотрудник, рабочее место, отдел или объект."
+        # Отдел и объект — самостоятельные получатели: техника числится
+        # за подразделением, а не за человеком. Смешать их с сотрудником
+        # значило бы завести выдачу с двумя разными хозяевами.
+        if (department or site) and (employee_id or workplace_id):
+            return f"У выдачи {label} получателем указан и отдел или объект, и сотрудник или рабочее место."
+        if department and site:
+            return f"У выдачи {label} получателем указаны сразу отдел и объект."
+
+        status = assignment.get("status") or "active"
+        if status not in {"active", "returned"}:
+            return f"Недопустимый статус выдачи {label}: {status}"
+
+        items = assignment.get("items") or []
+        if not isinstance(items, list):
+            return f"Позиции выдачи {label} должны быть массивом."
+        for item in items:
+            asset_id = item.get("assetId")
+            if not asset_id:
+                return f"В выдаче {label} есть позиция без техники."
+            if known_assets and asset_id not in known_assets:
+                return f"Выдача {label} ссылается на несуществующую технику: {asset_id}"
+            try:
+                quantity = int(item.get("quantity") or 0)
+                returned = int(item.get("returnedQuantity") or 0)
+            except (TypeError, ValueError):
+                return f"Некорректное количество в выдаче {label}."
+            if quantity < 1:
+                return f"В выдаче {label} есть позиция с количеством {quantity}."
+            if returned < 0:
+                return f"В выдаче {label} возвращено отрицательное количество."
+            if returned > quantity:
+                return (
+                    f"В выдаче {label} возвращено больше, чем выдано: "
+                    f"{returned} из {quantity} шт."
+                )
+            scope = item.get("scope") or "personal"
+            if scope not in {"personal", "workplace"}:
+                return f"Недопустимый вид закрепления в выдаче {label}: {scope}"
+            if scope == "workplace" and not workplace_id:
+                return (
+                    f"В выдаче {label} позиция закреплена за рабочим местом, "
+                    "но само рабочее место не указано."
+                )
+    return None
 
 
 def read_state_version(connection: sqlite3.Connection) -> int:
@@ -562,6 +712,43 @@ def export_state() -> dict:
             )
         ]
 
+        items_by_assignment: dict[str, list[dict]] = {}
+        for row in connection.execute(
+            "SELECT id, assignment_id, asset_id, quantity, returned_quantity, scope, "
+            "returned_at FROM assignment_items ORDER BY id"
+        ):
+            items_by_assignment.setdefault(row["assignment_id"], []).append({
+                "id": row["id"],
+                "assetId": row["asset_id"],
+                "quantity": row["quantity"],
+                "returnedQuantity": row["returned_quantity"] or 0,
+                "scope": row["scope"] or "personal",
+                "returnedAt": row["returned_at"],
+            })
+
+        assignments = [
+            {
+                "id": row["id"],
+                "code": row["code"] or "",
+                "employeeId": row["employee_id"],
+                "workplaceId": row["workplace_id"] or "",
+                "department": row["department"] or "",
+                "site": row["site"] or "",
+                "status": row["status"],
+                "issuedAt": row["issued_at"] or "",
+                "returnedAt": row["returned_at"],
+                "actNumber": row["act_number"],
+                "notes": row["notes"] or "",
+                "createdBy": row["created_by"] or "",
+                "items": items_by_assignment.get(row["id"], []),
+            }
+            for row in connection.execute(
+                "SELECT id, code, employee_id, workplace_id, department, site, status, "
+                "issued_at, returned_at, act_number, notes, created_by FROM assignments "
+                "ORDER BY code, id"
+            )
+        ]
+
         allocations_by_asset: dict[str, list[dict]] = {}
         for row in connection.execute(
             "SELECT asset_id, employee_id, department, site, workplace_id, quantity FROM asset_allocations WHERE quantity > 0 ORDER BY asset_id, employee_id, department, site"
@@ -629,6 +816,7 @@ def export_state() -> dict:
         "departments": departments,
         "sites": sites,
         "workplaces": workplaces,
+        "assignments": assignments,
         "assets": assets,
         "movements": movements,
         "auditLog": audit,
@@ -695,7 +883,24 @@ def import_state(payload: dict, actor: str) -> dict:
         # прежние строки — иначе next_number увидел бы пустую таблицу и
         # начал бы нумерацию заново на каждом сохранении.
         next_workplace_num = workplace_codes.next_number(connection)
+        # То же и для выдач: код принадлежит серверу, клиент его не
+        # присылает и не меняет. Считаем до DELETE, иначе каждое
+        # сохранение начинало бы нумерацию с ASSIGN-0001 заново.
+        old_assignment_codes = {
+            row["id"]: row["code"] or ""
+            for row in connection.execute("SELECT id, code FROM assignments")
+        }
+        next_assignment_num = assignment_codes.next_number(connection)
+        # None означает «клиент ничего не знает о выдачах» (мобильный
+        # клиент, старая версия десктопа). Тогда таблицы выдач не
+        # трогаем вовсе и сохраняем присланные allocations как раньше —
+        # иначе первое же сохранение со старого клиента обнулило бы
+        # всю выданную технику.
+        assignments_payload = payload.get("assignments")
         connection.execute("DELETE FROM asset_allocations")
+        if assignments_payload is not None:
+            connection.execute("DELETE FROM assignment_items")
+            connection.execute("DELETE FROM assignments")
         connection.execute("DELETE FROM movements")
         connection.execute("DELETE FROM assets")
         connection.execute("DELETE FROM employees")
@@ -751,6 +956,14 @@ def import_state(payload: dict, actor: str) -> dict:
                     workplace.get("notes") or "",
                 ),
             )
+
+        # asset_allocations перестаёт быть тем, что присылает клиент, и
+        # становится проекцией выдач: разъехаться им теперь негде.
+        projected_allocations = (
+            project_allocations(assignments_payload)
+            if assignments_payload is not None
+            else {}
+        )
 
         for asset in assets:
             new_fields = (
@@ -810,13 +1023,70 @@ def import_state(payload: dict, actor: str) -> dict:
                     old_label_printed_at,
                 ),
             )
-            for allocation in asset.get("allocations", []):
+            for allocation in (
+                projected_allocations.get(asset.get("id"), [])
+                if assignments_payload is not None
+                else asset.get("allocations", [])
+            ):
                 quantity = int(allocation.get("quantity") or 0)
                 if quantity <= 0:
                     continue
                 connection.execute(
                     "INSERT INTO asset_allocations (asset_id, employee_id, department, site, workplace_id, quantity) VALUES (?, ?, ?, ?, ?, ?)",
                     (asset.get("id"), allocation.get("employeeId") or None, allocation.get("department") or "", allocation.get("site") or "", allocation.get("workplaceId") or "", quantity),
+                )
+
+        for assignment in assignments_payload or []:
+            assignment_id = assignment.get("id")
+            old_code = old_assignment_codes.get(assignment_id)
+            if old_code:
+                code = old_code
+            else:
+                code = assignment_codes.assign_code(next_assignment_num)
+                next_assignment_num += 1
+            items = assignment.get("items") or []
+            # Статус — не то, что прислал клиент, а то, что следует из
+            # позиций: выдача закрыта ровно тогда, когда вернули всё.
+            # Иначе карточка сотрудника и журнал разошлись бы в оценке
+            # одной и той же выдачи.
+            closed = bool(items) and all(
+                int(item.get("returnedQuantity") or 0) >= int(item.get("quantity") or 0)
+                for item in items
+            )
+            returned_dates = [item.get("returnedAt") for item in items if item.get("returnedAt")]
+            connection.execute(
+                "INSERT INTO assignments (id, code, employee_id, workplace_id, department, "
+                "site, status, issued_at, returned_at, act_number, notes, created_by) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    assignment_id,
+                    code,
+                    assignment.get("employeeId") or None,
+                    assignment.get("workplaceId") or "",
+                    assignment.get("department") or "",
+                    assignment.get("site") or "",
+                    "returned" if closed else "active",
+                    assignment.get("issuedAt") or "",
+                    (assignment.get("returnedAt") or (max(returned_dates) if returned_dates else None))
+                    if closed else None,
+                    assignment.get("actNumber"),
+                    assignment.get("notes") or "",
+                    assignment.get("createdBy") or actor,
+                ),
+            )
+            for index, item in enumerate(items, start=1):
+                connection.execute(
+                    "INSERT INTO assignment_items (id, assignment_id, asset_id, quantity, "
+                    "returned_quantity, scope, returned_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        item.get("id") or f"{assignment_id}_i{index:03d}",
+                        assignment_id,
+                        item.get("assetId"),
+                        max(1, int(item.get("quantity") or 1)),
+                        max(0, int(item.get("returnedQuantity") or 0)),
+                        item.get("scope") or "personal",
+                        item.get("returnedAt"),
+                    ),
                 )
 
         for movement in movements:

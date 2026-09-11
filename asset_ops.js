@@ -173,7 +173,203 @@ function findSimilarEmployees(employees, fullName, excludeId = '') {
   });
 }
 
-const AssetOps = { mergeAllocation, searchAssets, movementSortValue, movementCreatedAt, singleEmployeeId, normalizeFullName, findSimilarEmployees };
+
+// ─── ВЫДАЧИ (ASSIGN-NNNN) ────────────────────────────────────────
+// Выдача — единственный источник правды о том, у кого что находится.
+// Сотрудник, стол и склад не хранят своих копий: все три показывают
+// одну и ту же связь, просто с разных сторон. Всё, что ниже — чистые
+// функции без DOM, поэтому проверяются из node.
+
+/**
+ * Сколько единиц позиции ещё не вернули. Возврат не удаляет строку, а
+ * наращивает returnedQuantity — так история переживает возврат, а
+ * закрытая позиция просто перестаёт числиться за получателем.
+ */
+function activeQuantity(item) {
+  return Math.max(0, Number(item?.quantity || 0) - Number(item?.returnedQuantity || 0));
+}
+
+/**
+ * Кому адресуется позиция в терминах allocations. Выдача знает обоих —
+ * человека и стол, — но запись о выдаче обязана назвать одного:
+ * getEmployeeAllocation и остальные ищут строку ровно с одним
+ * заполненным полем. Выбирает scope: личное закреплено за человеком и
+ * уезжает с ним, столовое — за местом и остаётся при смене сотрудника.
+ *
+ * Ровно та же логика, что в assignment_recipient (server.py) — они
+ * обязаны совпадать, иначе экран разойдётся с базой после сохранения.
+ */
+function assignmentRecipient(assignment, scope) {
+  const employeeId = assignment?.employeeId || null;
+  const workplaceId = assignment?.workplaceId || '';
+  const department = String(assignment?.department || '').trim();
+  const site = String(assignment?.site || '').trim();
+  if (scope === 'workplace' && workplaceId) return { employeeId: null, department: '', site: '', workplaceId };
+  if (employeeId) return { employeeId, department: '', site: '', workplaceId: '' };
+  if (department) return { employeeId: null, department, site: '', workplaceId: '' };
+  if (site) return { employeeId: null, department: '', site, workplaceId: '' };
+  return { employeeId: null, department: '', site: '', workplaceId };
+}
+
+/** Момент выдачи в миллисекундах — для порядка, не для показа. */
+function assignmentSortValue(assignment) {
+  const time = assignment?.issuedAt ? new Date(assignment.issuedAt).getTime() : NaN;
+  return Number.isNaN(time) ? 0 : time;
+}
+
+/**
+ * Активные остатки всех выдач в виде asset.allocations:
+ * `{ assetId: [запись, ...] }`. Пересчитывается после каждой операции —
+ * поэтому у сотрудника, у стола и на складе не может разъехаться:
+ * считать нечего, кроме одних и тех же выдач.
+ */
+function projectAllocations(assignments) {
+  const byAsset = {};
+  (assignments || []).forEach((assignment) => {
+    (assignment?.items || []).forEach((item) => {
+      const active = activeQuantity(item);
+      if (active <= 0 || !item.assetId) return;
+      const recipient = assignmentRecipient(assignment, item.scope || 'personal');
+      const bucket = byAsset[item.assetId] || (byAsset[item.assetId] = []);
+      const existing = bucket.find((entry) => (
+        entry.employeeId === recipient.employeeId
+        && entry.department === recipient.department
+        && entry.site === recipient.site
+        && entry.workplaceId === recipient.workplaceId
+      ));
+      if (existing) existing.quantity += active;
+      else bucket.push(Object.assign({}, recipient, { quantity: active }));
+    });
+  });
+  return byAsset;
+}
+
+function collectHoldings(assignments, matches) {
+  const holdings = [];
+  (assignments || []).forEach((assignment) => {
+    (assignment?.items || []).forEach((item) => {
+      const quantity = activeQuantity(item);
+      if (quantity <= 0) return;
+      const scope = item.scope || 'personal';
+      if (!matches(assignment, item, assignmentRecipient(assignment, scope))) return;
+      holdings.push({ assignment, item, assetId: item.assetId, scope, quantity });
+    });
+  });
+  return holdings;
+}
+
+/**
+ * Вся техника сотрудника одним списком: и личная, и стоящая на его
+ * рабочем месте. Два отдельных списка — ровно то, от чего уходим: для
+ * пользователя это одна и та же техника «у Иванова», а разница между
+ * личной и столовой важна только при пересадке и увольнении, и её
+ * несёт поле scope у каждой позиции.
+ */
+function holdingsForEmployee(assignments, employeeId, workplaceId) {
+  return collectHoldings(assignments, (assignment, item, recipient) => (
+    (!!employeeId && recipient.employeeId === employeeId)
+    || (!!workplaceId && recipient.workplaceId === workplaceId)
+  ));
+}
+
+/**
+ * Вся техника рабочего места: закреплённая за самим столом плюс личная
+ * техника того, кто за ним сидит. Тот же список, что видит сотрудник, —
+ * потому что читается та же связь, а не отдельная копия для стола.
+ */
+function holdingsForWorkplace(assignments, workplaceId) {
+  if (!workplaceId) return [];
+  return collectHoldings(assignments, (assignment, item, recipient) => (
+    recipient.workplaceId === workplaceId || assignment.workplaceId === workplaceId
+  ));
+}
+
+/**
+ * Кто держит технику прямо сейчас — для сообщения «уже выдана» вместо
+ * невнятного «доступно: 0». Берётся свежая активная выдача: закрытые в
+ * счёт не идут, иначе после возврата и повторной выдачи показывался бы
+ * прежний хозяин.
+ */
+function activeHolder(assignments, assetId) {
+  const candidates = collectHoldings(assignments, (assignment, item) => item.assetId === assetId);
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => assignmentSortValue(b.assignment) - assignmentSortValue(a.assignment));
+  return { assignment: candidates[0].assignment, item: candidates[0].item };
+}
+
+function matchesReturnTarget(recipient, target) {
+  if (target.employeeId) return recipient.employeeId === target.employeeId;
+  if (target.workplaceId) return recipient.workplaceId === target.workplaceId;
+  if (target.department) return recipient.department === target.department;
+  if (target.site) return recipient.site === target.site;
+  return true;
+}
+
+/**
+ * Снимает технику с получателя, закрывая позиции выдачи. Сам объект
+ * техники не трогается: удалять строку из справочника нельзя — она
+ * участвует в истории (§11 и §17 ТЗ). Количество разносится по
+ * выдачам от старых к свежим, чтобы «на руках» оставалась последняя.
+ *
+ * Возвращает список затронутых выдач. Бросает, если снять просят
+ * больше, чем числится, — и в этом случае НИЧЕГО не меняет: проверка
+ * идёт до первой записи, иначе отклонённый возврат оставил бы половину
+ * позиций закрытыми.
+ */
+function returnFromAssignments(assignments, { assetId, quantity, date = '', employeeId = '', workplaceId = '', department = '', site = '' } = {}) {
+  if (!Number.isInteger(quantity) || quantity < 1) {
+    throw new TypeError(`Количество к возврату должно быть целым числом от 1, получено: ${quantity}`);
+  }
+  const target = { employeeId, workplaceId, department, site };
+  const candidates = collectHoldings(assignments, (assignment, item, recipient) => (
+    item.assetId === assetId && matchesReturnTarget(recipient, target)
+  ));
+  const available = candidates.reduce((sum, holding) => sum + holding.quantity, 0);
+  if (quantity > available) {
+    throw new Error(`Нельзя снять ${quantity} шт.: числится ${available} шт.`);
+  }
+
+  candidates.sort((a, b) => assignmentSortValue(a.assignment) - assignmentSortValue(b.assignment));
+  let remaining = quantity;
+  const touched = [];
+  for (const holding of candidates) {
+    if (remaining <= 0) break;
+    const taken = Math.min(remaining, holding.quantity);
+    holding.item.returnedQuantity = Number(holding.item.returnedQuantity || 0) + taken;
+    remaining -= taken;
+    if (activeQuantity(holding.item) <= 0) holding.item.returnedAt = date;
+    if (!touched.includes(holding.assignment)) touched.push(holding.assignment);
+  }
+  touched.forEach((assignment) => syncAssignmentStatus(assignment, date));
+  return touched;
+}
+
+/**
+ * Статус выдачи — не самостоятельное поле, а следствие её позиций:
+ * закрыта ровно тогда, когда вернули всё. Держать его отдельно значило
+ * бы завести второй источник правды о той же выдаче. Ту же величину
+ * пересчитывает import_state, поэтому клиент и сервер не разойдутся.
+ */
+function syncAssignmentStatus(assignment, date = '') {
+  const items = assignment?.items || [];
+  const closed = items.length > 0 && items.every((item) => activeQuantity(item) <= 0);
+  assignment.status = closed ? 'returned' : 'active';
+  if (closed) {
+    const dates = items.map((item) => item.returnedAt).filter(Boolean);
+    assignment.returnedAt = dates.length ? dates.sort().slice(-1)[0] : (date || null);
+  } else {
+    assignment.returnedAt = null;
+  }
+  return assignment;
+}
+
+const AssetOps = {
+  mergeAllocation, searchAssets, movementSortValue, movementCreatedAt,
+  singleEmployeeId, normalizeFullName, findSimilarEmployees,
+  activeQuantity, assignmentRecipient, assignmentSortValue, projectAllocations,
+  holdingsForEmployee, holdingsForWorkplace, activeHolder,
+  returnFromAssignments, syncAssignmentStatus,
+};
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = AssetOps;
