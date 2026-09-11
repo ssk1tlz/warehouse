@@ -23,7 +23,22 @@ global.capacitorBarcodeScanner = { BarcodeFormat: { QrCode: 'QR_CODE', Code128: 
 global.window = global.window || {};
 window.capacitorBarcodeScanner = global.capacitorBarcodeScanner;
 
+const { parseWarehouseQr, parseWarehouseTarget } = require('../www/js/qr.js');
+global.parseWarehouseQr = parseWarehouseQr;
+global.parseWarehouseTarget = parseWarehouseTarget;
+
 const scanner = require('../www/js/scanner.js');
+
+// scanOnce() -> { kind: 'asset'|'workplace', id } через комбинированный parseWarehouseTarget
+test('scanOnce recognizes an asset QR and reports its kind', async () => {
+  global.Capacitor.Plugins.BarcodeScanner.scan = async () => ({ barcodes: [{ rawValue: 'WH1:ast_1' }] });
+  assert.deepEqual(await scanner.scanOnce(), { kind: 'asset', id: 'ast_1' });
+});
+
+test('scanOnce recognizes a workplace QR and reports its kind', async () => {
+  global.Capacitor.Plugins.BarcodeScanner.scan = async () => ({ barcodes: [{ rawValue: 'WHW1:wp_1' }] });
+  assert.deepEqual(await scanner.scanOnce(), { kind: 'workplace', id: 'wp_1' });
+});
 
 test('startInventoryScan starts the native continuous scan and forwards barcodes', async () => {
   const seen = [];

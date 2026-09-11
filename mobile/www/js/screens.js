@@ -793,6 +793,10 @@ async function startInventoryScanning() {
     // bogus id would otherwise fail server-side when the session is submitted).
     const knownAssetIds = new Set(inventoryAllAssets.map((a) => a.id));
     await Scanner.startInventoryScan(async (rawValue) => {
+      // Стикер стола (WHW1:) — не актив и не "лишний код", просто не тот
+      // тип QR, который отслеживает инвентаризация; молча пропускаем, а
+      // не сообщаем оператору как неизвестный/чужой код.
+      if (parseWorkplaceQr(rawValue)) return;
       const assetId = parseWarehouseQr(rawValue);
       if (!assetId || !knownAssetIds.has(assetId)) {
         extraCodesThisSession.push(rawValue);

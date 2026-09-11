@@ -115,5 +115,5 @@ async function stopInventoryScan() {
 window.Scanner = { scanOnce, scanConnectQr, scanLabelBarcode, scanLabelPhoto, startInventoryScan, stopInventoryScan };
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { startInventoryScan, stopInventoryScan };
+  module.exports = { scanOnce, startInventoryScan, stopInventoryScan };
 }

@@ -342,15 +342,19 @@ async function getWorkplaceById(workplaceId) {
 // сейчас на нём сидит (occupantEmployeeId — workplaces.employee_id) —
 // тот же принцип, что у getWorkplaceAssets на десктопе (app.js:2844).
 async function getAllocationsForWorkplace(workplaceId, occupantEmployeeId) {
+  const where = occupantEmployeeId
+    ? 'allocations.workplace_id = ? OR allocations.employee_id = ?'
+    : 'allocations.workplace_id = ?';
+  const params = occupantEmployeeId ? [workplaceId, occupantEmployeeId] : [workplaceId];
   const result = await db.query(
     `SELECT allocations.asset_id AS assetId, allocations.quantity AS quantity,
             assets.name AS name, assets.category AS category,
             assets.inventory_number AS inventoryNumber, assets.serial_number AS serialNumber,
             assets.status AS status
      FROM allocations JOIN assets ON assets.id = allocations.asset_id
-     WHERE (allocations.workplace_id = ? OR allocations.employee_id = ?) AND allocations.quantity > 0
+     WHERE (${where}) AND allocations.quantity > 0
      ORDER BY assets.name`,
-    [workplaceId, occupantEmployeeId || '']
+    params
   );
   return result.values;
 }
