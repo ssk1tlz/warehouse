@@ -1154,8 +1154,8 @@
         <span class="label-size-hint" id="labelSizeHint"></span>
       </div>
       <div class="label-select-actions">
-        <button type="button" class="secondary" id="labelSelectAllBtn">Выбрать все</button>
-        <button type="button" class="ghost" id="labelDeselectAllBtn">Снять все</button>
+        <button type="button" class="secondary" id="labelSelectAllBtn">Выбрать показанные</button>
+        <button type="button" class="ghost" id="labelDeselectAllBtn">Снять показанные</button>
         <input class="search" id="labelSearchInput" placeholder="Поиск…" style="max-width:200px">
         <select id="labelFilterCategory">
           <option value="">Все категории</option>
@@ -1164,13 +1164,13 @@
           <option value="">Все места</option>
         </select>
         <label style="gap:6px"><input type="checkbox" id="labelUnprintedCheck" style="width:15px;height:15px;accent-color:var(--brand)"> Не печатались ранее</label>
-        <input class="search" id="labelEmployeeSearch" placeholder="Поиск сотрудника…" autocomplete="off" aria-label="Поиск сотрудника" style="max-width:200px">
+        <input class="search" id="labelEmployeeSearch" placeholder="Сотрудник или стол…" autocomplete="off" aria-label="Поиск сотрудника или стола" style="max-width:200px">
         <select id="labelEmployeeSelect">
-          <option value="">— сотрудник —</option>
+          <option value="">— сотрудник или стол —</option>
         </select>
-        <button type="button" class="secondary" id="labelAddEmployeeAssetsBtn">Выбрать всю технику сотрудника</button>
+        <button type="button" class="secondary" id="labelAddEmployeeAssetsBtn">Выбрать всю технику</button>
         <label style="gap:6px"><input type="checkbox" id="labelOnlySelectedCheck" style="width:15px;height:15px;accent-color:var(--brand)"> Только выбранные</label>
-        <span class="label-count" id="labelCountSpan">Выбрано всего: 0</span>
+        <span class="label-count" id="labelCountSpan">Выбрано всего: 0</span><button type="button" class="ghost" id="labelClearSelectionBtn">Очистить выбор</button>
       </div>
       <div class="label-grid" id="labelGrid"></div>
       <div class="label-footer">

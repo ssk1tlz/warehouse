@@ -274,13 +274,19 @@ function holdingsForEmployee(assignments, employeeId, workplaceId) {
 
 /**
  * Вся техника рабочего места: закреплённая за самим столом плюс личная
- * техника того, кто за ним сидит. Тот же список, что видит сотрудник, —
- * потому что читается та же связь, а не отдельная копия для стола.
+ * техника того, кто за ним сидит СЕЙЧАС (occupantId — workplaces.employee_id).
+ * Тот же список, что видит сотрудник, — потому что читается та же связь.
+ *
+ * Кто сидит за столом, решает посадка, а не поле стола в выдаче: это поле
+ * — копия, и она расходится с посадкой (столы, заведённые до слоя выдач,
+ * в выдачах не записаны вовсе; пересадка в обход формы её не обновит).
+ * Сотрудник видит свой стол по посадке — стол видит сотрудника так же.
  */
-function holdingsForWorkplace(assignments, workplaceId) {
+function holdingsForWorkplace(assignments, workplaceId, occupantId = '') {
   if (!workplaceId) return [];
   return collectHoldings(assignments, (assignment, item, recipient) => (
-    recipient.workplaceId === workplaceId || assignment.workplaceId === workplaceId
+    recipient.workplaceId === workplaceId
+    || (!!occupantId && recipient.employeeId === occupantId)
   ));
 }
 
@@ -528,6 +534,24 @@ function filterLabelAssets(assets, {
   return searchAssets(filtered, query);
 }
 
+
+/**
+ * Поиск рабочего места по строке: название, внутренний код WP-NNNN,
+ * отдел и тот, кто сидит за столом (поле ownerName подставляет
+ * вызывающий код — в самом workplace хранится только employeeId).
+ * Нормализация та же, что у searchEmployees.
+ */
+function searchWorkplaces(workplaces, query) {
+  const words = normalizeFullName(query).split(' ').filter(Boolean);
+  if (!words.length) return [...(workplaces || [])];
+  return (workplaces || []).filter((workplace) => {
+    const haystack = normalizeFullName(
+      [workplace.name, workplace.code, workplace.department, workplace.ownerName].filter(Boolean).join(' '),
+    );
+    return words.every((word) => haystack.includes(word));
+  });
+}
+
 const RECOVERED_NOTE = 'Восстановлено по текущему состоянию: исходная операция выдачи неизвестна.';
 
 /**
@@ -593,6 +617,7 @@ const AssetOps = {
   holdingsForEmployee, holdingsForWorkplace, activeHolder,
   returnFromAssignments, syncAssignmentStatus, assignmentsFromAllocations,
   assetHistory, heldQuantity, moveHoldingsScope, searchEmployees, filterLabelAssets,
+  searchWorkplaces,
 };
 
 if (typeof module !== 'undefined' && module.exports) {

@@ -131,7 +131,7 @@ test('стол показывает ту же технику, что и сидя
   });
 
   const assignments = [personal, atDesk];
-  const desk = holdingsForWorkplace(assignments, 'wp_7').map((h) => h.assetId);
+  const desk = holdingsForWorkplace(assignments, 'wp_7', 'emp_1').map((h) => h.assetId);
   const employee = holdingsForEmployee(assignments, 'emp_1', 'wp_7').map((h) => h.assetId);
 
   assert.deepEqual(desk.slice().sort(), employee.slice().sort());
@@ -358,7 +358,7 @@ test('после переноса сотрудник и стол по-прежн
     toScope: 'workplace', date: '2026-09-11', newId,
   });
   assert.equal(holdingsForEmployee(assignments, 'emp_1', 'wp_7').length, 5);
-  assert.equal(holdingsForWorkplace(assignments, 'wp_7').length, 5);
+  assert.equal(holdingsForWorkplace(assignments, 'wp_7', 'emp_1').length, 5);
 });
 
 test('перенос не переписывает историю, а заводит новую выдачу стола', () => {
@@ -444,4 +444,19 @@ test('история: обычный возврат на склад переда
   const source = assignment({ issuedAt: '2026-09-10', items: [item({ returnedQuantity: 1, returnedAt: '2026-09-15' })] });
   const back = assetHistory([source], 'a1').find((e) => e.kind === 'return');
   assert.equal(Boolean(back.transferred), false);
+});
+
+// ─── стол видит технику по ТЕКУЩЕЙ посадке ───────────────────────
+// Посадка (workplaces.employee_id) — единственный источник правды о том,
+// кто сидит за столом. Поле стола в выдаче — лишь копия, и она расходится:
+// столы, заведённые до слоя выдач, в выдачах не записаны вовсе.
+
+test('стол показывает личную технику текущего хозяина, даже если в выдаче стол не записан', () => {
+  const personal = assignment({ workplaceId: '', items: [item({ assetId: 'nb' })] });
+  assert.deepEqual(holdingsForWorkplace([personal], 'wp_7', 'emp_1').map((h) => h.assetId), ['nb']);
+});
+
+test('стол не показывает личную технику прежнего хозяина, даже если в выдаче записан этот стол', () => {
+  const personal = assignment({ workplaceId: 'wp_7', items: [item({ assetId: 'nb' })] });
+  assert.deepEqual(holdingsForWorkplace([personal], 'wp_7', 'emp_2'), []);
 });

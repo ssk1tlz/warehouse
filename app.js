@@ -2842,7 +2842,11 @@ function toHoldingEntry(holding) {
 // потому что читается та же выдача, а не отдельная копия для стола
 // (§9 и §24 ТЗ).
 function getWorkplaceAssets(workplaceId) {
-  return AssetOps.holdingsForWorkplace(state.assignments, workplaceId)
+  // Кто сидит за столом — решает посадка (workplace.employeeId), а не
+  // поле стола в выдаче: столы, заведённые до слоя выдач, в выдачах не
+  // записаны, и их хозяева выглядели бы «без техники».
+  const occupantId = getWorkplaceById(workplaceId)?.employeeId || "";
+  return AssetOps.holdingsForWorkplace(state.assignments, workplaceId, occupantId)
     .map(toHoldingEntry)
     .filter(Boolean);
 }
@@ -3001,6 +3005,10 @@ function workplaceDeptLabel(department) {
 // state.assets обходится ровно один раз.
 function buildWorkplaceAssetsIndex() {
   const index = new Map();
+  // Личная техника числится на столе того, кто за ним сидит сейчас.
+  const deskByOccupant = new Map(
+    state.workplaces.filter((workplace) => workplace.employeeId).map((workplace) => [workplace.employeeId, workplace.id]),
+  );
   // Один проход по выдачам вместо обхода всей техники на каждое место.
   // Читаются те же выдачи, что и в карточке сотрудника, поэтому список
   // стола не может разойтись со списком того, кто за ним сидит.
@@ -3009,7 +3017,9 @@ function buildWorkplaceAssetsIndex() {
       const quantity = AssetOps.activeQuantity(item);
       if (quantity <= 0) return;
       const recipient = AssetOps.assignmentRecipient(assignment, item.scope);
-      const workplaceId = recipient.workplaceId || assignment.workplaceId;
+      const workplaceId = recipient.workplaceId
+        || (recipient.employeeId ? deskByOccupant.get(recipient.employeeId) : "")
+        || "";
       if (!workplaceId) return;
       const asset = getAssetById(item.assetId);
       if (!asset) return;
@@ -5933,11 +5943,17 @@ function bindEvents() {
     event.preventDefault();
     refreshLabelEmployee();
     if (!document.getElementById("labelEmployeeSelect")?.value) {
-      showToast("Уточните поиск: подходит несколько сотрудников или никто.", "warning");
+      showToast("Уточните поиск: подходит несколько вариантов или ничего.", "warning");
     }
   });
   document.getElementById("labelEmployeeSelect")?.addEventListener("change", renderLabelGrid);
   document.getElementById("labelOnlySelectedCheck")?.addEventListener("change", renderLabelGrid);
+  // «Очистить выбор» сбрасывает всё отмеченное — в отличие от «Снять
+  // показанные», которое трогает только то, что сейчас на экране.
+  document.getElementById("labelClearSelectionBtn")?.addEventListener("click", () => {
+    labelSelection.clear();
+    renderLabelGrid();
+  });
   document.getElementById("printLabelsPrintBtn")?.addEventListener("click", printLabels);
   document.getElementById("exportLabelsExcelBtn")?.addEventListener("click", exportLabelsExcel);
   document.getElementById("exportLabelsWordBtn")?.addEventListener("click", exportLabelsWord);
@@ -6173,12 +6189,21 @@ function quickPrintLabel(assetId) {
   const asset = getAssetById(assetId);
   if (!asset) return;
   // Открываем окно этикеток с этой позицией предвыбранной и ничем другим.
-  labelSelection = new Map([[assetId, "1"]]);
-  openLabelsModal();
+  openLabelsModal({ preselect: assetId });
 }
 
 
-function openLabelsModal() {
+function openLabelsModal(options = {}) {
+  // Каждое открытие окна начинает выбор заново. Раньше выбор жил до
+  // перезагрузки страницы — переживал закрытие окна, печать и даже
+  // перезапуск сервера, — и предпросмотр ставил старые отметки (например,
+  // случайное «Выбрать все» по всей технике) на первые листы, а технику
+  // только что выбранных сотрудников — в конец. Внутри одного открытия
+  // выбор по-прежнему копится между сотрудниками, столами и поиском.
+  // Пункт меню передаёт сюда событие клика, поэтому preselect проверяется
+  // по типу, а не по наличию.
+  const preselect = typeof options?.preselect === "string" ? options.preselect : "";
+  labelSelection = new Map(preselect ? [[preselect, "1"]] : []);
   document.getElementById("labelsOverlay").classList.remove("hidden");
   populateLabelFilterDropdowns();
   const labelEmployeeSearch = document.getElementById("labelEmployeeSearch");
@@ -6409,18 +6434,39 @@ function getLabelEmployeeAssetIds(employeeId) {
   return new Set(getEmployeeHoldings(employeeId).holdings.map((entry) => entry.asset.id));
 }
 
+// Кого показывает таблица этикеток: сотрудника («emp:<id>») или рабочее
+// место («wp:<id>»). Поле поиска одно на оба — «сотрудник или стол».
+function getLabelTarget() {
+  const value = document.getElementById("labelEmployeeSelect")?.value || "";
+  const separator = value.indexOf(":");
+  if (separator < 0) return null;
+  const kind = value.slice(0, separator);
+  const id = value.slice(separator + 1);
+  if (kind === "emp" && getEmployeeById(id)) return { kind, id, name: getEmployeeById(id).fullName };
+  if (kind === "wp" && getWorkplaceById(id)) return { kind, id, name: getWorkplaceById(id).name };
+  return null;
+}
+
+// Техника сотрудника или стола — та же, что в их карточках.
+function getLabelTargetAssetIds(target) {
+  if (!target) return null;
+  return target.kind === "emp"
+    ? getLabelEmployeeAssetIds(target.id)
+    : new Set(getWorkplaceAssets(target.id).map((entry) => entry.asset.id));
+}
+
 // Что показать в таблице этикеток. Выбор (labelSelection) фильтр не
 // трогает: выбрал у одного сотрудника, переключился на другого — первое
 // осталось отмеченным и суммируется со вторым.
 function getLabelAssets() {
-  const employeeId = document.getElementById("labelEmployeeSelect")?.value || "";
+  const target = getLabelTarget();
   const onlySelected = document.getElementById("labelOnlySelectedCheck")?.checked || false;
   return AssetOps.filterLabelAssets(state.assets, {
     query: document.getElementById("labelSearchInput")?.value || "",
     category: document.getElementById("labelFilterCategory")?.value || "",
     location: document.getElementById("labelFilterLocation")?.value || "",
     onlyUnprinted: document.getElementById("labelUnprintedCheck")?.checked || false,
-    onlyAssetIds: employeeId ? getLabelEmployeeAssetIds(employeeId) : null,
+    onlyAssetIds: getLabelTargetAssetIds(target),
     selectedIds: onlySelected ? [...labelSelection.keys()] : null,
   });
 }
@@ -6447,21 +6493,40 @@ function populateLabelEmployeeSelect() {
   // Все сотрудники, а не только активные — как в окне возврата
   // (returnEmployeeSelect): уволенный может всё ещё числить на себе
   // технику, которую нужно промаркировать при передаче.
-  const all = getVisibleEmployees(state.employees).sort((a, b) => a.fullName.localeCompare(b.fullName, "ru"));
-  // Поле поиска сужает список: листать сотню с лишним фамилий, чтобы
-  // найти одну, неудобно. Нормализация та же, что у проверки дублей.
+  const allEmployees = getVisibleEmployees(state.employees).sort((a, b) => a.fullName.localeCompare(b.fullName, "ru"));
+  // Стол ищется и по тому, кто за ним сидит: «стол Бельтиковой».
+  const allWorkplaces = [...state.workplaces]
+    .map((workplace) => ({
+      ...workplace,
+      ownerName: workplace.employeeId ? (getEmployeeById(workplace.employeeId)?.fullName || "") : "",
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, "ru"));
   const query = document.getElementById("labelEmployeeSearch")?.value || "";
-  const employees = AssetOps.searchEmployees(all, query);
-  const placeholder = !query.trim() ? "— сотрудник —"
-    : employees.length ? `— найдено: ${employees.length} —` : "— никого не найдено —";
-  // Отдел рядом с ФИО различает однофамильцев в списке.
+  const employees = AssetOps.searchEmployees(allEmployees, query);
+  const workplaces = AssetOps.searchWorkplaces(allWorkplaces, query);
+  const found = employees.length + workplaces.length;
+  const placeholder = !query.trim() ? "— сотрудник или стол —"
+    : found ? `— найдено: ${found} —` : "— ничего не найдено —";
+  // Отдел рядом с ФИО различает однофамильцев, код и хозяин — столы.
+  const employeeOptions = employees.map((employee) =>
+    `<option value="emp:${escapeHtml(employee.id)}">${escapeHtml(employee.fullName)}${employee.department ? ` · ${escapeHtml(employee.department)}` : ""}</option>`).join("");
+  const workplaceOptions = workplaces.map((workplace) =>
+    `<option value="wp:${escapeHtml(workplace.id)}">${escapeHtml(workplace.name)}${workplace.code ? ` · ${escapeHtml(workplace.code)}` : ""} · ${escapeHtml(workplace.ownerName || "свободно")}</option>`).join("");
   select.innerHTML = `<option value="">${placeholder}</option>`
-    + employees.map((employee) =>
-      `<option value="${escapeHtml(employee.id)}">${escapeHtml(employee.fullName)}${employee.department ? ` · ${escapeHtml(employee.department)}` : ""}</option>`).join("");
-  // Кого нашли, того и выбираем: при единственном совпадении не нужно
-  // ещё раз раскрывать список. Прежний выбор держится, пока проходит поиск.
-  if (employees.some((employee) => employee.id === current)) select.value = current;
-  else select.value = employees.length === 1 ? employees[0].id : "";
+    + (employeeOptions ? `<optgroup label="Сотрудники">${employeeOptions}</optgroup>` : "")
+    + (workplaceOptions ? `<optgroup label="Рабочие места">${workplaceOptions}</optgroup>` : "");
+  // Кого нашли, того и выбираем. Имя сотрудника находит и его стол —
+  // тогда выбирается сам сотрудник: набрав фамилию, ищут человека.
+  const values = [
+    ...employees.map((employee) => `emp:${employee.id}`),
+    ...workplaces.map((workplace) => `wp:${workplace.id}`),
+  ];
+  let auto = "";
+  if (values.length === 1) auto = values[0];
+  else if (employees.length === 1 && workplaces.every((workplace) => workplace.employeeId === employees[0].id)) {
+    auto = `emp:${employees[0].id}`;
+  }
+  select.value = values.includes(current) ? current : auto;
 }
 
 // Выбор в сетке этикеток хранится не в DOM, а здесь: DOM пересоздаётся при
@@ -6478,10 +6543,11 @@ function renderLabelGrid() {
   if (!assets.length) {
     // Пустая таблица — не всегда «нет техники»: чаще просто ничего не
     // подошло под фильтр. Говорим, какой именно случай.
-    const employeeId = document.getElementById("labelEmployeeSelect")?.value || "";
+    const target = getLabelTarget();
     const onlySelected = document.getElementById("labelOnlySelectedCheck")?.checked || false;
     const message = onlySelected ? "Пока ничего не выбрано."
-      : employeeId && !getLabelEmployeeAssetIds(employeeId).size ? "За этим сотрудником не числится техника."
+      : target && !getLabelTargetAssetIds(target).size
+        ? (target.kind === "emp" ? "За этим сотрудником не числится техника." : "На этом рабочем месте техники нет.")
       : state.assets.length ? "Ничего не найдено — измените поиск или фильтры."
       : "Техники пока нет.";
     grid.innerHTML = `<div class="empty-state">${escapeHtml(message)}</div>`;
@@ -6537,8 +6603,30 @@ function renderLabelGrid() {
   updateLabelCount();
 }
 
-function labelSelectAll(checked) {
-  document.getElementById("labelGrid").querySelectorAll(".label-item").forEach(item => {
+// Сужено ли то, что сейчас показано в таблице.
+function labelGridIsFiltered() {
+  return Boolean(getLabelTarget()
+    || (document.getElementById("labelSearchInput")?.value || "").trim()
+    || document.getElementById("labelFilterCategory")?.value
+    || document.getElementById("labelFilterLocation")?.value
+    || document.getElementById("labelUnprintedCheck")?.checked
+    || document.getElementById("labelOnlySelectedCheck")?.checked);
+}
+
+async function labelSelectAll(checked) {
+  const items = [...document.getElementById("labelGrid").querySelectorAll(".label-item")];
+  // Без фильтра «Выбрать показанные» отмечает всю технику склада — так в
+  // предпросмотр однажды попали все 228 позиций вместо техники двух
+  // сотрудников. На большой нефильтрованный список переспрашиваем.
+  if (checked && items.length > 30 && !labelGridIsFiltered()) {
+    const answer = await showChoice(
+      `Отметить все ${items.length} показанных позиций?\n\nФильтр не задан — это вся техника.`,
+      [{ value: "yes", label: `Отметить все ${items.length}` }],
+      "Выбор этикеток",
+    );
+    if (answer !== "yes") return;
+  }
+  items.forEach(item => {
     item.classList.toggle("selected", checked);
     const cb = item.querySelector("input[type=checkbox]");
     cb.checked = checked;
@@ -6562,16 +6650,16 @@ function labelSelectAll(checked) {
 // позиции — no-op, отдельная защита от дублей не нужна: одна запись в
 // Map на asset.id.
 function addEmployeeAssetsToLabelSelection() {
-  const select = document.getElementById("labelEmployeeSelect");
-  const employeeId = select?.value || "";
-  if (!employeeId) {
-    showToast("Выберите сотрудника.", "warning");
+  const target = getLabelTarget();
+  if (!target) {
+    showToast("Найдите и выберите сотрудника или рабочее место.", "warning");
     return;
   }
-  const { personal, atWorkplace } = getEmployeeHoldings(employeeId);
-  const employeeAssetIds = new Set([...personal, ...atWorkplace].map((entry) => entry.asset.id));
+  const employeeAssetIds = getLabelTargetAssetIds(target);
   if (!employeeAssetIds.size) {
-    showToast("За этим сотрудником не закреплена техника — ни лично, ни на рабочем месте.", "warning");
+    showToast(target.kind === "emp"
+      ? "За этим сотрудником не закреплена техника — ни лично, ни на рабочем месте."
+      : "На этом рабочем месте техники нет.", "warning");
     return;
   }
 
@@ -6583,7 +6671,7 @@ function addEmployeeAssetsToLabelSelection() {
 
   renderLabelGrid();
 
-  showToast(`Выбрано ещё: ${added} (у сотрудника всего: ${employeeAssetIds.size}). Всего выбрано: ${labelSelection.size}.`, "success");
+  showToast(`Выбрано ещё: ${added} (${target.kind === "emp" ? "у сотрудника" : "на столе"} всего: ${employeeAssetIds.size}). Всего выбрано: ${labelSelection.size}.`, "success");
 }
 
 // Счётчик показывает, что выбор копится: всего по всем сотрудникам и
@@ -6591,12 +6679,12 @@ function addEmployeeAssetsToLabelSelection() {
 function updateLabelCount() {
   const el = document.getElementById("labelCountSpan");
   if (!el) return;
-  const employeeId = document.getElementById("labelEmployeeSelect")?.value || "";
+  const target = getLabelTarget();
   let text = `Выбрано всего: ${labelSelection.size}`;
-  if (employeeId) {
-    const employeeIds = getLabelEmployeeAssetIds(employeeId);
-    const picked = [...employeeIds].filter((assetId) => labelSelection.has(assetId)).length;
-    text += ` · у сотрудника: ${picked} из ${employeeIds.size}`;
+  if (target) {
+    const targetIds = getLabelTargetAssetIds(target);
+    const picked = [...targetIds].filter((assetId) => labelSelection.has(assetId)).length;
+    text += ` · ${target.kind === "emp" ? "у сотрудника" : "на столе"}: ${picked} из ${targetIds.size}`;
   }
   el.textContent = text;
 }
