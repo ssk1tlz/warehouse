@@ -5924,6 +5924,16 @@ function bindEvents() {
   document.getElementById("labelFilterLocation")?.addEventListener("change", renderLabelGrid);
   document.getElementById("labelUnprintedCheck")?.addEventListener("change", renderLabelGrid);
   document.getElementById("labelAddEmployeeAssetsBtn")?.addEventListener("click", addEmployeeAssetsToLabelSelection);
+  document.getElementById("labelEmployeeSearch")?.addEventListener("input", debounce(populateLabelEmployeeSelect, 150));
+  // Enter в поиске сразу добавляет технику найденного сотрудника —
+  // без похода мышкой к списку и кнопке.
+  document.getElementById("labelEmployeeSearch")?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    populateLabelEmployeeSelect();
+    if (document.getElementById("labelEmployeeSelect")?.value) addEmployeeAssetsToLabelSelection();
+    else showToast("Уточните поиск: подходит несколько сотрудников или никто.", "warning");
+  });
   document.getElementById("printLabelsPrintBtn")?.addEventListener("click", printLabels);
   document.getElementById("exportLabelsExcelBtn")?.addEventListener("click", exportLabelsExcel);
   document.getElementById("exportLabelsWordBtn")?.addEventListener("click", exportLabelsWord);
@@ -6167,6 +6177,8 @@ function quickPrintLabel(assetId) {
 function openLabelsModal() {
   document.getElementById("labelsOverlay").classList.remove("hidden");
   populateLabelFilterDropdowns();
+  const labelEmployeeSearch = document.getElementById("labelEmployeeSearch");
+  if (labelEmployeeSearch) labelEmployeeSearch.value = "";
   populateLabelEmployeeSelect();
   renderLabelGrid();
   updateLabelSizeHint();
@@ -6420,11 +6432,21 @@ function populateLabelEmployeeSelect() {
   // Все сотрудники, а не только активные — как в окне возврата
   // (returnEmployeeSelect): уволенный может всё ещё числить на себе
   // технику, которую нужно промаркировать при передаче.
-  const employees = getVisibleEmployees(state.employees).sort((a, b) => a.fullName.localeCompare(b.fullName, "ru"));
-  select.innerHTML = `<option value="">— сотрудник —</option>`
+  const all = getVisibleEmployees(state.employees).sort((a, b) => a.fullName.localeCompare(b.fullName, "ru"));
+  // Поле поиска сужает список: листать сотню с лишним фамилий, чтобы
+  // найти одну, неудобно. Нормализация та же, что у проверки дублей.
+  const query = document.getElementById("labelEmployeeSearch")?.value || "";
+  const employees = AssetOps.searchEmployees(all, query);
+  const placeholder = !query.trim() ? "— сотрудник —"
+    : employees.length ? `— найдено: ${employees.length} —` : "— никого не найдено —";
+  // Отдел рядом с ФИО различает однофамильцев в списке.
+  select.innerHTML = `<option value="">${placeholder}</option>`
     + employees.map((employee) =>
-      `<option value="${escapeHtml(employee.id)}">${escapeHtml(employee.fullName)}</option>`).join("");
-  select.value = current;
+      `<option value="${escapeHtml(employee.id)}">${escapeHtml(employee.fullName)}${employee.department ? ` · ${escapeHtml(employee.department)}` : ""}</option>`).join("");
+  // Кого нашли, того и выбираем: при единственном совпадении не нужно
+  // ещё раз раскрывать список. Прежний выбор держится, пока проходит поиск.
+  if (employees.some((employee) => employee.id === current)) select.value = current;
+  else select.value = employees.length === 1 ? employees[0].id : "";
 }
 
 // Выбор в сетке этикеток хранится не в DOM, а здесь: DOM пересоздаётся при

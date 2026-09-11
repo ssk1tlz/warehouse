@@ -480,6 +480,25 @@ function moveHoldingsScope(assignments, { employeeId, workplaceId, assetIds, toS
   return { assignment: created, moved };
 }
 
+
+/**
+ * Поиск сотрудника по строке: ФИО, отдел и должность. Слова запроса
+ * ищутся все и в любом порядке, с той же нормализацией, что у проверки
+ * дублей (normalizeFullName): «гайрат угли» находит «Ғайрат Ўғли»,
+ * «петр» — «Пётр», «петров водкин» — «Петров-Водкин». Порядок исходного
+ * списка сохраняется, пустой запрос возвращает всех.
+ */
+function searchEmployees(employees, query) {
+  const words = normalizeFullName(query).split(' ').filter(Boolean);
+  if (!words.length) return [...(employees || [])];
+  return (employees || []).filter((employee) => {
+    const haystack = normalizeFullName(
+      [employee.fullName, employee.department, employee.position].filter(Boolean).join(' '),
+    );
+    return words.every((word) => haystack.includes(word));
+  });
+}
+
 const RECOVERED_NOTE = 'Восстановлено по текущему состоянию: исходная операция выдачи неизвестна.';
 
 /**
@@ -544,7 +563,7 @@ const AssetOps = {
   activeQuantity, assignmentRecipient, assignmentSortValue, projectAllocations,
   holdingsForEmployee, holdingsForWorkplace, activeHolder,
   returnFromAssignments, syncAssignmentStatus, assignmentsFromAllocations,
-  assetHistory, heldQuantity, moveHoldingsScope,
+  assetHistory, heldQuantity, moveHoldingsScope, searchEmployees,
 };
 
 if (typeof module !== 'undefined' && module.exports) {
