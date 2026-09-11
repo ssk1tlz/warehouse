@@ -373,3 +373,15 @@ def test_old_tab_save_keeps_the_links_it_does_not_know_about(db):
     ), actor="old-tab")
 
     assert server.export_state()["movements"][0]["assignmentId"] == "asg_1"
+
+
+def test_transfer_movement_type_is_accepted(db):
+    # Перенос между «лично» и «на место» пишется одним движением
+    # «Перемещение», а не парой возврат + выдача: техника никому не
+    # передавалась из рук в руки, акт на неё не печатается, и график
+    # выдач/возвратов не должен насчитать мнимых операций.
+    error = server.validate_state(payload(
+        assets=[asset()],
+        movements=[{"id": "mov_1", "type": "transfer", "assetId": "a1", "quantity": 1, "date": "2026-09-11"}],
+    ))
+    assert error is None

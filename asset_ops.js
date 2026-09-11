@@ -388,8 +388,25 @@ function assetHistory(assignments, assetId) {
       }
     });
   });
+  // В один день закрытие старой выдачи идёт раньше открытия новой:
+  // вторым ключом служит дата выдачи, к которой относится событие. Для
+  // выдачи и её собственного возврата в тот же день ключи совпадают, и
+  // тогда выдача идёт первой.
   const order = { issue: 0, return: 1 };
-  return events.sort((a, b) => a.sortKey.localeCompare(b.sortKey) || order[a.kind] - order[b.kind]);
+  const origin = (event) => event.assignment.issuedAt || '';
+  events.sort((a, b) => a.sortKey.localeCompare(b.sortKey)
+    || origin(a).localeCompare(origin(b))
+    || order[a.kind] - order[b.kind]);
+  // Возврат, за которым в тот же день следует новая выдача той же
+  // техники, — это передача (§14 ТЗ, перенос между «лично» и «на
+  // место»): на склад техника не попадала.
+  events.forEach((event, index) => {
+    const next = events[index + 1];
+    if (event.kind === 'return' && next && next.kind === 'issue' && next.sortKey === event.sortKey) {
+      event.transferred = true;
+    }
+  });
+  return events;
 }
 
 /**
@@ -402,6 +419,65 @@ function heldQuantity(assignments, assetId, recipient = {}) {
   return collectHoldings(assignments, (assignment, item, actual) => (
     item.assetId === assetId && matchesReturnTarget(actual, recipient)
   )).reduce((sum, holding) => sum + holding.quantity, 0);
+}
+
+
+/**
+ * Переносит уже выданную технику между «лично» и «на место» (§6, §13,
+ * §15 ТЗ): четыре из пяти позиций сотрудника — на его стол, одна
+ * остаётся личной. Или обратно: со стола — лично сидящему за ним.
+ *
+ * Это передача, а не правка (§14 ТЗ): позиции закрываются в прежних
+ * выдачах и открываются одной новой выдачей нужного вида. История не
+ * переписывается, а правило «одна выдача — один вид закрепления»
+ * сохраняется: столовая выдача заводится без человека, поэтому при
+ * пересадке она остаётся на столе, а не уезжает с ним.
+ *
+ * Проверяет все позиции до первой записи: если хоть одна не числится
+ * там, откуда её переносят, не переносится ни одна. Возвращает новую
+ * выдачу и список перенесённого. newId(prefix) — генератор id (в
+ * app.js это createId).
+ */
+function moveHoldingsScope(assignments, { employeeId, workplaceId, assetIds, toScope, date = '', newId } = {}) {
+  if (toScope !== 'workplace' && toScope !== 'personal') {
+    throw new TypeError(`Неизвестный вид закрепления: ${toScope}`);
+  }
+  if (!workplaceId) throw new Error('У сотрудника нет рабочего места — переносить некуда.');
+  if (!employeeId) throw new Error('Не указан сотрудник.');
+  const ids = [...new Set(assetIds || [])];
+  if (!ids.length) throw new Error('Не выбрано ни одной позиции.');
+
+  const source = toScope === 'workplace' ? { employeeId } : { workplaceId };
+  const plan = ids.map((assetId) => ({ assetId, quantity: heldQuantity(assignments, assetId, source) }));
+  const missing = plan.filter((entry) => entry.quantity <= 0).map((entry) => entry.assetId);
+  if (missing.length) {
+    const where = toScope === 'workplace' ? 'лично за сотрудником' : 'за рабочим местом';
+    throw new Error(`Не числится ${where}: ${missing.join(', ')}`);
+  }
+
+  const makeId = newId || ((prefix) => `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`);
+  const created = {
+    id: makeId('asg'),
+    code: '',
+    employeeId: toScope === 'workplace' ? null : employeeId,
+    workplaceId,
+    department: '',
+    site: '',
+    status: 'active',
+    issuedAt: date,
+    returnedAt: null,
+    actNumber: null,
+    notes: toScope === 'workplace' ? 'Перенесено на рабочее место' : 'Закреплено лично',
+    createdBy: '',
+    items: [],
+  };
+  const moved = plan.map(({ assetId, quantity }) => {
+    const touched = returnFromAssignments(assignments, { assetId, quantity, date, ...source });
+    created.items.push({ id: makeId('asgi'), assetId, quantity, returnedQuantity: 0, scope: toScope, returnedAt: null });
+    return { assetId, quantity, from: touched.map((assignment) => assignment.id) };
+  });
+  assignments.push(created);
+  return { assignment: created, moved };
 }
 
 const RECOVERED_NOTE = 'Восстановлено по текущему состоянию: исходная операция выдачи неизвестна.';
@@ -468,7 +544,7 @@ const AssetOps = {
   activeQuantity, assignmentRecipient, assignmentSortValue, projectAllocations,
   holdingsForEmployee, holdingsForWorkplace, activeHolder,
   returnFromAssignments, syncAssignmentStatus, assignmentsFromAllocations,
-  assetHistory, heldQuantity,
+  assetHistory, heldQuantity, moveHoldingsScope,
 };
 
 if (typeof module !== 'undefined' && module.exports) {

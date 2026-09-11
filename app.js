@@ -32,6 +32,9 @@ const movementLabels = {
   retire: "Списание",
   edit: "Редактирование",
   delete: "Удаление",
+  // Перенос между «лично» и «на место»: из рук в руки ничего не
+  // передаётся, поэтому без акта и не в счёт выдач/возвратов.
+  transfer: "Перемещение",
 };
 
 const dom = {
@@ -2260,7 +2263,8 @@ function openEmployeeDetailsModal(employeeId) {
 
   let assetsHtml = `<div class="empty-state" style="padding:20px"><p>Техники за сотрудником нет</p></div>`;
   if (totalCount > 0) {
-    assetsHtml = renderHoldingsListDetailed(holdings, { employeeId: employee.id });
+    assetsHtml = (workplace ? renderScopeToolbar() : "")
+      + renderHoldingsListDetailed(holdings, { employeeId: employee.id, selectable: Boolean(workplace) });
   }
   const workplaceHtml = workplace
     ? `<div class="emp-profile-field"><div class="emp-profile-field-label">Рабочее место</div>`
@@ -2323,9 +2327,96 @@ function openEmployeeDetailsModal(employeeId) {
   `;
 
   const holdingsRoot = body.querySelector(".emp-profile-assets-sec");
-  if (holdingsRoot) holdingsRoot.addEventListener("click", handleHoldingsClick(() => openEmployeeDetailsModal(employee.id)));
+  if (holdingsRoot) {
+    const reopen = () => openEmployeeDetailsModal(employee.id);
+    holdingsRoot.addEventListener("click", handleHoldingsClick(reopen));
+    if (workplace) wireScopeToolbar(holdingsRoot, { employeeId: employee.id, workplaceId: workplace.id, reopen });
+  }
 
   overlay.classList.remove("hidden");
+}
+
+// Панель над списком техники: перенести выбранное на стол или
+// закрепить лично. Кнопки неактивны, пока не выбрано подходящее — на
+// стол переносится только личное, лично закрепляется только столовое.
+function renderScopeToolbar() {
+  return `<div class="held-toolbar" data-requires-role="admin,storekeeper">
+    <button type="button" class="secondary" data-action="scope-to-desk" disabled>Перенести на стол</button>
+    <button type="button" class="secondary" data-action="scope-to-personal" disabled>Сделать личной</button>
+    <span class="muted held-toolbar-hint">Отметьте позиции флажками</span>
+  </div>`;
+}
+
+function wireScopeToolbar(section, { employeeId, workplaceId, reopen }) {
+  if (!section || !employeeId || !workplaceId) return;
+  const selected = (scope) => [...section.querySelectorAll(".held-select:checked")]
+    .filter((box) => box.dataset.scope === scope)
+    .map((box) => box.dataset.assetId);
+  const refresh = () => {
+    const toDesk = section.querySelector('[data-action="scope-to-desk"]');
+    const toPersonal = section.querySelector('[data-action="scope-to-personal"]');
+    const personal = selected("personal").length;
+    const desk = selected("workplace").length;
+    if (toDesk) { toDesk.disabled = !personal; toDesk.textContent = `Перенести на стол${personal ? ` (${personal})` : ""}`; }
+    if (toPersonal) { toPersonal.disabled = !desk; toPersonal.textContent = `Сделать личной${desk ? ` (${desk})` : ""}`; }
+  };
+  section.addEventListener("change", (event) => {
+    if (event.target.classList.contains("held-select")) refresh();
+  });
+  section.addEventListener("click", (event) => {
+    const button = event.target.closest('[data-action="scope-to-desk"], [data-action="scope-to-personal"]');
+    if (!button || button.disabled) return;
+    const toScope = button.dataset.action === "scope-to-desk" ? "workplace" : "personal";
+    const assetIds = selected(toScope === "workplace" ? "personal" : "workplace");
+    moveHoldingsToScope(employeeId, workplaceId, assetIds, toScope).then((moved) => { if (moved) reopen(); });
+  });
+  refresh();
+}
+
+/**
+ * Переносит выбранные позиции сотрудника на его стол или закрепляет
+ * столовые лично за ним. Одно движение «Перемещение» на позицию, одна
+ * новая выдача на всю операцию (AssetOps.moveHoldingsScope).
+ */
+async function moveHoldingsToScope(employeeId, workplaceId, assetIds, toScope) {
+  if (!assetIds.length) return false;
+  const employee = getEmployeeById(employeeId);
+  const workplace = getWorkplaceById(workplaceId);
+  if (!employee || !workplace) return false;
+  const list = assetIds
+    .map((id) => { const asset = getAssetById(id); return asset ? `${asset.inventoryNumber || "—"} — ${asset.name}` : id; })
+    .join("\n");
+  const toDesk = toScope === "workplace";
+  const answer = await showChoice(
+    toDesk
+      ? `Перенести на рабочее место «${workplace.name}»:\n${list}\n\nЭта техника останется на месте при смене сотрудника.`
+      : `Закрепить лично за «${employee.fullName}»:\n${list}\n\nЭта техника уедет вместе с сотрудником при пересадке.`,
+    [{ value: "yes", label: toDesk ? "Перенести на стол" : "Закрепить лично" }],
+    toDesk ? "Перенос на рабочее место" : "Личное закрепление",
+  );
+  if (answer !== "yes") return false;
+
+  const date = today();
+  let result;
+  try {
+    result = AssetOps.moveHoldingsScope(state.assignments, { employeeId, workplaceId, assetIds, toScope, date, newId: createId });
+  } catch (error) {
+    showToast(error.message, "error");
+    return false;
+  }
+  result.moved.forEach(({ assetId, quantity }) => {
+    addMovement({
+      type: "transfer", assetId, employeeId, workplaceId, quantity, date,
+      notes: toDesk ? `Лично → на место «${workplace.name}»` : `Место «${workplace.name}» → лично`,
+      assignmentId: result.assignment.id,
+    });
+    addAuditEntry("asset", assetId, "transfer", { employee: employee.fullName, workplace: workplace.name, to: toScope });
+  });
+  syncAllocations();
+  await persist();
+  render();
+  showToast(`${toDesk ? "Перенесено на стол" : "Закреплено лично"}: ${result.moved.length} поз.`, "success");
+  return true;
 }
 
 // Клики по позициям в карточке сотрудника или стола: открыть технику или
@@ -2389,11 +2480,16 @@ function openWorkplaceDetailsModal(workplaceId) {
     <div class="emp-profile-assets-sec">
       <h4>Закреплённая техника (${holdings.length} поз.)</h4>
       ${holdings.length
-        ? renderHoldingsListDetailed(holdings, { workplaceId: workplace.id })
+        ? (owner ? renderScopeToolbar() : "")
+          + renderHoldingsListDetailed(holdings, { workplaceId: workplace.id, selectable: Boolean(owner) })
         : `<div class="empty-state" style="padding:20px"><p>На этом месте техники нет</p></div>`}
     </div>`;
   const section = body.querySelector(".emp-profile-assets-sec");
-  if (section) section.addEventListener("click", handleHoldingsClick(() => openWorkplaceDetailsModal(workplace.id)));
+  if (section) {
+    const reopen = () => openWorkplaceDetailsModal(workplace.id);
+    section.addEventListener("click", handleHoldingsClick(reopen));
+    if (owner) wireScopeToolbar(section, { employeeId: owner.id, workplaceId: workplace.id, reopen });
+  }
   body.querySelector('[data-action="open-employee"]')?.addEventListener("click", () => {
     closeWorkplaceDetailsModal();
     openEmployeeDetailsModal(owner.id);
@@ -2787,10 +2883,12 @@ async function removeHolding(assetId, recipient = {}) {
     ? getEmployeeById(recipient.employeeId)?.fullName
     : recipient.workplaceId ? getWorkplaceById(recipient.workplaceId)?.name
     : recipient.department || recipient.site;
-  const confirmed = await showConfirm(
+  const confirmed = await showChoice(
     `Снять «${asset.name}» (${quantity} шт.) с получателя «${holderName || "—"}» и вернуть на склад?`,
+    [{ value: "yes", label: "Снять и вернуть на склад", danger: true }],
+    "Возврат на склад",
   );
-  if (!confirmed) return false;
+  if (confirmed !== "yes") return false;
 
   const date = today();
   let touched;
@@ -2834,7 +2932,10 @@ function renderHoldingsList(entries) {
 // «уже на руках» при выдаче — там нужен краткий список, не подробный
 // аудит), эта функция используется только на карточке сотрудника.
 function renderHoldingsListDetailed(entries, recipient) {
-  return `<ul class="held-list">` + entries.map((entry) => {
+  // selectable — флажки для переноса между «лично» и «на место»;
+  // имеет смысл, только когда есть и сотрудник, и его стол.
+  const selectable = Boolean(recipient.selectable);
+  return `<ul class="held-list${selectable ? " selectable" : ""}">` + entries.map((entry) => {
     const { asset, allocation, assignment, scope } = entry;
     // Дата и номер берутся у самой выдачи, а не подбираются по журналу:
     // раньше подходящее движение приходилось угадывать по совпадению
@@ -2858,7 +2959,10 @@ function renderHoldingsListDetailed(entries, recipient) {
         + ` data-employee-id="${escapeHtml(holder.employeeId || "")}" data-workplace-id="${escapeHtml(holder.workplaceId || "")}"`
         + ` data-department="${escapeHtml(holder.department || "")}" data-site="${escapeHtml(holder.site || "")}">Снять</button>`
       : "";
-    return `<li>
+    const checkbox = selectable
+      ? `<input type="checkbox" class="held-select" data-asset-id="${escapeHtml(asset.id)}" data-scope="${escapeHtml(scope)}" aria-label="Выбрать ${escapeHtml(asset.inventoryNumber || asset.name)}">`
+      : "";
+    return `<li>${checkbox}
       <button type="button" class="held-item-open" data-action="open-asset" data-asset-id="${escapeHtml(asset.id)}" title="Открыть карточку техники">
         <code>${escapeHtml(asset.inventoryNumber || "—")}</code><span>${escapeHtml(asset.name)}</span>
       </button>
@@ -3175,9 +3279,11 @@ function moveEmployeeAssignmentsToWorkplace(employeeId, workplaceId) {
 // Диалог с несколькими вариантами. showConfirm умеет только «да/нет», а
 // при смене сотрудника за столом вариантов три (§15 ТЗ). Закрытие без
 // выбора означает «ничего не менять» — resolve(null).
-function showChoice(message, options) {
+function showChoice(message, options, title = "Техника на рабочем месте") {
   return new Promise((resolve) => {
     const overlay = document.getElementById("choiceOverlay");
+    const heading = overlay?.querySelector(".confirm-title");
+    if (heading) heading.textContent = title;
     const text = document.getElementById("choiceMessage");
     const buttons = document.getElementById("choiceButtons");
     if (!overlay || !text || !buttons) { resolve(null); return; }
@@ -4422,7 +4528,8 @@ function renderAssetHolderPanel(asset) {
     ? current.map(({ assignment, item }) => {
         const employee = assignment.employeeId ? getEmployeeById(assignment.employeeId) : null;
         const workplace = assignment.workplaceId ? getWorkplaceById(assignment.workplaceId) : null;
-        const department = employee?.department || assignment.department || "";
+        // У столовой выдачи сотрудника нет — отдел берётся у самого стола.
+        const department = employee?.department || assignment.department || workplace?.department || "";
         const fields = [
           ["Сотрудник", employee ? employee.fullName : "—"],
           ["Отдел", department || "—"],
@@ -4441,7 +4548,7 @@ function renderAssetHolderPanel(asset) {
         const when = event.date ? formatDate(event.date) : "Дата неизвестна";
         const what = event.kind === "issue"
           ? `Выдано: ${holderLabel(event.assignment) || "—"}`
-          : "Возвращено на склад";
+          : event.transferred ? `Передано от: ${holderLabel(event.assignment) || "—"}` : "Возвращено на склад";
         const qty = event.quantity > 1 ? ` · ${event.quantity} шт.` : "";
         const code = event.assignment.code ? ` · ${event.assignment.code}` : "";
         return `<li><time>${escapeHtml(when)}</time><span>${escapeHtml(what + qty + code)}</span></li>`;

@@ -347,7 +347,9 @@ def list_backups() -> list[dict]:
 
 
 VALID_STATUSES = {"in_stock", "assigned", "partial", "repair", "retired"}
-VALID_MOVEMENT_TYPES = {"purchase", "issue", "return", "repair", "repair_return", "retire", "edit", "delete"}
+# transfer — перенос уже выданной техники между «лично» и «на место»:
+# одно движение без акта, потому что из рук в руки ничего не передаётся.
+VALID_MOVEMENT_TYPES = {"purchase", "issue", "return", "repair", "repair_return", "retire", "edit", "delete", "transfer"}
 
 # Serializes read-check-write cycles on /api/state so concurrent POSTs
 # can't both pass the version check.

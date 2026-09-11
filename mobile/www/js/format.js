@@ -15,6 +15,8 @@ const MOVEMENT_LABELS = {
   retire: 'Списание',
   edit: 'Редактирование',
   delete: 'Удаление',
+  // Перенос выданной техники между «лично» и «на место» (десктоп).
+  transfer: 'Перемещение',
 };
 
 function getAllocatedQuantity(asset) {

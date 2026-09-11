@@ -315,3 +315,133 @@ test('держит ровно тот получатель, которому ад
   assert.equal(heldQuantity(all, 'a1', { employeeId: 'emp_1' }), 2);
   assert.equal(heldQuantity(all, 'a1', { workplaceId: 'wp_7' }), 1, 'столовая — отдельно от личной');
 });
+
+// ─── перенос уже выданной техники между «лично» и «на место» ─────
+// У сотрудника пять позиций лично; четыре переносим на его стол, одна
+// остаётся личной. Перенос — это передача (§14 ТЗ): позиция закрывается
+// в личной выдаче и открывается в новой выдаче стола, история цела.
+
+const { moveHoldingsScope } = require('../asset_ops.js');
+
+function fivePersonal() {
+  return [assignment({
+    workplaceId: 'wp_7',
+    items: ['nb', 'mon', 'kb', 'ms', 'dock'].map((assetId, index) => item({ id: `asgi_${index}`, assetId })),
+  })];
+}
+
+let idCounter = 0;
+const newId = (prefix) => `${prefix}_t${++idCounter}`;
+
+test('четыре из пяти личных позиций переносятся на стол, одна остаётся личной', () => {
+  const assignments = fivePersonal();
+  moveHoldingsScope(assignments, {
+    employeeId: 'emp_1', workplaceId: 'wp_7', assetIds: ['mon', 'kb', 'ms', 'dock'],
+    toScope: 'workplace', date: '2026-09-11', newId,
+  });
+
+  const projection = projectAllocations(assignments);
+  assert.equal(projection.nb[0].employeeId, 'emp_1', 'ноутбук остался личным');
+  for (const assetId of ['mon', 'kb', 'ms', 'dock']) {
+    assert.deepEqual(
+      [projection[assetId][0].employeeId, projection[assetId][0].workplaceId],
+      [null, 'wp_7'],
+      `${assetId} числится за столом`,
+    );
+  }
+});
+
+test('после переноса сотрудник и стол по-прежнему видят все пять', () => {
+  const assignments = fivePersonal();
+  moveHoldingsScope(assignments, {
+    employeeId: 'emp_1', workplaceId: 'wp_7', assetIds: ['mon', 'kb', 'ms', 'dock'],
+    toScope: 'workplace', date: '2026-09-11', newId,
+  });
+  assert.equal(holdingsForEmployee(assignments, 'emp_1', 'wp_7').length, 5);
+  assert.equal(holdingsForWorkplace(assignments, 'wp_7').length, 5);
+});
+
+test('перенос не переписывает историю, а заводит новую выдачу стола', () => {
+  const assignments = fivePersonal();
+  const { assignment: created } = moveHoldingsScope(assignments, {
+    employeeId: 'emp_1', workplaceId: 'wp_7', assetIds: ['mon'],
+    toScope: 'workplace', date: '2026-09-11', newId,
+  });
+
+  const old = assignments[0].items.find((entry) => entry.assetId === 'mon');
+  assert.equal(old.returnedQuantity, 1, 'в личной выдаче позиция закрыта');
+  assert.equal(old.returnedAt, '2026-09-11');
+  // Столовая выдача — без человека: иначе при пересадке она уехала бы
+  // вместе с ним, а не осталась на столе.
+  assert.deepEqual([created.employeeId, created.workplaceId, created.items[0].scope], [null, 'wp_7', 'workplace']);
+  assert.equal(assignments.length, 2);
+});
+
+test('со стола позиция делается личной для сидящего за ним сотрудника', () => {
+  const assignments = [assignment({
+    employeeId: null, workplaceId: 'wp_7', items: [item({ assetId: 'mon', scope: 'workplace' })],
+  })];
+  const { assignment: created } = moveHoldingsScope(assignments, {
+    employeeId: 'emp_1', workplaceId: 'wp_7', assetIds: ['mon'],
+    toScope: 'personal', date: '2026-09-11', newId,
+  });
+
+  assert.deepEqual([created.employeeId, created.workplaceId, created.items[0].scope], ['emp_1', 'wp_7', 'personal']);
+  assert.equal(projectAllocations(assignments).mon[0].employeeId, 'emp_1');
+});
+
+test('без стола переносить некуда — ничего не меняется', () => {
+  const assignments = fivePersonal();
+  assert.throws(
+    () => moveHoldingsScope(assignments, {
+      employeeId: 'emp_1', workplaceId: '', assetIds: ['mon'], toScope: 'workplace', date: '2026-09-11', newId,
+    }),
+    /рабоч/,
+  );
+  assert.equal(assignments.length, 1);
+  assert.equal(assignments[0].items[1].returnedQuantity, 0);
+});
+
+test('если одна из позиций не числится лично — не переносится ни одна', () => {
+  // Проверка всех позиций идёт до первой записи: иначе половина
+  // выбранного уехала бы на стол, а половина — нет.
+  const assignments = fivePersonal();
+  assert.throws(
+    () => moveHoldingsScope(assignments, {
+      employeeId: 'emp_1', workplaceId: 'wp_7', assetIds: ['mon', 'чужое'], toScope: 'workplace', date: '2026-09-11', newId,
+    }),
+    /чужое/,
+  );
+  assert.equal(assignments.length, 1);
+  assert.ok(assignments[0].items.every((entry) => entry.returnedQuantity === 0));
+});
+
+test('перенесённая на стол позиция остаётся столу при смене сотрудника', () => {
+  // Итоговая проверка смысла: новый сотрудник за этим столом увидит
+  // перенесённые позиции, а личный ноутбук прежнего — нет.
+  const assignments = fivePersonal();
+  moveHoldingsScope(assignments, {
+    employeeId: 'emp_1', workplaceId: 'wp_7', assetIds: ['mon', 'kb', 'ms', 'dock'],
+    toScope: 'workplace', date: '2026-09-11', newId,
+  });
+  // Прежний сотрудник пересел: его личные выдачи больше не на wp_7.
+  assignments.filter((entry) => entry.employeeId === 'emp_1').forEach((entry) => { entry.workplaceId = ''; });
+
+  const newcomer = holdingsForEmployee(assignments, 'emp_2', 'wp_7').map((h) => h.assetId).sort();
+  assert.deepEqual(newcomer, ['dock', 'kb', 'mon', 'ms']);
+});
+
+test('история: перенос на стол читается как передача, а не возврат на склад', () => {
+  const assignments = fivePersonal();
+  moveHoldingsScope(assignments, {
+    employeeId: 'emp_1', workplaceId: 'wp_7', assetIds: ['mon'], toScope: 'workplace', date: '2026-09-11', newId,
+  });
+  const events = assetHistory(assignments, 'mon');
+  assert.deepEqual(events.map((e) => [e.kind, Boolean(e.transferred)]), [['issue', false], ['return', true], ['issue', false]]);
+});
+
+test('история: обычный возврат на склад передачей не считается', () => {
+  const source = assignment({ issuedAt: '2026-09-10', items: [item({ returnedQuantity: 1, returnedAt: '2026-09-15' })] });
+  const back = assetHistory([source], 'a1').find((e) => e.kind === 'return');
+  assert.equal(Boolean(back.transferred), false);
+});

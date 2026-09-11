@@ -3279,3 +3279,12 @@ tr.low-stock-row:hover td { background: rgba(245,158,11,0.09); }
    списка техники (92px под инвентарный номер ему не нужны). */
 .emp-profile-field-value .held-item-open { display: inline; width: auto; color: var(--brand); }
 .emp-profile-field-value .held-item-open span { color: inherit; }
+
+/* Перенос выданной техники между «лично» и «на место»: флажок в начале
+   строки и панель с двумя кнопками над списком. */
+.held-list.selectable li { grid-template-columns: auto 1fr auto auto auto; }
+.held-select { width: 16px; height: 16px; margin: 0; accent-color: var(--brand); cursor: pointer; }
+.held-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 4px; }
+.held-toolbar button { padding: 6px 12px; font-size: 12px; }
+.held-toolbar button:disabled { opacity: 0.5; cursor: not-allowed; }
+.held-toolbar-hint { font-size: 11.5px; }
