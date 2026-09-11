@@ -6203,7 +6203,7 @@ function openLabelsModal(options = {}) {
   // Пункт меню передаёт сюда событие клика, поэтому preselect проверяется
   // по типу, а не по наличию.
   const preselect = typeof options?.preselect === "string" ? options.preselect : "";
-  labelSelection = new Map(preselect ? [[preselect, "1"]] : []);
+  labelSelection = new Map(preselect ? [[labelAssetKey(preselect), "1"]] : []);
   document.getElementById("labelsOverlay").classList.remove("hidden");
   populateLabelFilterDropdowns();
   const labelEmployeeSearch = document.getElementById("labelEmployeeSearch");
@@ -6467,7 +6467,9 @@ function getLabelAssets() {
     location: document.getElementById("labelFilterLocation")?.value || "",
     onlyUnprinted: document.getElementById("labelUnprintedCheck")?.checked || false,
     onlyAssetIds: getLabelTargetAssetIds(target),
-    selectedIds: onlySelected ? [...labelSelection.keys()] : null,
+    selectedIds: onlySelected
+      ? [...labelSelection.keys()].filter((key) => key.startsWith("asset:")).map((key) => key.slice(6))
+      : null,
   });
 }
 
@@ -6529,6 +6531,11 @@ function populateLabelEmployeeSelect() {
   select.value = values.includes(current) ? current : auto;
 }
 
+// labelSelection копит вперемешку отдельные активы и целые столы (Task 6)
+// — составной ключ отличает их без риска коллизии id.
+function labelAssetKey(assetId) { return `asset:${assetId}`; }
+function labelWorkplaceKey(workplaceId) { return `workplace:${workplaceId}`; }
+
 // Выбор в сетке этикеток хранится не в DOM, а здесь: DOM пересоздаётся при
 // каждой смене фильтра, и позиция, переставшая проходить фильтр, раньше
 // пропадала бы из выбора без возврата — даже после того, как фильтр снова
@@ -6556,9 +6563,10 @@ function renderLabelGrid() {
   }
 
   grid.innerHTML = assets.map(asset => {
-    const isSelected = labelSelection.has(asset.id);
-    const qty = labelSelection.get(asset.id) || "1";
-    return `<div class="label-item${isSelected ? " selected" : ""}" data-id="${asset.id}">
+    const key = labelAssetKey(asset.id);
+    const isSelected = labelSelection.has(key);
+    const qty = labelSelection.get(key) || "1";
+    return `<div class="label-item${isSelected ? " selected" : ""}" data-id="${key}">
       <input type="checkbox" ${isSelected ? "checked" : ""} data-asset-id="${asset.id}">
       <div class="label-item-info">
         <div class="label-item-name">${escapeHtml(asset.name)}</div>
@@ -6569,7 +6577,7 @@ function renderLabelGrid() {
   }).join("");
 
   grid.querySelectorAll(".label-item").forEach(item => {
-    const assetId = item.dataset.id;
+    const key = item.dataset.id;
     // Клик по всему элементу (кроме input полей)
     item.addEventListener("click", (e) => {
       // Игнорируем клики по input элементам
@@ -6577,8 +6585,8 @@ function renderLabelGrid() {
       const cb = item.querySelector("input[type=checkbox]");
       cb.checked = !cb.checked;
       item.classList.toggle("selected", cb.checked);
-      if (cb.checked) labelSelection.set(assetId, item.querySelector(".label-qty-input").value);
-      else labelSelection.delete(assetId);
+      if (cb.checked) labelSelection.set(key, item.querySelector(".label-qty-input").value);
+      else labelSelection.delete(key);
       updateLabelCount();
     });
 
@@ -6587,8 +6595,8 @@ function renderLabelGrid() {
     cb.addEventListener("change", (e) => {
       e.stopPropagation();
       item.classList.toggle("selected", cb.checked);
-      if (cb.checked) labelSelection.set(assetId, item.querySelector(".label-qty-input").value);
-      else labelSelection.delete(assetId);
+      if (cb.checked) labelSelection.set(key, item.querySelector(".label-qty-input").value);
+      else labelSelection.delete(key);
       updateLabelCount();
     });
 
@@ -6597,7 +6605,7 @@ function renderLabelGrid() {
     qtyInput.addEventListener("click", e => e.stopPropagation());
     qtyInput.addEventListener("focus", e => e.stopPropagation());
     qtyInput.addEventListener("input", () => {
-      if (labelSelection.has(assetId)) labelSelection.set(assetId, qtyInput.value);
+      if (labelSelection.has(key)) labelSelection.set(key, qtyInput.value);
     });
   });
   updateLabelCount();
@@ -6665,8 +6673,9 @@ function addEmployeeAssetsToLabelSelection() {
 
   let added = 0;
   employeeAssetIds.forEach((assetId) => {
-    if (!labelSelection.has(assetId)) added += 1;
-    labelSelection.set(assetId, labelSelection.get(assetId) || "1");
+    const key = labelAssetKey(assetId);
+    if (!labelSelection.has(key)) added += 1;
+    labelSelection.set(key, labelSelection.get(key) || "1");
   });
 
   renderLabelGrid();
@@ -6683,7 +6692,7 @@ function updateLabelCount() {
   let text = `Выбрано всего: ${labelSelection.size}`;
   if (target) {
     const targetIds = getLabelTargetAssetIds(target);
-    const picked = [...targetIds].filter((assetId) => labelSelection.has(assetId)).length;
+    const picked = [...targetIds].filter((assetId) => labelSelection.has(labelAssetKey(assetId))).length;
     text += ` · ${target.kind === "emp" ? "у сотрудника" : "на столе"}: ${picked} из ${targetIds.size}`;
   }
   el.textContent = text;
@@ -6691,10 +6700,14 @@ function updateLabelCount() {
 
 function getSelectedLabelItems() {
   const items = [];
-  labelSelection.forEach((qtyValue, assetId) => {
-    const asset = getAssetById(assetId);
-    if (!asset) return;
-    items.push({ asset, qty: Math.max(1, parseInt(qtyValue || 1)) });
+  labelSelection.forEach((qtyValue, key) => {
+    const qty = Math.max(1, parseInt(qtyValue || 1));
+    if (key.startsWith("asset:")) {
+      const asset = getAssetById(key.slice(6));
+      if (asset) items.push({ asset, qty });
+    }
+    // Ветка "workplace:" добавляется в Task 6 — до него такие ключи в
+    // labelSelection просто не появляются (чекбокс ещё не существует).
   });
   return items;
 }
