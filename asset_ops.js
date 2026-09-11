@@ -499,6 +499,35 @@ function searchEmployees(employees, query) {
   });
 }
 
+
+/**
+ * Что показать в таблице окна этикеток. Только отбор: выбор (какие
+ * этикетки отмечены) хранится отдельно и фильтром не теряется — выбрал
+ * у одного сотрудника, переключился на другого, первое осталось.
+ *
+ * onlyAssetIds — техника выбранного сотрудника: null значит «сотрудник
+ * не выбран», пустое множество — «у него ничего нет» (таблица пуста, а
+ * не показывает всё). selectedIds — режим «только выбранные», те же
+ * правила для null и пустоты. Поиск — как у searchAssets: слова в любом
+ * порядке, ё и е не различаются.
+ */
+function filterLabelAssets(assets, {
+  query = '', category = '', location = '', onlyUnprinted = false,
+  onlyAssetIds = null, selectedIds = null,
+} = {}) {
+  const only = onlyAssetIds == null ? null : new Set(onlyAssetIds);
+  const selected = selectedIds == null ? null : new Set(selectedIds);
+  const filtered = (assets || []).filter((asset) => {
+    if (only && !only.has(asset.id)) return false;
+    if (selected && !selected.has(asset.id)) return false;
+    if (category && asset.category !== category) return false;
+    if (location && asset.location !== location) return false;
+    if (onlyUnprinted && asset.labelPrintedAt) return false;
+    return true;
+  });
+  return searchAssets(filtered, query);
+}
+
 const RECOVERED_NOTE = 'Восстановлено по текущему состоянию: исходная операция выдачи неизвестна.';
 
 /**
@@ -563,7 +592,7 @@ const AssetOps = {
   activeQuantity, assignmentRecipient, assignmentSortValue, projectAllocations,
   holdingsForEmployee, holdingsForWorkplace, activeHolder,
   returnFromAssignments, syncAssignmentStatus, assignmentsFromAllocations,
-  assetHistory, heldQuantity, moveHoldingsScope, searchEmployees,
+  assetHistory, heldQuantity, moveHoldingsScope, searchEmployees, filterLabelAssets,
 };
 
 if (typeof module !== 'undefined' && module.exports) {

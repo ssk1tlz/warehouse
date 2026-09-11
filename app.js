@@ -5924,16 +5924,20 @@ function bindEvents() {
   document.getElementById("labelFilterLocation")?.addEventListener("change", renderLabelGrid);
   document.getElementById("labelUnprintedCheck")?.addEventListener("change", renderLabelGrid);
   document.getElementById("labelAddEmployeeAssetsBtn")?.addEventListener("click", addEmployeeAssetsToLabelSelection);
-  document.getElementById("labelEmployeeSearch")?.addEventListener("input", debounce(populateLabelEmployeeSelect, 150));
-  // Enter в поиске сразу добавляет технику найденного сотрудника —
-  // без похода мышкой к списку и кнопке.
+  // Поиск сотрудника сужает список, а найденный сотрудник сразу
+  // становится фильтром таблицы — видна только его техника.
+  const refreshLabelEmployee = () => { populateLabelEmployeeSelect(); renderLabelGrid(); };
+  document.getElementById("labelEmployeeSearch")?.addEventListener("input", debounce(refreshLabelEmployee, 150));
   document.getElementById("labelEmployeeSearch")?.addEventListener("keydown", (event) => {
     if (event.key !== "Enter") return;
     event.preventDefault();
-    populateLabelEmployeeSelect();
-    if (document.getElementById("labelEmployeeSelect")?.value) addEmployeeAssetsToLabelSelection();
-    else showToast("Уточните поиск: подходит несколько сотрудников или никто.", "warning");
+    refreshLabelEmployee();
+    if (!document.getElementById("labelEmployeeSelect")?.value) {
+      showToast("Уточните поиск: подходит несколько сотрудников или никто.", "warning");
+    }
   });
+  document.getElementById("labelEmployeeSelect")?.addEventListener("change", renderLabelGrid);
+  document.getElementById("labelOnlySelectedCheck")?.addEventListener("change", renderLabelGrid);
   document.getElementById("printLabelsPrintBtn")?.addEventListener("click", printLabels);
   document.getElementById("exportLabelsExcelBtn")?.addEventListener("click", exportLabelsExcel);
   document.getElementById("exportLabelsWordBtn")?.addEventListener("click", exportLabelsWord);
@@ -6179,6 +6183,10 @@ function openLabelsModal() {
   populateLabelFilterDropdowns();
   const labelEmployeeSearch = document.getElementById("labelEmployeeSearch");
   if (labelEmployeeSearch) labelEmployeeSearch.value = "";
+  const labelEmployeeSelect = document.getElementById("labelEmployeeSelect");
+  if (labelEmployeeSelect) labelEmployeeSelect.value = "";
+  const labelOnlySelected = document.getElementById("labelOnlySelectedCheck");
+  if (labelOnlySelected) labelOnlySelected.checked = false;
   populateLabelEmployeeSelect();
   renderLabelGrid();
   updateLabelSizeHint();
@@ -6395,18 +6403,25 @@ async function renderBackupsTable() {
   `).join("");
 }
 
+// Техника сотрудника для окна этикеток: и личная, и на его рабочем
+// месте — как в карточке сотрудника.
+function getLabelEmployeeAssetIds(employeeId) {
+  return new Set(getEmployeeHoldings(employeeId).holdings.map((entry) => entry.asset.id));
+}
+
+// Что показать в таблице этикеток. Выбор (labelSelection) фильтр не
+// трогает: выбрал у одного сотрудника, переключился на другого — первое
+// осталось отмеченным и суммируется со вторым.
 function getLabelAssets() {
-  // Показываем всю технику, не только ту что на складе
-  const q = (document.getElementById("labelSearchInput")?.value || "").trim().toLowerCase();
-  const category = document.getElementById("labelFilterCategory")?.value || "";
-  const location = document.getElementById("labelFilterLocation")?.value || "";
-  const onlyUnprinted = document.getElementById("labelUnprintedCheck")?.checked || false;
-  return state.assets.filter(a => {
-    if (category && a.category !== category) return false;
-    if (location && a.location !== location) return false;
-    if (onlyUnprinted && a.labelPrintedAt) return false;
-    if (!q) return true;
-    return [a.name, a.category, a.inventoryNumber, a.serialNumber].join(" ").toLowerCase().includes(q);
+  const employeeId = document.getElementById("labelEmployeeSelect")?.value || "";
+  const onlySelected = document.getElementById("labelOnlySelectedCheck")?.checked || false;
+  return AssetOps.filterLabelAssets(state.assets, {
+    query: document.getElementById("labelSearchInput")?.value || "",
+    category: document.getElementById("labelFilterCategory")?.value || "",
+    location: document.getElementById("labelFilterLocation")?.value || "",
+    onlyUnprinted: document.getElementById("labelUnprintedCheck")?.checked || false,
+    onlyAssetIds: employeeId ? getLabelEmployeeAssetIds(employeeId) : null,
+    selectedIds: onlySelected ? [...labelSelection.keys()] : null,
   });
 }
 
@@ -6461,7 +6476,15 @@ function renderLabelGrid() {
   if (!grid) return;
   const assets = getLabelAssets();
   if (!assets.length) {
-    grid.innerHTML = '<div class="empty-state">Нет техники на складе.</div>';
+    // Пустая таблица — не всегда «нет техники»: чаще просто ничего не
+    // подошло под фильтр. Говорим, какой именно случай.
+    const employeeId = document.getElementById("labelEmployeeSelect")?.value || "";
+    const onlySelected = document.getElementById("labelOnlySelectedCheck")?.checked || false;
+    const message = onlySelected ? "Пока ничего не выбрано."
+      : employeeId && !getLabelEmployeeAssetIds(employeeId).size ? "За этим сотрудником не числится техника."
+      : state.assets.length ? "Ничего не найдено — измените поиск или фильтры."
+      : "Техники пока нет.";
+    grid.innerHTML = `<div class="empty-state">${escapeHtml(message)}</div>`;
     updateLabelCount();
     return;
   }
@@ -6558,22 +6581,24 @@ function addEmployeeAssetsToLabelSelection() {
     labelSelection.set(assetId, labelSelection.get(assetId) || "1");
   });
 
-  const searchInput = document.getElementById("labelSearchInput");
-  const categorySelect = document.getElementById("labelFilterCategory");
-  const locationSelect = document.getElementById("labelFilterLocation");
-  const unprintedCheck = document.getElementById("labelUnprintedCheck");
-  if (searchInput) searchInput.value = "";
-  if (categorySelect) categorySelect.value = "";
-  if (locationSelect) locationSelect.value = "";
-  if (unprintedCheck) unprintedCheck.checked = false;
   renderLabelGrid();
 
-  showToast(`Добавлено позиций: ${added} (найдено за сотрудником: ${employeeAssetIds.size}).`, "success");
+  showToast(`Выбрано ещё: ${added} (у сотрудника всего: ${employeeAssetIds.size}). Всего выбрано: ${labelSelection.size}.`, "success");
 }
 
+// Счётчик показывает, что выбор копится: всего по всем сотрудникам и
+// сколько отмечено у того, чья техника сейчас на экране.
 function updateLabelCount() {
   const el = document.getElementById("labelCountSpan");
-  if (el) el.textContent = `${labelSelection.size} выбрано`;
+  if (!el) return;
+  const employeeId = document.getElementById("labelEmployeeSelect")?.value || "";
+  let text = `Выбрано всего: ${labelSelection.size}`;
+  if (employeeId) {
+    const employeeIds = getLabelEmployeeAssetIds(employeeId);
+    const picked = [...employeeIds].filter((assetId) => labelSelection.has(assetId)).length;
+    text += ` · у сотрудника: ${picked} из ${employeeIds.size}`;
+  }
+  el.textContent = text;
 }
 
 function getSelectedLabelItems() {
