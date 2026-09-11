@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS employees (
 );
 CREATE TABLE IF NOT EXISTS departments (id TEXT PRIMARY KEY, name TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS sites (id TEXT PRIMARY KEY, name TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS workplaces (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, code TEXT, department TEXT, employee_id TEXT, site TEXT
+);
 CREATE TABLE IF NOT EXISTS allocations (
   asset_id TEXT NOT NULL, employee_id TEXT, department TEXT, site TEXT, quantity INTEGER NOT NULL
 );
@@ -63,6 +66,11 @@ async function open() {
   } catch (err) {
     // Уже есть колонка — см. комментарий у ALTER TABLE assets ADD COLUMN rev выше.
   }
+  try {
+    await db.execute('ALTER TABLE allocations ADD COLUMN workplace_id TEXT');
+  } catch (err) {
+    // Уже есть колонка — см. комментарий у ALTER TABLE assets ADD COLUMN rev выше.
+  }
 }
 
 async function replaceState(state) {
@@ -81,6 +89,7 @@ async function replaceState(state) {
     { statement: 'DELETE FROM departments' },
     { statement: 'DELETE FROM sites' },
     { statement: 'DELETE FROM allocations' },
+    { statement: 'DELETE FROM workplaces' },
     { statement: 'DELETE FROM movements' },
     { statement: 'DELETE FROM movements_history' },
   ];
@@ -95,8 +104,8 @@ async function replaceState(state) {
     });
     for (const alloc of a.allocations || []) {
       txn.push({
-        statement: 'INSERT INTO allocations (asset_id, employee_id, department, site, quantity) VALUES (?,?,?,?,?)',
-        values: [a.id, alloc.employeeId, alloc.department, alloc.site, alloc.quantity],
+        statement: 'INSERT INTO allocations (asset_id, employee_id, department, site, workplace_id, quantity) VALUES (?,?,?,?,?,?)',
+        values: [a.id, alloc.employeeId, alloc.department, alloc.site, alloc.workplaceId || '', alloc.quantity],
       });
     }
   }
@@ -111,6 +120,12 @@ async function replaceState(state) {
   }
   for (const s of state.sites) {
     txn.push({ statement: 'INSERT INTO sites (id, name) VALUES (?,?)', values: [s.id, s.name] });
+  }
+  for (const w of state.workplaces || []) {
+    txn.push({
+      statement: 'INSERT INTO workplaces (id, name, code, department, employee_id, site) VALUES (?,?,?,?,?,?)',
+      values: [w.id, w.name, w.code || '', w.department || '', w.employeeId || '', w.site || ''],
+    });
   }
   // Cache only the last 3 movements per asset (matches spec section C). The server's
   // /api/state already returns state.movements ordered newest-first (ORDER BY date DESC,
@@ -315,6 +330,31 @@ async function getAllocationsForEmployee(employeeId) {
   return result.values;
 }
 
+async function getWorkplaceById(workplaceId) {
+  const result = await db.query(
+    'SELECT id, name, code, department, employee_id AS employeeId, site FROM workplaces WHERE id = ?',
+    [workplaceId]
+  );
+  return result.values[0] || null;
+}
+
+// Техника стола: закреплённая за самим местом ИЛИ лично за тем, кто
+// сейчас на нём сидит (occupantEmployeeId — workplaces.employee_id) —
+// тот же принцип, что у getWorkplaceAssets на десктопе (app.js:2844).
+async function getAllocationsForWorkplace(workplaceId, occupantEmployeeId) {
+  const result = await db.query(
+    `SELECT allocations.asset_id AS assetId, allocations.quantity AS quantity,
+            assets.name AS name, assets.category AS category,
+            assets.inventory_number AS inventoryNumber, assets.serial_number AS serialNumber,
+            assets.status AS status
+     FROM allocations JOIN assets ON assets.id = allocations.asset_id
+     WHERE (allocations.workplace_id = ? OR allocations.employee_id = ?) AND allocations.quantity > 0
+     ORDER BY assets.name`,
+    [workplaceId, occupantEmployeeId || '']
+  );
+  return result.values;
+}
+
 function generateClientActionId() {
   // RFC-4122-ish v4 UUID, good enough as a dedup key — Capacitor's JS runtime
   // has crypto.randomUUID() on modern Android WebViews; fall back if not.
@@ -439,4 +479,4 @@ async function getAllAssets() {
   }));
 }
 
-window.Db = { open, replaceState, getAssetById, getStateMeta, listEmployeesById, listMovementsForAsset, listMovementHistory, searchAssets, enqueueAction, listPendingActions, markActionSynced, markActionFailed, retryAction, markActionConflict, retryActionOnTop, cancelAction, generateClientActionId, saveInventoryScan, getInventoryScans, clearInventoryScans, getAllAssets, clearActiveInventorySessionMeta, queuePhotoUpload, listPendingPhotoUploads, clearPendingPhotoUpload, searchEmployees, getAllocationsForEmployee };
+window.Db = { open, replaceState, getAssetById, getStateMeta, listEmployeesById, listMovementsForAsset, listMovementHistory, searchAssets, enqueueAction, listPendingActions, markActionSynced, markActionFailed, retryAction, markActionConflict, retryActionOnTop, cancelAction, generateClientActionId, saveInventoryScan, getInventoryScans, clearInventoryScans, getAllAssets, clearActiveInventorySessionMeta, queuePhotoUpload, listPendingPhotoUploads, clearPendingPhotoUpload, searchEmployees, getAllocationsForEmployee, getWorkplaceById, getAllocationsForWorkplace };
