@@ -1,8 +1,25 @@
+import io
 import zipfile
 from io import BytesIO
 from xml.etree import ElementTree as ET
 
 import act_generator
+
+
+SAMPLE_EMPLOYEE = {
+    "fullName": "Иванов Иван Иванович",
+    "position": "Инженер",
+    "department": "IT-отдел",
+    "phone": "+998901234567",
+}
+SAMPLE_ITEMS = [
+    {"name": "Ноутбук Lenovo T14", "serialNumber": "PF1XYZ123", "inventoryNumber": "INV-002", "quantity": 1},
+    {"name": "Монитор Dell 24", "serialNumber": "Отсутствует", "inventoryNumber": "INV-045", "quantity": 2},
+]
+
+
+def _document_xml(docx_bytes: bytes) -> str:
+    return zipfile.ZipFile(io.BytesIO(docx_bytes)).read("word/document.xml").decode("utf-8")
 
 
 def test_generate_inventory_act_returns_a_valid_docx_zip():
@@ -69,15 +86,58 @@ def test_generate_inventory_act_handles_empty_lists_without_crashing():
     assert zf.testzip() is None
 
 
-def test_generate_act_uses_custom_action_phrase_when_provided():
-    docx_bytes = act_generator.generate_act(
-        act_number=1, date_iso="2026-09-04",
-        employee={"fullName": "Иванов И.И.", "position": "Инженер"},
-        items=[{"name": "Ноутбук", "quantity": 1, "price": 1000}],
-        is_issue=True,
-        action_phrase="За Работником числится по состоянию на",
+def test_generate_act_is_a_valid_docx_with_all_tokens_substituted():
+    data = act_generator.generate_act(
+        act_number=134, date_iso="2026-09-14", employee=SAMPLE_EMPLOYEE, items=SAMPLE_ITEMS, is_issue=True,
     )
-    zf = zipfile.ZipFile(BytesIO(docx_bytes))
-    document_xml = zf.read("word/document.xml").decode("utf-8")
-    assert "За Работником числится по состоянию на" in document_xml
-    assert act_generator.ISSUE_PHRASE not in document_xml
+    zf = zipfile.ZipFile(io.BytesIO(data))
+    assert zf.testzip() is None
+    xml = _document_xml(data)
+    assert "{{" not in xml
+    assert "Акт № 134" in xml
+    assert "«14» сентября 2026 г." in xml
+
+
+def test_issue_fills_party_b_receiving_side_only():
+    data = act_generator.generate_act(
+        act_number=1, date_iso="2026-09-14", employee=SAMPLE_EMPLOYEE, items=SAMPLE_ITEMS, is_issue=True,
+    )
+    xml = _document_xml(data)
+    party_a_idx = xml.index("Передающая сторона (сдал)")
+    party_b_idx = xml.index("Принимающая сторона (принял)")
+    name_idx = xml.index("Иванов Иван Иванович")
+    assert party_a_idx < party_b_idx < name_idx
+
+
+def test_return_fills_party_a_handing_back_side_only():
+    data = act_generator.generate_act(
+        act_number=1, date_iso="2026-09-14", employee=SAMPLE_EMPLOYEE, items=SAMPLE_ITEMS, is_issue=False,
+    )
+    xml = _document_xml(data)
+    party_a_idx = xml.index("Передающая сторона (сдал)")
+    party_b_idx = xml.index("Принимающая сторона (принял)")
+    name_idx = xml.index("Иванов Иван Иванович")
+    assert party_a_idx < name_idx < party_b_idx
+
+
+def test_items_fill_name_serial_inventory_quantity_columns():
+    data = act_generator.generate_act(
+        act_number=1, date_iso="2026-09-14", employee=SAMPLE_EMPLOYEE, items=SAMPLE_ITEMS, is_issue=True,
+    )
+    xml = _document_xml(data)
+    assert "Ноутбук Lenovo T14" in xml
+    assert "PF1XYZ123" in xml
+    assert "INV-002" in xml
+    assert "Монитор Dell 24" in xml
+    assert "INV-045" in xml
+    # "Отсутствует" must not leak into the S/N column verbatim
+    assert "Отсутствует" not in xml
+
+
+def test_missing_data_fields_stay_blank_not_fabricated():
+    data = act_generator.generate_act(
+        act_number=1, date_iso="2026-09-14", employee=SAMPLE_EMPLOYEE, items=SAMPLE_ITEMS, is_issue=True,
+    )
+    xml = _document_xml(data)
+    # Табельный № line is untouched blank underscores in both party blocks
+    assert xml.count("Табельный № / ИНПС: ________________________") == 2

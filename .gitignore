@@ -37,3 +37,6 @@ mobile/android/keystore.properties
 
 # Local git worktrees used for isolated plan execution
 .worktrees/
+
+# Scratch output from act_generator.py's __main__ self-test
+_test_act.docx
