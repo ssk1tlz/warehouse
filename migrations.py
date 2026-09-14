@@ -825,6 +825,21 @@ def _migrate_036_assignments_backfill(connection: sqlite3.Connection) -> None:
         )
 
 
+def _migrate_037_acts_table(c):
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS acts (
+          act_number INTEGER PRIMARY KEY,
+          kind TEXT NOT NULL,
+          employee_id TEXT,
+          date TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          created_by TEXT NOT NULL DEFAULT ''
+        )
+        """
+    )
+
+
 MIGRATIONS: list[Migration] = [
     (1, "assets.repair_quantity", _migrate_001),
     (2, "assets.retired_quantity", _migrate_002),
@@ -862,6 +877,7 @@ MIGRATIONS: list[Migration] = [
     (34, "workplaces.code: бэкофилл WP-NNNN", _migrate_034_workplaces_code),
     (35, "assignments + assignment_items", _migrate_035_assignments_tables),
     (36, "assignments: бэкофилл ASSIGN-NNNN из движений", _migrate_036_assignments_backfill),
+    (37, "acts table: reservation ledger for manual/employee-snapshot act numbers", _migrate_037_acts_table),
 ]
 
 
