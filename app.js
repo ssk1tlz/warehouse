@@ -1014,12 +1014,7 @@ function fillIssueSelect(select, placeholder, options) {
 }
 
 function renderAssetIssueSelects() {
-  fillIssueSelect(
-    document.getElementById("assetIssueEmployeeSelect"),
-    "— выберите сотрудника —",
-    getActiveEmployees(state.employees).map((employee) =>
-      `<option value="${escapeHtml(employee.id)}">${escapeHtml(employee.fullName)}${employee.department ? ` — ${escapeHtml(employee.department)}` : ""}</option>`),
-  );
+  pickers.assetIssueEmployee?.refresh();
   fillIssueSelect(
     document.getElementById("assetIssueDepartmentSelect"),
     "— выберите отдел —",
@@ -1202,6 +1197,11 @@ function closeAssetCodeReference() {
 
 function resetAssetForm() {
   dom.assetForm.reset();
+  // form.reset() не может очистить наши скрытые поля выбора сотрудника/
+  // места: присваивание .value на input[type=hidden] само переписывает
+  // атрибут-умолчание, так что «сброс» вернул бы то же значение обратно.
+  pickers.assetIssueEmployee?.setValue("");
+  pickers.assetIssueWorkplace?.setValue("");
   dom.assetForm.elements.assetId.value = "";
   dom.assetForm.elements.quantity.value = 1;
   dom.assetFormTitle.textContent = "Добавить единицу техники";
@@ -1242,6 +1242,13 @@ function resetOperationForms() {
   dom.issueForm.reset();
   dom.returnForm.reset();
   dom.manualActForm?.reset();
+  // См. resetAssetForm — form.reset() не очищает input[type=hidden]
+  // однажды присвоенный через .value.
+  pickers.issueEmployee?.setValue("");
+  pickers.issueWorkplace?.setValue("");
+  pickers.returnEmployee?.setValue("");
+  pickers.returnWorkplace?.setValue("");
+  pickers.manualActEmployee?.setValue("");
   dom.issueItems.innerHTML = "";
   dom.returnItems.innerHTML = "";
   dom.manualActItems.innerHTML = "";
@@ -3245,14 +3252,7 @@ function renderWorkplaceFormSelects() {
       + state.departments.map((dept) => `<option value="${escapeHtml(dept.name)}">${escapeHtml(dept.name)}</option>`).join("");
     departmentSelect.value = current;
   }
-  const employeeSelect = document.getElementById("workplaceEmployeeSelect");
-  if (employeeSelect) {
-    const current = employeeSelect.value;
-    employeeSelect.innerHTML = `<option value="">— свободно —</option>`
-      + getActiveEmployees(state.employees).map((employee) =>
-        `<option value="${escapeHtml(employee.id)}">${escapeHtml(employee.fullName)}${employee.department ? ` — ${escapeHtml(employee.department)}` : ""}</option>`).join("");
-    employeeSelect.value = current;
-  }
+  pickers.workplaceEmployee?.refresh();
   const siteOptions = document.getElementById("workplaceSiteOptions");
   if (siteOptions) {
     siteOptions.innerHTML = state.sites.map((site) => `<option value="${escapeHtml(site.name)}"></option>`).join("");
@@ -3449,6 +3449,9 @@ function resetWorkplaceForm() {
   const form = document.getElementById("workplaceForm");
   if (!form) return;
   form.reset();
+  // См. resetAssetForm — form.reset() не очищает input[type=hidden]
+  // однажды присвоенный через .value.
+  pickers.workplaceEmployee?.setValue("");
   form.elements.workplaceId.value = "";
   const departmentSelect = document.getElementById("workplaceDepartmentSelect");
   if (departmentSelect) departmentSelect.dataset.touched = "";
@@ -3465,7 +3468,7 @@ function enterWorkplaceEditMode(workplaceId) {
   form.elements.workplaceId.value = workplace.id;
   form.elements.department.value = workplace.department || "";
   form.elements.name.value = workplace.name;
-  form.elements.employeeId.value = workplace.employeeId || "";
+  pickers.workplaceEmployee?.setValue(workplace.employeeId || "");
   form.elements.site.value = workplace.site || "";
   form.elements.notes.value = workplace.notes || "";
   document.getElementById("workplaceFormTitle").textContent = workplace.code
@@ -3762,6 +3765,130 @@ function createAssetPicker(kind) {
   return wrap;
 }
 
+const SEARCH_PICKER_LIMIT = 40;
+
+/**
+ * Поиск сотрудника/рабочего места вместо длинного <select> — тот же
+ * приём, что и createAssetPicker выше, только поле статичное (одно на
+ * форму, не создаётся заново на каждую строку), поэтому вместо
+ * построения DOM берёт уже готовые элементы разметки по id.
+ *
+ * Скрытое поле остаётся тем самым select'ом по смыслу: тот же id (и
+ * при надобности name для FormData), .value читается и .change
+ * слушается ровно как раньше — код вокруг формы менять не пришлось.
+ */
+function attachSearchPicker({
+  inputId, hiddenId, listId, getItems, searchFn, getId, renderRow, renderChosen, emptyText, noMatchText,
+}) {
+  const input = document.getElementById(inputId);
+  const hidden = document.getElementById(hiddenId);
+  const list = document.getElementById(listId);
+  if (!input || !hidden || !list) return null;
+
+  let matches = [];
+  let active = -1;
+
+  const close = () => { list.classList.add("hidden"); active = -1; };
+
+  const choose = (item) => {
+    hidden.value = getId(item);
+    input.value = renderChosen(item);
+    close();
+    hidden.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+
+  const render = () => {
+    const items = getItems();
+    matches = searchFn(items, input.value);
+    if (!items.length) {
+      list.innerHTML = `<div class="asset-picker-empty">${emptyText}</div>`;
+    } else if (!matches.length) {
+      list.innerHTML = `<div class="asset-picker-empty">${noMatchText}</div>`;
+    } else {
+      const shown = matches.slice(0, SEARCH_PICKER_LIMIT);
+      list.innerHTML = shown.map((item, index) => {
+        const { title, subtitle } = renderRow(item);
+        return `<button type="button" class="asset-picker-option two-col${index === active ? " active" : ""}" data-id="${escapeHtml(String(getId(item)))}">
+          <span class="asset-picker-name">${escapeHtml(title)}</span>
+          <span class="asset-picker-qty">${escapeHtml(subtitle || "")}</span>
+        </button>`;
+      }).join("")
+        + (matches.length > shown.length
+          ? `<div class="asset-picker-empty">Показаны первые ${SEARCH_PICKER_LIMIT} из ${matches.length} — уточните запрос</div>`
+          : "");
+    }
+    list.classList.remove("hidden");
+  };
+
+  input.addEventListener("input", () => {
+    // Правка текста снимает выбор — та же защита от «искал одно,
+    // отправилось другое», что и в createAssetPicker.
+    if (hidden.value) { hidden.value = ""; hidden.dispatchEvent(new Event("change", { bubbles: true })); }
+    active = -1;
+    render();
+  });
+  input.addEventListener("focus", render);
+
+  input.addEventListener("keydown", (event) => {
+    const shown = Math.min(matches.length, SEARCH_PICKER_LIMIT);
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (!shown) return;
+      event.preventDefault();
+      active = event.key === "ArrowDown"
+        ? (active + 1) % shown
+        : (active <= 0 ? shown - 1 : active - 1);
+      render();
+      list.querySelectorAll(".asset-picker-option")[active]?.scrollIntoView({ block: "nearest" });
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      if (active >= 0 && matches[active]) choose(matches[active]);
+      else if (matches.length === 1) choose(matches[0]);
+    } else if (event.key === "Escape") {
+      close();
+    }
+  });
+
+  list.addEventListener("mousedown", (event) => {
+    // mousedown, а не click: blur успел бы закрыть список раньше клика.
+    const option = event.target.closest(".asset-picker-option");
+    if (!option) return;
+    event.preventDefault();
+    const item = getItems().find((entry) => String(getId(entry)) === option.dataset.id);
+    if (item) choose(item);
+  });
+
+  input.addEventListener("blur", () => setTimeout(close, 0));
+
+  // Подпись поля должна соответствовать значению, даже когда его
+  // выставили не через поиск (программно, после form.reset() и т.п.).
+  const syncDisplay = () => {
+    if (!hidden.value) { input.value = ""; return true; }
+    const item = getItems().find((entry) => String(getId(entry)) === String(hidden.value));
+    if (!item) { hidden.value = ""; input.value = ""; return false; }
+    input.value = renderChosen(item);
+    return true;
+  };
+
+  // Для вызовов после общего перерендера форм: трогать нечего, пока
+  // ничего не выбрано — иначе перерисовка сотрёт то, что человек ещё
+  // печатает в поиске.
+  const refresh = () => {
+    if (!hidden.value) return;
+    if (!syncDisplay()) hidden.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+
+  // Для программной установки значения (открыли форму на редактирование
+  // и т.п.) — в отличие от refresh, отрабатывает и сброс в пустоту.
+  const setValue = (id) => {
+    hidden.value = id || "";
+    syncDisplay();
+    close();
+    hidden.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+
+  return { refresh, setValue };
+}
+
 function createOperationItemRow(kind) {
   const row = document.createElement("div");
   row.className = "operation-item-row";
@@ -3952,13 +4079,6 @@ function renderSelects() {
   const siteOptions = state.sites.length
     ? state.sites.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}</option>`).join("")
     : `<option value="">Нет объектов</option>`;
-  const employeeOptions = getVisibleEmployees(state.employees)
-    .map((e) => `<option value="${e.id}">${escapeHtml(e.fullName)}</option>`)
-    .join("");
-  const activeEmployeeOptions = getActiveEmployees(state.employees)
-    .map((e) => `<option value="${e.id}">${escapeHtml(e.fullName)}</option>`)
-    .join("");
-
   const employeeDeptSelect = document.getElementById("employeeDepartmentSelect");
   if (employeeDeptSelect) {
     const current = employeeDeptSelect.value;
@@ -3979,9 +4099,11 @@ function renderSelects() {
   const repairAssets = state.assets.filter((asset) => Number(asset.repairQuantity || 0) > 0);
   const selectedRepairSource = dom.repairSourceSelect?.value || "warehouse";
   const selectedRepairTarget = dom.repairReturnTargetSelect?.value || "warehouse";
-  dom.issueEmployeeSelect.innerHTML = activeEmployeeOptions;
-  dom.returnEmployeeSelect.innerHTML = employeeOptions;
-  dom.manualActEmployeeSelect.innerHTML = employeeOptions;
+  pickers.issueEmployee?.refresh();
+  pickers.returnEmployee?.refresh();
+  pickers.manualActEmployee?.refresh();
+  pickers.assetIssueEmployee?.refresh();
+  pickers.workplaceEmployee?.refresh();
   const issueDeptSelect = document.getElementById("issueDepartmentSelect");
   if (issueDeptSelect) issueDeptSelect.innerHTML = departmentOptions;
   const issueSiteSelect = document.getElementById("issueSiteSelect");
@@ -4005,25 +4127,9 @@ function renderSelects() {
       ? siteList.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("")
       : `<option value="">Нет объектов с техникой</option>`;
   }
-  // Стол показывается с кодом, отделом и хозяином: «WP-0001 · Стол 2 —
-  // Бухгалтерия — Цой Марина». Одноимённые места в разных отделах
-  // разрешены (дубли проверяются по паре «название + отдел»), поэтому без
-  // кода и отдела два свободных «Стола 1» были бы в списке неразличимы.
-  const workplaceOptions = `<option value="">— выберите место —</option>`
-    + state.workplaces.map((workplace) => {
-      const owner = workplace.employeeId ? getEmployeeById(workplace.employeeId) : null;
-      const label = `${workplace.code ? `${workplace.code} · ` : ""}${workplace.name}`
-        + `${workplace.department ? ` — ${workplace.department}` : ""}`
-        + `${owner ? ` — ${owner.fullName}` : ""}`;
-      return `<option value="${escapeHtml(workplace.id)}">${escapeHtml(label)}</option>`;
-    }).join("");
-  ["issueWorkplaceSelect", "returnWorkplaceSelect", "assetIssueWorkplaceSelect"].forEach((id) => {
-    const select = document.getElementById(id);
-    if (!select) return;
-    const current = select.value;
-    select.innerHTML = workplaceOptions;
-    select.value = current;
-  });
+  pickers.issueWorkplace?.refresh();
+  pickers.returnWorkplace?.refresh();
+  pickers.assetIssueWorkplace?.refresh();
   updateIssueAssetOptions();
   dom.repairSourceSelect.innerHTML = locationOptions;
   dom.repairSourceSelect.value = selectedRepairSource;
@@ -5598,7 +5704,85 @@ function handleOperationLauncherClick(event) {
   openOperationModal(button.dataset.modal);
 }
 
+// Живые контроллеры полей поиска сотрудника/рабочего места (см.
+// attachSearchPicker) — по одному на каждое статичное поле формы,
+// созданы один раз в bindEvents и переиспользуются дальше: рендер форм
+// зовёт .refresh(), редактирование существующей записи — .setValue().
+const pickers = {};
+
+function employeeRow(employee) {
+  return { title: employee.fullName, subtitle: employee.department || "" };
+}
+
+function workplaceItemsWithOwner() {
+  return state.workplaces.map((workplace) => ({
+    ...workplace,
+    ownerName: workplace.employeeId ? (getEmployeeById(workplace.employeeId)?.fullName || "") : "",
+  }));
+}
+
+function workplaceRow(workplace) {
+  return {
+    title: `${workplace.code ? `${workplace.code} · ` : ""}${workplace.name}`,
+    subtitle: [workplace.department, workplace.ownerName || "свободно"].filter(Boolean).join(" — "),
+  };
+}
+
+function bindSearchPickers() {
+  pickers.assetIssueEmployee = attachSearchPicker({
+    inputId: "assetIssueEmployeeSearch", hiddenId: "assetIssueEmployeeSelect", listId: "assetIssueEmployeeList",
+    getItems: () => getActiveEmployees(state.employees), searchFn: AssetOps.searchEmployees,
+    getId: (e) => e.id, renderRow: employeeRow, renderChosen: (e) => e.fullName,
+    emptyText: "Нет активных сотрудников", noMatchText: "Сотрудник не найден",
+  });
+  pickers.workplaceEmployee = attachSearchPicker({
+    inputId: "workplaceEmployeeSearch", hiddenId: "workplaceEmployeeSelect", listId: "workplaceEmployeeList",
+    getItems: () => getActiveEmployees(state.employees), searchFn: AssetOps.searchEmployees,
+    getId: (e) => e.id, renderRow: employeeRow, renderChosen: (e) => e.fullName,
+    emptyText: "Нет активных сотрудников", noMatchText: "Сотрудник не найден",
+  });
+  pickers.manualActEmployee = attachSearchPicker({
+    inputId: "manualActEmployeeSearch", hiddenId: "manualActEmployeeSelect", listId: "manualActEmployeeList",
+    getItems: () => getVisibleEmployees(state.employees), searchFn: AssetOps.searchEmployees,
+    getId: (e) => e.id, renderRow: employeeRow, renderChosen: (e) => e.fullName,
+    emptyText: "Нет сотрудников", noMatchText: "Сотрудник не найден",
+  });
+  pickers.issueEmployee = attachSearchPicker({
+    inputId: "issueEmployeeSearch", hiddenId: "issueEmployeeSelect", listId: "issueEmployeeList",
+    getItems: () => getActiveEmployees(state.employees), searchFn: AssetOps.searchEmployees,
+    getId: (e) => e.id, renderRow: employeeRow, renderChosen: (e) => e.fullName,
+    emptyText: "Нет активных сотрудников", noMatchText: "Сотрудник не найден",
+  });
+  pickers.returnEmployee = attachSearchPicker({
+    inputId: "returnEmployeeSearch", hiddenId: "returnEmployeeSelect", listId: "returnEmployeeList",
+    // Все сотрудники, а не только активные: уволенный может всё ещё
+    // числить на себе технику, которую как раз и нужно вернуть.
+    getItems: () => getVisibleEmployees(state.employees), searchFn: AssetOps.searchEmployees,
+    getId: (e) => e.id, renderRow: employeeRow, renderChosen: (e) => e.fullName,
+    emptyText: "Нет сотрудников", noMatchText: "Сотрудник не найден",
+  });
+  pickers.assetIssueWorkplace = attachSearchPicker({
+    inputId: "assetIssueWorkplaceSearch", hiddenId: "assetIssueWorkplaceSelect", listId: "assetIssueWorkplaceList",
+    getItems: workplaceItemsWithOwner, searchFn: AssetOps.searchWorkplaces,
+    getId: (w) => w.id, renderRow: workplaceRow, renderChosen: (w) => `${w.code ? `${w.code} · ` : ""}${w.name}`,
+    emptyText: "Нет рабочих мест", noMatchText: "Место не найдено",
+  });
+  pickers.issueWorkplace = attachSearchPicker({
+    inputId: "issueWorkplaceSearch", hiddenId: "issueWorkplaceSelect", listId: "issueWorkplaceList",
+    getItems: workplaceItemsWithOwner, searchFn: AssetOps.searchWorkplaces,
+    getId: (w) => w.id, renderRow: workplaceRow, renderChosen: (w) => `${w.code ? `${w.code} · ` : ""}${w.name}`,
+    emptyText: "Нет рабочих мест", noMatchText: "Место не найдено",
+  });
+  pickers.returnWorkplace = attachSearchPicker({
+    inputId: "returnWorkplaceSearch", hiddenId: "returnWorkplaceSelect", listId: "returnWorkplaceList",
+    getItems: workplaceItemsWithOwner, searchFn: AssetOps.searchWorkplaces,
+    getId: (w) => w.id, renderRow: workplaceRow, renderChosen: (w) => `${w.code ? `${w.code} · ` : ""}${w.name}`,
+    emptyText: "Нет рабочих мест", noMatchText: "Место не найдено",
+  });
+}
+
 function bindEvents() {
+  bindSearchPickers();
   dom.menuLinks.forEach((link) => link.addEventListener("click", () => activateView(link.dataset.view)));
   dom.assetForm.addEventListener("submit", handleAssetSubmit);
 

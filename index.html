@@ -351,7 +351,9 @@
                     <span class="form-label">Сотрудник</span>
                     <span class="field">
                       <span class="field-icon"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5.5" r="2.6" stroke="currentColor" stroke-width="1.3"/><path d="M2.8 13.6c0-2.7 2.3-4.5 5.2-4.5s5.2 1.8 5.2 4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>
-                      <select id="assetIssueEmployeeSelect"></select>
+                      <input type="text" class="asset-picker-input" id="assetIssueEmployeeSearch" placeholder="ФИО сотрудника…" autocomplete="off">
+                      <input type="hidden" id="assetIssueEmployeeSelect">
+                      <div class="asset-picker-list hidden" id="assetIssueEmployeeList"></div>
                     </span>
                   </label>
                   <label class="form-field hidden" id="assetIssueDepartmentField">
@@ -372,7 +374,9 @@
                     <span class="form-label">Рабочее место</span>
                     <span class="field">
                       <span class="field-icon"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M2 6.5h12M3.5 6.5V4a1 1 0 011-1h7a1 1 0 011 1v2.5M4.5 6.5v6M11.5 6.5v6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-                      <select id="assetIssueWorkplaceSelect"></select>
+                      <input type="text" class="asset-picker-input" id="assetIssueWorkplaceSearch" placeholder="Название, код или сотрудник…" autocomplete="off">
+                      <input type="hidden" id="assetIssueWorkplaceSelect">
+                      <div class="asset-picker-list hidden" id="assetIssueWorkplaceList"></div>
                     </span>
                   </label>
                   <label class="form-field">
@@ -737,9 +741,11 @@
                 <span class="form-label">Отдел <span class="req">*</span></span>
                 <select name="department" id="workplaceDepartmentSelect" required></select>
               </label>
-              <label class="form-field">
+              <label class="form-field search-picker-field">
                 <span class="form-label">Сотрудник</span>
-                <select name="employeeId" id="workplaceEmployeeSelect"></select>
+                <input type="text" class="asset-picker-input" id="workplaceEmployeeSearch" placeholder="Свободно — начните вводить ФИО" autocomplete="off">
+                <input type="hidden" name="employeeId" id="workplaceEmployeeSelect">
+                <div class="asset-picker-list hidden" id="workplaceEmployeeList"></div>
               </label>
             </div>
             <div class="form-row">
@@ -983,7 +989,11 @@
             <option value="return">Приём</option>
           </select>
         </label>
-        <label>Сотрудник<select name="employeeId" id="manualActEmployeeSelect" required></select></label>
+        <label class="search-picker-field">Сотрудник
+          <input type="text" class="asset-picker-input" id="manualActEmployeeSearch" placeholder="ФИО сотрудника…" autocomplete="off">
+          <input type="hidden" name="employeeId" id="manualActEmployeeSelect">
+          <div class="asset-picker-list hidden" id="manualActEmployeeList"></div>
+        </label>
         <label>Дата<input type="date" name="date" required></label>
         <div class="full operation-items">
           <div class="operation-items-header">
@@ -1018,10 +1028,18 @@
             <input type="radio" name="issueTarget" value="workplace"> На рабочее место
           </label>
         </div>
-        <label id="issueEmployeeField">Сотрудник<select name="employeeId" id="issueEmployeeSelect"></select></label>
+        <label id="issueEmployeeField" class="search-picker-field">Сотрудник
+          <input type="text" class="asset-picker-input" id="issueEmployeeSearch" placeholder="ФИО сотрудника…" autocomplete="off">
+          <input type="hidden" name="employeeId" id="issueEmployeeSelect">
+          <div class="asset-picker-list hidden" id="issueEmployeeList"></div>
+        </label>
         <label id="issueDepartmentSelectField" style="display:none">Отдел<select name="departmentName" id="issueDepartmentSelect"></select></label>
         <label id="issueSiteField" style="display:none">Объект<select name="siteName" id="issueSiteSelect"></select></label>
-        <label id="issueWorkplaceField" style="display:none">Рабочее место<select name="workplaceId" id="issueWorkplaceSelect"></select></label>
+        <label id="issueWorkplaceField" class="search-picker-field" style="display:none">Рабочее место
+          <input type="text" class="asset-picker-input" id="issueWorkplaceSearch" placeholder="Название, код или сотрудник…" autocomplete="off">
+          <input type="hidden" name="workplaceId" id="issueWorkplaceSelect">
+          <div class="asset-picker-list hidden" id="issueWorkplaceList"></div>
+        </label>
         <label id="issueDepartmentAutoField">Отдел<input type="text" id="issueDepartmentField" readonly placeholder="(выбирается автоматически)"></label>
         <!-- Что уже числится за выбранным сотрудником: видно сразу при
              выборе, чтобы не выдать второй раз то, что у него есть. -->
@@ -1060,10 +1078,18 @@
             <input type="radio" name="returnTarget" value="workplace"> С рабочего места
           </label>
         </div>
-        <label id="returnEmployeeField">Сотрудник<select name="employeeId" id="returnEmployeeSelect"></select></label>
+        <label id="returnEmployeeField" class="search-picker-field">Сотрудник
+          <input type="text" class="asset-picker-input" id="returnEmployeeSearch" placeholder="ФИО сотрудника…" autocomplete="off">
+          <input type="hidden" name="employeeId" id="returnEmployeeSelect">
+          <div class="asset-picker-list hidden" id="returnEmployeeList"></div>
+        </label>
         <label id="returnDepartmentField" style="display:none">Отдел<select name="departmentName" id="returnDepartmentSelect"></select></label>
         <label id="returnSiteField" style="display:none">Объект<select name="siteName" id="returnSiteSelect"></select></label>
-        <label id="returnWorkplaceField" style="display:none">Рабочее место<select name="workplaceId" id="returnWorkplaceSelect"></select></label>
+        <label id="returnWorkplaceField" class="search-picker-field" style="display:none">Рабочее место
+          <input type="text" class="asset-picker-input" id="returnWorkplaceSearch" placeholder="Название, код или сотрудник…" autocomplete="off">
+          <input type="hidden" name="workplaceId" id="returnWorkplaceSelect">
+          <div class="asset-picker-list hidden" id="returnWorkplaceList"></div>
+        </label>
         <label>Дата возврата<input type="date" name="date" required></label>
         <div class="full operation-items">
           <div class="operation-items-header">

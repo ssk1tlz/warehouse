@@ -3126,6 +3126,34 @@ tr.low-stock-row:hover td { background: rgba(245,158,11,0.09); }
 
 .asset-picker-empty { padding: 10px 12px; font-size: 12px; color: var(--text-3); }
 
+/* Те же классы переиспользуются для поиска сотрудника/рабочего места:
+   строка там без кода техники, только название и подпись — две колонки
+   вместо трёх. Обёртке достаточно position:relative, своего вида ей не
+   нужно — она уже label.form-field или обычный label. */
+/* Голый <label> (без .form-field) по умолчанию display:inline — этого
+   достаточно, чтобы текст с полем визуально не слиплись (широкий input
+   переносится на свою строку), но НЕДОСТАТОЧНО как containing block для
+   position:absolute у выпадающего списка: у inline-бокса, растянутого
+   на несколько фрагментов, нет единой ширины, и left:0/right:0 в Chrome
+   считает от почти нулевой. Явный display:flex убирает эту двусмысленность. */
+.search-picker-field { position: relative; display: flex; flex-direction: column; gap: 7px; }
+/* Не колонка рядом с колонкой (там отдел и ФИО из assignment_store.py
+   бывают длиннее, чем инв. номер техники — сжатый grid-template тогда
+   давит на название и сам вылезает за рамку строки), а название сверху,
+   подпись снизу — каждая строка сама себя обрезает многоточием. */
+.asset-picker-option.two-col {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+.asset-picker-option.two-col .asset-picker-name,
+.asset-picker-option.two-col .asset-picker-qty {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ─── ТЕХНИКА НА РУКАХ У ПОЛУЧАТЕЛЯ ──────────────────────────── */
 .held-box {
   background: var(--bg-3);
