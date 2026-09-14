@@ -1771,30 +1771,35 @@ function exportEmployeeHandoverCsv(employeeId) {
   exportHandoverCsv({ employeeId }, employee.fullName || employeeId);
 }
 
-// "Ведомость на подпись" — a signed handover sheet: the same act_generator.py
-// .docx machinery used for issue/return acts (downloadActDocx -> POST /api/act),
-// but with a custom action phrase ("currently on hand as of <date>" instead of
-// "issued/returned") and the item list built from the same buildHandoverRows()
-// used by the employee's CSV export above, so both exports agree on contents.
-async function downloadHandoverSheet(employeeId) {
+// "Составить акт" on the employee card: unlike the old, unregistered
+// "Ведомость на подпись" this replaces, it gets a real, permanent act
+// number (kind: "employee_snapshot" — see act_numbers.py) and uses the
+// employee's current holdings (same source as their profile's equipment
+// list), not a manually picked item set.
+async function composeEmployeeAct(employeeId) {
   const employee = getEmployeeById(employeeId);
   if (!employee) return;
-  const { data } = buildHandoverRows(state, { employeeId });
-  const items = data.map(([name, inventoryNumber, quantity, price]) => ({ name, inventoryNumber, quantity, price }));
-  const date = new Date().toISOString().slice(0, 10);
-  // actNumber is always null here (a handover sheet isn't a numbered act), so
-  // downloadActDocx()'s default filename ("Акт_документ.docx") would be
-  // identical for every employee/date, overwriting the previous download.
-  // Same filename-sanitizing pattern as exportHandoverCsv()'s safeSuffix.
+  const { holdings } = getEmployeeHoldings(employeeId);
+  if (!holdings.length) {
+    showToast("У сотрудника нет техники на руках.", "warning");
+    return;
+  }
+  const items = holdings.map((holding) => ({
+    name: holding.asset.name,
+    serialNumber: holding.asset.serialNumber || "",
+    inventoryNumber: holding.asset.inventoryNumber || "",
+    quantity: Number(holding.allocation.quantity || 0),
+  }));
+  const date = today();
   const safeName = String(employee.fullName || employeeId).replace(/[\\/:*?"<>|]/g, "_").trim() || employeeId;
   await downloadActDocx({
-    actNumber: null,
+    kind: "employee_snapshot",
+    employeeId,
     date,
     employee,
     items,
     isIssue: true,
-    actionPhrase: "За Работником числится по состоянию на",
-    filename: `Обходной_лист_${safeName}_${date}.docx`,
+    buildFilename: (actNumber) => `Акт_${actNumber}_${safeName}.docx`,
   });
 }
 
@@ -2321,7 +2326,7 @@ function openEmployeeDetailsModal(employeeId) {
       <button type="button" class="secondary" onclick="closeEmployeeDetailsModal()">Закрыть</button>
       <button type="button" class="secondary" onclick="closeEmployeeDetailsModal(); openEditEmployeeModal('${employee.id}')">Редактировать</button>
       <button type="button" class="secondary" onclick="exportEmployeeHandoverCsv('${employee.id}')">Экспорт CSV</button>
-      <button type="button" class="secondary" onclick="downloadHandoverSheet('${employee.id}')">Ведомость на подпись</button>
+      <button type="button" class="secondary" onclick="composeEmployeeAct('${employee.id}')">Составить акт</button>
       <button type="button" class="btn-primary" onclick="closeEmployeeDetailsModal(); openOperationModal('issueModal'); setTimeout(() => { const sel = document.getElementById('issueEmployeeSelect'); if(sel) { sel.value = '${employee.id}'; sel.dispatchEvent(new Event('change')); } }, 100);">Выдать технику</button>
     </div>
   `;
@@ -4059,7 +4064,8 @@ function getNextActNumber() {
   const maxActNumber = state.movements.reduce((max, movement) => {
     return Number(movement.actNumber || 0) > max ? Number(movement.actNumber) : max;
   }, 0);
-  return maxActNumber + 1;
+  const serverFloor = Number((state.meta && state.meta.maxActNumber) || 0);
+  return Math.max(maxActNumber, serverFloor) + 1;
 }
 
 function resolveActNumber(movement) {
@@ -5237,25 +5243,21 @@ function buildActItemPayload(entry) {
   };
 }
 
-async function downloadActDocx({ actNumber, date, employee, items, isIssue, actionPhrase, filename }) {
+async function downloadActDocx({ actNumber = null, kind, employeeId = null, date, employee, items, isIssue, filename, buildFilename }) {
   try {
     const payload = {
       actNumber,
+      kind,
+      employeeId,
       date,
       isIssue,
       employee: employee ? {
         fullName: employee.fullName || "",
         position: employee.position || "",
         department: employee.department || "",
+        phone: employee.phone || "",
       } : null,
       items,
-      actionPhrase: actionPhrase || undefined,
-      // Real acts (printAct/printManualAct) always pass a real actNumber and
-      // rely on this default; downloadHandoverSheet() passes an explicit
-      // filename instead, since it always has actNumber: null (a handover
-      // sheet isn't a numbered act) — without an override every handover
-      // sheet would download as the same indistinguishable "Акт_документ.docx".
-      filename: filename || `Акт_${actNumber || "документ"}.docx`,
     };
     const response = await apiFetch("/api/act", {
       method: "POST",
@@ -5268,15 +5270,20 @@ async function downloadActDocx({ actNumber, date, employee, items, isIssue, acti
       showToast(msg, "error");
       return;
     }
+    // actNumber may not have been known before the request (manual/employee-
+    // snapshot acts are numbered by the server) — the response header is the
+    // one source of truth for what number actually got used.
+    const realActNumber = response.headers.get("X-Act-Number") || actNumber;
+    const resolvedFilename = filename || (buildFilename ? buildFilename(realActNumber) : `Акт_${realActNumber || "документ"}.docx`);
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = payload.filename;
+    a.download = resolvedFilename;
     document.body.appendChild(a);
     a.click();
     setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
-    showToast("Акт скачан.", "info");
+    showToast(`Акт №${realActNumber} скачан.`, "info");
   } catch (err) {
     showToast(`Ошибка при скачивании акта: ${err.message || err}`, "error");
   }
@@ -5299,13 +5306,16 @@ function printAct(movementId) {
   });
 }
 
+// Unlike printAct (a real issue/return, numbered when the movement was
+// created), a manual act has no movement of its own -- the server reserves
+// a real, never-reused number for it via kind: "manual" (see act_numbers.py).
 function printManualAct({ type, employeeId, date, notes, items }) {
   const employee = getEmployeeById(employeeId);
   const isIssue = type === "issue";
-  const actNumber = getNextActNumber();
   const itemsPayload = items.map((entry) => buildActItemPayload(entry));
   downloadActDocx({
-    actNumber,
+    kind: "manual",
+    employeeId,
     date,
     employee,
     items: itemsPayload,
