@@ -229,12 +229,54 @@ missing):
   template has structured per-party fields rather than one free-text
   sentence, so structured tokens map directly instead of re-deriving a
   "Должность, ФИО" string.
-- Table-filling logic (`ET.iter` over `w:tbl`) updates column count/order
-  from 6 to the new template's 8, filling only columns 1 (наименование),
-  3 (S/N), 4 (инв.№), 5 (кол-во) — columns 2 (модель), 6 (состояние), 7
-  (примечание) stay untouched.
+- **Table-filling can no longer use the old `ET.fromstring`/`ET.tostring`
+  round-trip of the whole document.** Verified experimentally while
+  preparing this spec: the new template declares ~20 extension namespaces
+  (`w14`, `mc`, `wpc`, `cx`/`cx1`-`cx8`, `aink`, `am3d`, `o`, `oel`, `r`,
+  `m`, ...). `ElementTree` only preserves the one namespace prefix you
+  `register_namespace()` for; every other prefix gets rewritten to an
+  auto-generated `ns1`, `ns2`, ... on serialization, but `mc:Ignorable`'s
+  *value* (a space-separated list of prefixes like `"w14 w15 w16se..."`)
+  still names the *original* prefixes — which no longer exist in the
+  rewritten tree. Word then refuses to open the file as corrupt. (The old
+  6-column template apparently has few enough extension namespaces that
+  this never surfaced.) Reproduced and confirmed the fix in this session:
+  a full ET round-trip on `tokenized_template.docx` corrupts it; targeted
+  string/regex surgery on just the table cells, leaving every other byte
+  of `document.xml` untouched, opens and renders correctly in real Word.
+- New table-filling approach, **pure string/regex, no XML parsing of the
+  document as a whole**:
+  1. Find the items table by searching for the literal header text
+     `"Наименование техники"` (not by table index — there are 5 `<w:tbl>`
+     elements in the new template; the items table is the 3rd) and taking
+     the `<w:tbl>...</w:tbl>` span that contains it.
+  2. Split that span into rows via `re.finditer(r"<w:tr\b.*?</w:tr>", ..., re.DOTALL)`;
+     row 0 is the header, rows 1+ are the 10 data rows.
+  3. Split each data row into cells the same way with `<w:tc\b.*?</w:tc>`.
+  4. Fill only columns 1 (наименование), 3 (S/N), 4 (инв.№), 5 (кол-во) —
+     columns 0 (№, already prints "1".."10"), 2 (модель), 6 (состояние), 7
+     (примечание) stay untouched. Each fillable cell's paragraph is
+     confirmed empty (`...</w:pPr></w:p>` with no run in between) —
+     insert `<w:r><w:t xml:space="preserve">VALUE</w:t></w:r>` right after
+     `</w:pPr>`.
+  5. Apply all edits by absolute offset into the full `document_xml`
+     string, highest offset first, so earlier offsets stay valid — same
+     technique already used to insert the placeholder tokens into the
+     template file itself (see prep work below).
 - `generate_inventory_act()` is untouched — unrelated feature, different
   template-less document.
+
+**Template preparation already done** (this session, not a plan task):
+the new template's tokens (`{{ACT_NUMBER}}`, `{{DAY}}`/`{{MONTH}}`/`{{YEAR}}`,
+`{{PARTY_A_*}}`/`{{PARTY_B_*}}`) were inserted into `word/document.xml` by
+locating each target run's exact byte offset, asserting its text matched
+what was expected, then splicing in the token — never a blind
+document-wide string replace (both party blocks contain byte-for-byte
+identical label text like `"Ф.И.О.: ______________________________________"`,
+so a global replace would have corrupted one block or collided). Validated
+with the docx skill's `validate.py` (paragraph-count diff: 0) and by
+opening in real Word via COM and rendering to PDF. The finished file is
+`templates/act_template.docx` in Task 1 of the implementation plan.
 
 ### 6. Employee-card button (`app.js`)
 
@@ -253,6 +295,18 @@ missing):
   button.
 - `exportEmployeeHandoverCsv` (separate CSV export) is untouched — different
   feature, not part of this request.
+
+### 6a. Numbering-floor addendum (found while writing the plan)
+
+`app.js`'s `getNextActNumber()` (used by the issue/return flow, unchanged
+by this design) computes its number from the client's local
+`state.movements` snapshot only — it has no visibility into the new `acts`
+table. Once manual/employee-snapshot acts start reserving real numbers
+there, a plain issue/return performed right after one would recompute the
+same number `acts` just reserved, moving the collision rather than fixing
+it. Fix: `/api/state` now also returns `meta.maxActNumber` (computed via
+the same `act_numbers.next_number() - 1`), and `getNextActNumber()` takes
+`Math.max(local movements max, meta.maxActNumber) + 1`.
 
 ### 7. Issue/return flow
 
