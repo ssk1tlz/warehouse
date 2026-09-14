@@ -25,6 +25,7 @@ except Exception as _act_err:  # noqa: BLE001
 else:
     _ACT_IMPORT_ERROR = ""
 
+import act_numbers
 import asset_codes
 import assignment_codes
 import assignment_store
@@ -423,7 +424,7 @@ def validate_state(payload: dict) -> str | None:
     return None
 
 EMPTY_STATE = {
-    "meta": {"updatedAt": None},
+    "meta": {"updatedAt": None, "maxActNumber": 0},
     "employees": [],
     "assets": [],
     "movements": [],
@@ -751,9 +752,10 @@ def export_state() -> dict:
             "attentionWarrantyDays": _attention_warranty_days(),
             "attentionRepairDays": _attention_repair_days(),
         })
+        max_act_number = act_numbers.next_number(connection) - 1
 
     return {
-        "meta": {"updatedAt": meta_row["value"] if meta_row else None, "version": version},
+        "meta": {"updatedAt": meta_row["value"] if meta_row else None, "version": version, "maxActNumber": max_act_number},
         "employees": employees,
         "departments": departments,
         "sites": sites,
