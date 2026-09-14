@@ -2,6 +2,13 @@
 
 Date: 2026-09-14
 
+**Status: implemented** (2026-09-14, branch `feature/employee-act-template`).
+All 7 implementation tasks complete and reviewed; see
+[docs/superpowers/plans/2026-09-14-employee-act-template.md](../plans/2026-09-14-employee-act-template.md)
+and its SDD ledger for task-by-task detail, rulings, and verification
+evidence (including a live, isolated-database interactive test of the
+employee-card button and the manual-act numbering fix).
+
 ## Problem
 
 The user provided a new, much more detailed Word template for the

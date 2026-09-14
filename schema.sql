@@ -212,6 +212,15 @@ CREATE TABLE IF NOT EXISTS assignment_items (
   returned_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS acts (
+  act_number INTEGER PRIMARY KEY,
+  kind TEXT NOT NULL,
+  employee_id TEXT,
+  date TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL DEFAULT ''
+);
+
 CREATE INDEX IF NOT EXISTS idx_assignment_items_assignment
   ON assignment_items (assignment_id);
 CREATE INDEX IF NOT EXISTS idx_assignment_items_asset

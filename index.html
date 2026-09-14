@@ -1369,6 +1369,21 @@
     </div>
   </div>
 
+  <!-- Выбор техники сотрудника чекбоксами перед формированием акта — в
+       акт попадает только отмеченное, а не вся техника автоматически. -->
+  <div id="composeActOverlay" class="modal-overlay hidden">
+    <div class="operation-modal">
+      <div class="modal-header">
+        <h3>Сформировать акт</h3>
+        <button type="button" class="modal-close" id="closeComposeActBtn">Закрыть</button>
+      </div>
+      <div class="form-grid compact">
+        <div class="full" id="composeActItemsList"><!-- Rendered via JS --></div>
+        <button type="button" class="full" id="composeActSubmitBtn">Сформировать акт</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Карточка рабочего места (§9 ТЗ): та же техника, что у сотрудника за ним. -->
   <div id="workplaceDetailsOverlay" class="modal-overlay hidden">
     <div class="operation-modal wide">

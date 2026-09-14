@@ -2,29 +2,50 @@
 
 The template at ``templates/act_template.docx`` is the original Word document
 the user uploaded with embedded ``{{TOKEN}}`` placeholders. We do simple
-string substitution on the placeholders for top-level text, and use
-ElementTree to fill the data table cells.
+string substitution on the placeholders for top-level text, and string/regex
+surgery (never a full ElementTree parse/re-serialize) to fill the items
+table's data cells.
+
+Why not ElementTree for the table too, like before: this template declares
+roughly 20 extension namespaces (``w14``, ``mc``, ``wpc``, ``cx``/``cx1``-
+``cx8``, ``aink``, ``am3d``, ``o``, ``oel``, ``r``, ``m``, ...).
+``ElementTree.tostring()`` only preserves the prefix bindings you explicitly
+``register_namespace()`` and invents ``ns1``, ``ns2``, ... for the rest, but
+the document's ``mc:Ignorable`` attribute still lists the *original* prefixes
+(``"w14 w15 w16se w16cid ..."``) — which no longer exist after serialization
+— and Word refuses to open the result as corrupt. So table-filling below
+never parses the document as a tree; it finds the items table by its header
+text and edits only the specific cell substrings that need new content, via
+``re.finditer`` spans and string slicing, leaving every other byte of
+``document.xml`` untouched.
 
 Supported placeholders (free to move/restyle in Word, but DON'T change their
 exact spelling)::
 
-    {{ACT_NUMBER}}      - act number (e.g. 42)
-    {{EMPLOYEE_INFO}}   - "Должность, ФИО"
-    {{DAY}}             - day of issue/return (DD)
-    {{MONTH}}           - month name in Russian (e.g. мая)
-    {{YEAR}}            - year (YYYY)
-    {{ACTION_PHRASE}}   - "Работодатель передал, а Работник принял" or reverse
-                          (or the ``action_phrase`` override passed to
-                          :func:`generate_act`, e.g. for a signed handover
-                          sheet — same template, same table-filling code,
-                          just a different lead-in sentence)
+    {{ACT_NUMBER}}          - act number (e.g. 42)
+    {{DAY}}                 - day of issue/return (DD)
+    {{MONTH}}               - month name in Russian (e.g. мая)
+    {{YEAR}}                - year (YYYY)
+    {{PARTY_A_FULLNAME}}    - "Передающая сторона (сдал)" full name
+    {{PARTY_A_POSITION}}    - Party A position
+    {{PARTY_A_DEPARTMENT}}  - Party A department
+    {{PARTY_A_PHONE}}       - Party A phone
+    {{PARTY_B_FULLNAME}}    - "Принимающая сторона (принял)" full name
+    {{PARTY_B_POSITION}}    - Party B position
+    {{PARTY_B_DEPARTMENT}}  - Party B department
+    {{PARTY_B_PHONE}}       - Party B phone
+
+On issue the employee is the receiving party (B); on return the employee is
+the one handing back (A). The other party has no reliable data source and
+stays blank.
 
 Adding new placeholders is just a matter of: (1) putting ``{{NAME}}`` into
-the .docx in Word, and (2) registering it in :data:`PLACEHOLDERS`.
+the .docx in Word, and (2) registering it in :func:`_build_placeholders`.
 """
 from __future__ import annotations
 
 import io
+import re
 import sys
 import zipfile
 from datetime import datetime
@@ -50,10 +71,6 @@ MONTHS_RU = [
     "января", "февраля", "марта", "апреля", "мая", "июня",
     "июля", "августа", "сентября", "октября", "ноября", "декабря",
 ]
-
-ISSUE_PHRASE = "Работодатель передал, а Работник принял"
-RETURN_PHRASE = "Работник вернул, а Работодатель принял"
-HANDOVER_PHRASE = "За Работником числится по состоянию на"
 
 
 def parse_iso_date(value: str) -> tuple[str, str, str] | None:
@@ -89,45 +106,102 @@ def _make_run(text: str, *, bold: bool = False) -> ET.Element:
     return r
 
 
-def _set_paragraph_text(p: ET.Element, text: str, *, bold: bool = False) -> None:
-    """Replace all runs inside paragraph with a single run containing text."""
-    for r in list(p.findall(f"{W}r")):
-        p.remove(r)
-    p.append(_make_run(text, bold=bold))
-
-
-def _build_placeholders(
-    *,
-    act_number,
-    date_iso,
-    employee,
-    is_issue: bool,
-    action_phrase: str | None = None,
-) -> dict[str, str]:
-    """Return the {{TOKEN}} -> value mapping. Missing values fall back to
-    an underscore-filled placeholder that mimics the look of a blank field."""
-    parts = []
-    if employee:
-        for key in ("position", "fullName"):
-            v = (employee.get(key) or "").strip()
-            if v:
-                parts.append(v)
-    employee_text = ", ".join(parts)
-
+def _build_placeholders(*, act_number, date_iso, employee, is_issue: bool) -> dict[str, str]:
+    """{{TOKEN}} -> value. Party A is "Передающая сторона (сдал)", Party B
+    is "Принимающая сторона (принял)" -- fixed physical locations in the
+    template. On issue the employee is the receiving party (B); on return
+    the employee is the one handing back (A). The other party has no
+    reliable data source (see design spec) and stays blank."""
     date_parts = parse_iso_date(date_iso) if date_iso else None
-    if date_parts:
-        day, month, year = date_parts
-    else:
-        day, month, year = "____", "____________", "____"
+    day, month, year = date_parts if date_parts else ("____", "____________", "____")
+
+    employee = employee or {}
+    employee_fields = {
+        "fullname": employee.get("fullName") or "",
+        "position": employee.get("position") or "",
+        "department": employee.get("department") or "",
+        "phone": employee.get("phone") or "",
+    }
+    empty_fields = {"fullname": "", "position": "", "department": "", "phone": ""}
+    party_a = employee_fields if not is_issue else empty_fields
+    party_b = employee_fields if is_issue else empty_fields
 
     return {
         "{{ACT_NUMBER}}": str(act_number).strip() if act_number else "_____",
-        "{{EMPLOYEE_INFO}}": employee_text or ("_" * 52),
         "{{DAY}}": day,
         "{{MONTH}}": month,
         "{{YEAR}}": year,
-        "{{ACTION_PHRASE}}": action_phrase or (ISSUE_PHRASE if is_issue else RETURN_PHRASE),
+        "{{PARTY_A_FULLNAME}}": party_a["fullname"],
+        "{{PARTY_A_POSITION}}": party_a["position"],
+        "{{PARTY_A_DEPARTMENT}}": party_a["department"],
+        "{{PARTY_A_PHONE}}": party_a["phone"],
+        "{{PARTY_B_FULLNAME}}": party_b["fullname"],
+        "{{PARTY_B_POSITION}}": party_b["position"],
+        "{{PARTY_B_DEPARTMENT}}": party_b["department"],
+        "{{PARTY_B_PHONE}}": party_b["phone"],
     }
+
+
+def _xml_escape(value: str) -> str:
+    return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+# Item table columns (0-indexed): 0=№ (already prints 1..10), 1=Наименование
+# техники, 2=Модель/артикул (no data source, stays blank), 3=Серийный номер
+# (S/N), 4=Инв. №, 5=Кол-во, 6=Состояние (blank), 7=Примечание (blank).
+_FILL_COLUMNS = {1: "name", 3: "serialNumber", 4: "inventoryNumber", 5: "quantity"}
+
+
+def _fill_paragraph(cell_xml: str, value: str) -> str:
+    """Insert a run into a table cell's first paragraph. Every fillable
+    cell in the new template starts as exactly one empty paragraph --
+    `...</w:pPr></w:p>` with no run in between, confirmed against the
+    actual template file while preparing this plan."""
+    run = f'<w:r><w:t xml:space="preserve">{_xml_escape(value)}</w:t></w:r>'
+    marker = "</w:pPr></w:p>"
+    idx = cell_xml.find(marker)
+    if idx == -1:
+        idx = cell_xml.find("</w:p>")
+        return cell_xml[:idx] + run + cell_xml[idx:]
+    insert_at = idx + len("</w:pPr>")
+    return cell_xml[:insert_at] + run + cell_xml[insert_at:]
+
+
+def _fill_items_table(document_xml: str, items: list[dict]) -> str:
+    """String/regex surgery on just the items table -- see the module-level
+    note above generate_act() for why this can't be an ElementTree
+    round-trip of the whole document."""
+    header_idx = document_xml.find("Наименование техники")
+    if header_idx == -1:
+        return document_xml
+    tbl_start = document_xml.rfind("<w:tbl>", 0, header_idx)
+    tbl_end = document_xml.find("</w:tbl>", header_idx) + len("</w:tbl>")
+    table_xml = document_xml[tbl_start:tbl_end]
+
+    row_spans = [m.span() for m in re.finditer(r"<w:tr\b.*?</w:tr>", table_xml, re.DOTALL)]
+    data_row_spans = row_spans[1:]  # row 0 is the header row
+
+    edits = []
+    for row_idx, (row_start, row_end) in enumerate(data_row_spans):
+        if row_idx >= len(items):
+            break
+        item = items[row_idx]
+        row_xml = table_xml[row_start:row_end]
+        cell_spans = [m.span() for m in re.finditer(r"<w:tc\b.*?</w:tc>", row_xml, re.DOTALL)]
+        for col_index, field in _FILL_COLUMNS.items():
+            raw_value = item.get(field)
+            if field == "serialNumber" and (not raw_value or raw_value == "Отсутствует"):
+                raw_value = ""
+            if field == "quantity":
+                raw_value = str(int(raw_value or 0))
+            cell_start, cell_end = cell_spans[col_index]
+            new_cell_xml = _fill_paragraph(row_xml[cell_start:cell_end], str(raw_value or ""))
+            edits.append((tbl_start + row_start + cell_start, tbl_start + row_start + cell_end, new_cell_xml))
+
+    edits.sort(key=lambda e: e[0], reverse=True)
+    for start, end, replacement in edits:
+        document_xml = document_xml[:start] + replacement + document_xml[end:]
+    return document_xml
 
 
 def generate_act(
@@ -137,7 +211,6 @@ def generate_act(
     employee: dict | None = None,
     items: list[dict] | None = None,
     is_issue: bool = True,
-    action_phrase: str | None = None,
 ) -> bytes:
     """Build a filled .docx and return its bytes."""
     if not TEMPLATE_PATH.exists():
@@ -149,73 +222,20 @@ def generate_act(
     src_zip = zipfile.ZipFile(io.BytesIO(template_bytes))
     document_xml = src_zip.read("word/document.xml").decode("utf-8")
 
-    # ---- 1) Plain-text placeholder substitution ----
     placeholders = _build_placeholders(
-        act_number=act_number,
-        date_iso=date_iso,
-        employee=employee,
-        is_issue=is_issue,
-        action_phrase=action_phrase,
+        act_number=act_number, date_iso=date_iso, employee=employee, is_issue=is_issue,
     )
     for token, value in placeholders.items():
         if token in document_xml:
-            # Escape XML special chars in user-supplied values
-            safe = (value.replace("&", "&amp;")
-                          .replace("<", "&lt;")
-                          .replace(">", "&gt;"))
-            document_xml = document_xml.replace(token, safe)
+            document_xml = document_xml.replace(token, _xml_escape(value))
 
-    # ---- 2) Fill table data rows via XML manipulation ----
-    root = ET.fromstring(document_xml)
-    tables = list(root.iter(f"{W}tbl"))
-    if tables:
-        table = tables[0]
-        rows = list(table.findall(f"{W}tr"))
-        # Skip header row (index 0). Data rows: 1..N
-        data_rows = rows[1:]
-        for idx, row in enumerate(data_rows):
-            if idx >= len(items):
-                break
-            cells = list(row.findall(f"{W}tc"))
-            if len(cells) < 6:
-                continue
-            item = items[idx]
-            qty = int(item.get("quantity") or 0)
-            price = float(item.get("price") or 0)
-            total = price * qty
-            name = str(item.get("name") or "")
-            serial = str(item.get("serialNumber") or "")
-            if serial and serial != "Отсутствует":
-                name_text = f"{name} (S/N: {serial})"
-            else:
-                name_text = name
-            values = [
-                name_text,
-                str(item.get("inventoryNumber") or ""),
-                "шт.",
-                str(qty),
-                f"{total:,.0f}".replace(",", " ") if total else "",
-            ]
-            # Fill cells 1..5 (skip cell 0 which already has the row number)
-            for col_index, value in enumerate(values, start=1):
-                cell = cells[col_index]
-                paragraphs = cell.findall(f"{W}p")
-                if paragraphs:
-                    _set_paragraph_text(paragraphs[0], value)
-                else:
-                    new_p = ET.SubElement(cell, f"{W}p")
-                    new_p.append(_make_run(value))
+    document_xml = _fill_items_table(document_xml, items)
 
-    # Serialize back. Build XML declaration manually so we get standalone="yes".
-    body_xml = ET.tostring(root, encoding="UTF-8")
-    out_xml = b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' + body_xml
-
-    # Build the output .docx
     out_buffer = io.BytesIO()
     with zipfile.ZipFile(out_buffer, "w", zipfile.ZIP_DEFLATED) as out_zip:
         for info in src_zip.infolist():
             if info.filename == "word/document.xml":
-                out_zip.writestr(info, out_xml)
+                out_zip.writestr(info, document_xml)
             else:
                 out_zip.writestr(info, src_zip.read(info.filename))
     src_zip.close()
@@ -331,14 +351,18 @@ def generate_inventory_act(
 
 
 if __name__ == "__main__":
-    # quick self-test
     data = generate_act(
         act_number="42",
         date_iso="2026-05-15",
-        employee={"fullName": "Мардалиев Алан Муслимович", "position": "Инженер информационных технологий"},
+        employee={
+            "fullName": "Мардалиев Алан Муслимович",
+            "position": "Инженер информационных технологий",
+            "department": "IT-отдел",
+            "phone": "+998901234567",
+        },
         items=[
-            {"name": "Сервер (DC, Web, RDS)", "serialNumber": "Отсутствует", "inventoryNumber": "INV-001", "quantity": 1, "price": 0},
-            {"name": "Ноутбук Lenovo T14", "serialNumber": "PF1XYZ123", "inventoryNumber": "INV-002", "quantity": 1, "price": 1500000},
+            {"name": "Сервер (DC, Web, RDS)", "serialNumber": "Отсутствует", "inventoryNumber": "INV-001", "quantity": 1},
+            {"name": "Ноутбук Lenovo T14", "serialNumber": "PF1XYZ123", "inventoryNumber": "INV-002", "quantity": 1},
         ],
         is_issue=True,
     )

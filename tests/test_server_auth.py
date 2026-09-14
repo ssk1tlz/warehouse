@@ -1340,15 +1340,19 @@ def test_marking_labels_printed_ignores_unknown_ids(live_server):
     assert body["updated"] == 0
 
 
-def test_act_endpoint_accepts_custom_action_phrase(live_server):
+def test_act_endpoint_generates_a_real_document_via_http(live_server):
+    """End-to-end coverage for /api/act through the real HTTP+auth stack
+    (the pre-numbered path used by issue/return) -- replaces the old
+    action-phrase test now that actionPhrase is no longer a supported
+    field (act_generator.py's PARTY_A/PARTY_B rewrite retired it)."""
     token = _create_admin(live_server)
     status, body = _fetch_bytes_post(live_server, "/api/act", token, {
         "actNumber": 1, "date": "2026-09-04",
-        "employee": {"fullName": "Иванов И.И."},
-        "items": [{"name": "Ноутбук", "quantity": 1, "price": 1000}],
+        "employee": {"fullName": "Иванов И.И.", "position": "Инженер", "department": "IT", "phone": ""},
+        "items": [{"name": "Ноутбук", "serialNumber": "SN1", "inventoryNumber": "INV-1", "quantity": 1}],
         "isIssue": True,
-        "actionPhrase": "За Работником числится по состоянию на",
     })
     assert status == 200
     zf = zipfile.ZipFile(BytesIO(body))
-    assert "За Работником числится" in zf.read("word/document.xml").decode("utf-8")
+    assert zf.testzip() is None
+    assert "Иванов И.И." in zf.read("word/document.xml").decode("utf-8")
