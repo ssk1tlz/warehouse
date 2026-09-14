@@ -34,3 +34,6 @@ mobile/android/keystore.properties
 
 # Рабочее пространство subagent-driven development (журнал, брифы, отчёты)
 .superpowers/
+
+# Local git worktrees used for isolated plan execution
+.worktrees/
