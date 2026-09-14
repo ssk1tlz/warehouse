@@ -1296,7 +1296,7 @@ class WarehouseHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/act":
             if not self.require_role(user, ("admin", "storekeeper")):
                 return
-            self.handle_act_request(body)
+            self.handle_act_request(body, user["username"])
             return
         if parsed.path == "/api/mobile/action":
             if not self.require_role(user, ("admin", "storekeeper")):
@@ -1596,7 +1596,7 @@ class WarehouseHandler(BaseHTTPRequestHandler):
         result["version"] = new_version
         self.send_json(result)
 
-    def handle_act_request(self, body: bytes) -> None:
+    def handle_act_request(self, body: bytes, username: str) -> None:
         if generate_act is None:
             body_out = json.dumps({"error": f"act generator not available: {_ACT_IMPORT_ERROR}"}, ensure_ascii=False).encode("utf-8")
             self.send_response(HTTPStatus.INTERNAL_SERVER_ERROR)
@@ -1615,24 +1615,41 @@ class WarehouseHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body_out)
             return
+
+        act_number = payload.get("actNumber")
+        if not act_number:
+            kind = payload.get("kind")
+            if kind not in ("manual", "employee_snapshot"):
+                self.send_json_error(HTTPStatus.BAD_REQUEST, "actNumber or a valid kind ('manual'/'employee_snapshot') is required")
+                return
+            with STATE_LOCK:
+                with get_connection() as connection:
+                    act_number = act_numbers.reserve(
+                        connection,
+                        kind=kind,
+                        employee_id=payload.get("employeeId") or None,
+                        date=str(payload.get("date") or ""),
+                        created_at=datetime.now(timezone.utc).isoformat(),
+                        created_by=username,
+                    )
+
         try:
             docx_bytes = generate_act(
-                act_number=payload.get("actNumber"),
+                act_number=act_number,
                 date_iso=payload.get("date"),
                 employee=payload.get("employee"),
                 items=payload.get("items") or [],
                 is_issue=bool(payload.get("isIssue", True)),
-                action_phrase=payload.get("actionPhrase") or None,
             )
         except Exception as exc:  # noqa: BLE001
-            body = json.dumps({"error": str(exc)}, ensure_ascii=False).encode("utf-8")
+            body_out = json.dumps({"error": str(exc)}, ensure_ascii=False).encode("utf-8")
             self.send_response(HTTPStatus.INTERNAL_SERVER_ERROR)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Content-Length", str(len(body_out)))
             self.end_headers()
-            self.wfile.write(body)
+            self.wfile.write(body_out)
             return
-        filename = payload.get("filename") or f"act_{payload.get('actNumber') or 'document'}.docx"
+        filename = payload.get("filename") or f"act_{act_number}.docx"
         try:
             filename.encode("ascii")
             disp = f'attachment; filename="{filename}"'
@@ -1643,6 +1660,7 @@ class WarehouseHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
         self.send_header("Content-Disposition", disp)
         self.send_header("Content-Length", str(len(docx_bytes)))
+        self.send_header("X-Act-Number", str(act_number))
         self.end_headers()
         self.wfile.write(docx_bytes)
 
