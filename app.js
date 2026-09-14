@@ -1790,6 +1790,9 @@ async function composeEmployeeAct(employeeId) {
     inventoryNumber: holding.asset.inventoryNumber || "",
     quantity: Number(holding.allocation.quantity || 0),
   }));
+  if (items.length > 10) {
+    showToast(`У сотрудника ${items.length} позиций, а в акт помещается только 10 — остальные не попадут в документ.`, "warning");
+  }
   const date = today();
   const safeName = String(employee.fullName || employeeId).replace(/[\\/:*?"<>|]/g, "_").trim() || employeeId;
   await downloadActDocx({
@@ -5274,6 +5277,9 @@ async function downloadActDocx({ actNumber = null, kind, employeeId = null, date
     // snapshot acts are numbered by the server) — the response header is the
     // one source of truth for what number actually got used.
     const realActNumber = response.headers.get("X-Act-Number") || actNumber;
+    if (kind && state.meta) {
+      state.meta.maxActNumber = Math.max(Number(state.meta.maxActNumber || 0), Number(realActNumber) || 0);
+    }
     const resolvedFilename = filename || (buildFilename ? buildFilename(realActNumber) : `Акт_${realActNumber || "документ"}.docx`);
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);

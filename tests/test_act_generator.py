@@ -93,6 +93,7 @@ def test_generate_act_is_a_valid_docx_with_all_tokens_substituted():
     zf = zipfile.ZipFile(io.BytesIO(data))
     assert zf.testzip() is None
     xml = _document_xml(data)
+    ET.fromstring(xml)  # raises ET.ParseError if not well-formed — the load-bearing check for this task's string-surgery approach
     assert "{{" not in xml
     assert "Акт № 134" in xml
     assert "«14» сентября 2026 г." in xml
@@ -106,7 +107,13 @@ def test_issue_fills_party_b_receiving_side_only():
     party_a_idx = xml.index("Передающая сторона (сдал)")
     party_b_idx = xml.index("Принимающая сторона (принял)")
     name_idx = xml.index("Иванов Иван Иванович")
+    position_idx = xml.index(SAMPLE_EMPLOYEE["position"])
+    department_idx = xml.index(SAMPLE_EMPLOYEE["department"])
+    phone_idx = xml.index(SAMPLE_EMPLOYEE["phone"])
     assert party_a_idx < party_b_idx < name_idx
+    assert party_a_idx < party_b_idx < position_idx
+    assert party_a_idx < party_b_idx < department_idx
+    assert party_a_idx < party_b_idx < phone_idx
 
 
 def test_return_fills_party_a_handing_back_side_only():
@@ -117,7 +124,13 @@ def test_return_fills_party_a_handing_back_side_only():
     party_a_idx = xml.index("Передающая сторона (сдал)")
     party_b_idx = xml.index("Принимающая сторона (принял)")
     name_idx = xml.index("Иванов Иван Иванович")
+    position_idx = xml.index(SAMPLE_EMPLOYEE["position"])
+    department_idx = xml.index(SAMPLE_EMPLOYEE["department"])
+    phone_idx = xml.index(SAMPLE_EMPLOYEE["phone"])
     assert party_a_idx < name_idx < party_b_idx
+    assert party_a_idx < position_idx < party_b_idx
+    assert party_a_idx < department_idx < party_b_idx
+    assert party_a_idx < phone_idx < party_b_idx
 
 
 def test_items_fill_name_serial_inventory_quantity_columns():
