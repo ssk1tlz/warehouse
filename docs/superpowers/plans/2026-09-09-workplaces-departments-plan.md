@@ -1412,6 +1412,12 @@ async function deleteWorkplace(workplaceId) {
 
 .wp-table td { vertical-align: top; }
 .wp-table code { font-family: var(--mono); font-size: 11.5px; color: var(--brand); }
+
+/* Карточки для мобильной версии уже в разметке (renderWorkplaceCards
+   выше), но их стилизация и медиа-запрос переключения — Task 5. Без
+   этого правила они показывались бы вторым, неоформленным списком под
+   таблицей на любом экране. */
+.wp-cards { display: none; }
 ```
 
 - [ ] **Step 7: Ручная проверка через запущенное приложение**
@@ -1446,10 +1452,10 @@ git commit -m "feat(workplaces): department-grouped list with tabs, search, sort
 
 - [ ] **Step 1: Добавить CSS для карточек и медиа-запрос**
 
-В конец `styles.css` (после блока из Task 4) добавить:
+`.wp-cards { display: none; }` уже добавлен в Task 4 (Step 6) — здесь
+он не дублируется. В конец `styles.css` (после блока из Task 4) добавить:
 
 ```css
-.wp-cards { display: none; }
 .wp-card {
   background: var(--surface);
   border: 1px solid var(--line);
