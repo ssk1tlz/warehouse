@@ -64,6 +64,8 @@ const dom = {
   manualActEmployeeSelect: document.getElementById("manualActEmployeeSelect"),
   manualActItems: document.getElementById("manualActItems"),
   addManualActItemBtn: document.getElementById("addManualActItemBtn"),
+  composeActOverlay: document.getElementById("composeActOverlay"),
+  composeActItemsList: document.getElementById("composeActItemsList"),
   issueForm: document.getElementById("issueForm"),
   returnForm: document.getElementById("returnForm"),
   repairForm: document.getElementById("repairForm"),
@@ -1771,12 +1773,13 @@ function exportEmployeeHandoverCsv(employeeId) {
   exportHandoverCsv({ employeeId }, employee.fullName || employeeId);
 }
 
-// "Составить акт" on the employee card: unlike the old, unregistered
+// "Сформировать акт" on the employee card: unlike the old, unregistered
 // "Ведомость на подпись" this replaces, it gets a real, permanent act
-// number (kind: "employee_snapshot" — see act_numbers.py) and uses the
-// employee's current holdings (same source as their profile's equipment
-// list), not a manually picked item set.
-async function composeEmployeeAct(employeeId) {
+// number (kind: "employee_snapshot" — see act_numbers.py). Unlike an
+// earlier version of this button, it does NOT silently grab every item
+// the employee holds — composeActModal below lets the user tick off
+// exactly which of the employee's current items belong in this act.
+function openComposeActModal(employeeId) {
   const employee = getEmployeeById(employeeId);
   if (!employee) return;
   const { holdings } = getEmployeeHoldings(employeeId);
@@ -1784,17 +1787,44 @@ async function composeEmployeeAct(employeeId) {
     showToast("У сотрудника нет техники на руках.", "warning");
     return;
   }
-  const items = holdings.map((holding) => ({
+  dom.composeActOverlay.dataset.employeeId = employeeId;
+  dom.composeActItemsList.innerHTML = renderHoldingsListDetailed(holdings, { selectable: true });
+  // Отмечаем все чекбоксы по умолчанию — обычно в акт идёт вся техника
+  // сотрудника, но теперь можно снять галочку с того, что не нужно.
+  dom.composeActItemsList.querySelectorAll(".held-select").forEach((el) => { el.checked = true; });
+  dom.composeActOverlay.classList.remove("hidden");
+}
+
+function closeComposeActModal() {
+  dom.composeActOverlay.classList.add("hidden");
+  dom.composeActOverlay.dataset.employeeId = "";
+  dom.composeActItemsList.innerHTML = "";
+}
+
+async function handleComposeActSubmit() {
+  const employeeId = dom.composeActOverlay.dataset.employeeId;
+  const employee = getEmployeeById(employeeId);
+  if (!employee) return;
+  const { holdings } = getEmployeeHoldings(employeeId);
+  const checkedKeys = Array.from(dom.composeActItemsList.querySelectorAll(".held-select:checked"))
+    .map((el) => `${el.dataset.assetId}::${el.dataset.scope}`);
+  const selected = holdings.filter((holding) => checkedKeys.includes(`${holding.asset.id}::${holding.scope}`));
+  if (!selected.length) {
+    showToast("Отметьте хотя бы одну позицию.", "warning");
+    return;
+  }
+  const items = selected.map((holding) => ({
     name: holding.asset.name,
     serialNumber: holding.asset.serialNumber || "",
     inventoryNumber: holding.asset.inventoryNumber || "",
     quantity: Number(holding.allocation.quantity || 0),
   }));
   if (items.length > 10) {
-    showToast(`У сотрудника ${items.length} позиций, а в акт помещается только 10 — остальные не попадут в документ.`, "warning");
+    showToast(`Отмечено ${items.length} позиций, а в акт помещается только 10 — остальные не попадут в документ.`, "warning");
   }
   const date = today();
   const safeName = String(employee.fullName || employeeId).replace(/[\\/:*?"<>|]/g, "_").trim() || employeeId;
+  closeComposeActModal();
   await downloadActDocx({
     kind: "employee_snapshot",
     employeeId,
@@ -2329,7 +2359,7 @@ function openEmployeeDetailsModal(employeeId) {
       <button type="button" class="secondary" onclick="closeEmployeeDetailsModal()">Закрыть</button>
       <button type="button" class="secondary" onclick="closeEmployeeDetailsModal(); openEditEmployeeModal('${employee.id}')">Редактировать</button>
       <button type="button" class="secondary" onclick="exportEmployeeHandoverCsv('${employee.id}')">Экспорт CSV</button>
-      <button type="button" class="secondary" onclick="composeEmployeeAct('${employee.id}')">Составить акт</button>
+      <button type="button" class="secondary" onclick="openComposeActModal('${employee.id}')">Сформировать акт</button>
       <button type="button" class="btn-primary" onclick="closeEmployeeDetailsModal(); openOperationModal('issueModal'); setTimeout(() => { const sel = document.getElementById('issueEmployeeSelect'); if(sel) { sel.value = '${employee.id}'; sel.dispatchEvent(new Event('change')); } }, 100);">Выдать технику</button>
     </div>
   `;
@@ -6037,6 +6067,8 @@ function bindEvents() {
   document.getElementById("employeeModalCancelBtn")?.addEventListener("click", closeEmployeeModal);
   document.getElementById("closeEmployeeDetailsBtn")?.addEventListener("click", closeEmployeeDetailsModal);
   document.getElementById("employeeExportBtn")?.addEventListener("click", exportEmployeesExcel);
+  document.getElementById("closeComposeActBtn")?.addEventListener("click", closeComposeActModal);
+  document.getElementById("composeActSubmitBtn")?.addEventListener("click", handleComposeActSubmit);
 
   // Close modals when clicking backdrop
   document.getElementById("employeeModalOverlay")?.addEventListener("click", (e) => {
@@ -6044,6 +6076,9 @@ function bindEvents() {
   });
   document.getElementById("employeeDetailsOverlay")?.addEventListener("click", (e) => {
     if (e.target === document.getElementById("employeeDetailsOverlay")) closeEmployeeDetailsModal();
+  });
+  dom.composeActOverlay?.addEventListener("click", (e) => {
+    if (e.target === dom.composeActOverlay) closeComposeActModal();
   });
 
   // Table vs Cards switch
