@@ -106,14 +106,19 @@ def test_issue_fills_party_b_receiving_side_only():
     xml = _document_xml(data)
     party_a_idx = xml.index("Передающая сторона (сдал)")
     party_b_idx = xml.index("Принимающая сторона (принял)")
-    name_idx = xml.index("Иванов Иван Иванович")
-    position_idx = xml.index(SAMPLE_EMPLOYEE["position"])
-    department_idx = xml.index(SAMPLE_EMPLOYEE["department"])
-    phone_idx = xml.index(SAMPLE_EMPLOYEE["phone"])
+    # Searches start at party_b_idx: SAMPLE_EMPLOYEE["position"] ("Инженер")
+    # is a substring of COMPANY_REPRESENTATIVE's position, which now fills
+    # party A on issue -- an unbounded xml.index() would match there first.
+    name_idx = xml.index("Иванов Иван Иванович", party_b_idx)
+    position_idx = xml.index(SAMPLE_EMPLOYEE["position"], party_b_idx)
+    department_idx = xml.index(SAMPLE_EMPLOYEE["department"], party_b_idx)
+    phone_idx = xml.index(SAMPLE_EMPLOYEE["phone"], party_b_idx)
     assert party_a_idx < party_b_idx < name_idx
     assert party_a_idx < party_b_idx < position_idx
     assert party_a_idx < party_b_idx < department_idx
     assert party_a_idx < party_b_idx < phone_idx
+    # The other side (сдал) is the fixed company representative, not blank.
+    assert act_generator.COMPANY_REPRESENTATIVE["fullname"] in xml[party_a_idx:party_b_idx]
 
 
 def test_return_fills_party_a_handing_back_side_only():
@@ -123,14 +128,16 @@ def test_return_fills_party_a_handing_back_side_only():
     xml = _document_xml(data)
     party_a_idx = xml.index("Передающая сторона (сдал)")
     party_b_idx = xml.index("Принимающая сторона (принял)")
-    name_idx = xml.index("Иванов Иван Иванович")
-    position_idx = xml.index(SAMPLE_EMPLOYEE["position"])
-    department_idx = xml.index(SAMPLE_EMPLOYEE["department"])
-    phone_idx = xml.index(SAMPLE_EMPLOYEE["phone"])
+    name_idx = xml.index("Иванов Иван Иванович", party_a_idx, party_b_idx)
+    position_idx = xml.index(SAMPLE_EMPLOYEE["position"], party_a_idx, party_b_idx)
+    department_idx = xml.index(SAMPLE_EMPLOYEE["department"], party_a_idx, party_b_idx)
+    phone_idx = xml.index(SAMPLE_EMPLOYEE["phone"], party_a_idx, party_b_idx)
     assert party_a_idx < name_idx < party_b_idx
     assert party_a_idx < position_idx < party_b_idx
     assert party_a_idx < department_idx < party_b_idx
     assert party_a_idx < phone_idx < party_b_idx
+    # The other side (принял) is the fixed company representative, not blank.
+    assert act_generator.COMPANY_REPRESENTATIVE["fullname"] in xml[party_b_idx:]
 
 
 def test_items_fill_name_serial_inventory_quantity_columns():

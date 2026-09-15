@@ -72,6 +72,17 @@ MONTHS_RU = [
     "июля", "августа", "сентября", "октября", "ноября", "декабря",
 ]
 
+# Постоянный представитель работодателя — тот, кто физически выдаёт и
+# принимает технику. В системе нет данных о том, кто сидит за клавиатурой
+# (в users только username/role, без ФИО/должности), поэтому это захардкожено
+# по прямому запросу, а не выведено из данных.
+COMPANY_REPRESENTATIVE = {
+    "fullname": "Мардалиев Алан Муслимович",
+    "position": "Инженер информационных технологий",
+    "department": "IT",
+    "phone": "",
+}
+
 
 def parse_iso_date(value: str) -> tuple[str, str, str] | None:
     if not value:
@@ -109,9 +120,10 @@ def _make_run(text: str, *, bold: bool = False) -> ET.Element:
 def _build_placeholders(*, act_number, date_iso, employee, is_issue: bool) -> dict[str, str]:
     """{{TOKEN}} -> value. Party A is "Передающая сторона (сдал)", Party B
     is "Принимающая сторона (принял)" -- fixed physical locations in the
-    template. On issue the employee is the receiving party (B); on return
-    the employee is the one handing back (A). The other party has no
-    reliable data source (see design spec) and stays blank."""
+    template. On issue the employee is the receiving party (B) and
+    COMPANY_REPRESENTATIVE is the one handing over (A); on return that's
+    reversed -- the employee hands back (A) and the representative
+    receives (B)."""
     date_parts = parse_iso_date(date_iso) if date_iso else None
     day, month, year = date_parts if date_parts else ("____", "____________", "____")
 
@@ -122,9 +134,8 @@ def _build_placeholders(*, act_number, date_iso, employee, is_issue: bool) -> di
         "department": employee.get("department") or "",
         "phone": employee.get("phone") or "",
     }
-    empty_fields = {"fullname": "", "position": "", "department": "", "phone": ""}
-    party_a = employee_fields if not is_issue else empty_fields
-    party_b = employee_fields if is_issue else empty_fields
+    party_a = employee_fields if not is_issue else COMPANY_REPRESENTATIVE
+    party_b = employee_fields if is_issue else COMPANY_REPRESENTATIVE
 
     return {
         "{{ACT_NUMBER}}": str(act_number).strip() if act_number else "_____",
