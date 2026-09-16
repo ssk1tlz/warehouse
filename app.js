@@ -2718,6 +2718,28 @@ async function handleDepartmentDelete(departmentId) {
 }
 
 // ─── SITES (objects) — parallel to departments ────────────────
+// Ключи вида "<siteId>:employees" — какие секции карточки объекта
+// развёрнуты. Список сотрудников/мест на объекте может быть длинным
+// (командировка в другой город), поэтому по умолчанию карточка
+// показывает только счётчики, а не сваливает все ФИО в один абзац.
+let siteExpandedSections = new Set();
+
+function renderSiteEntityRows(items, { emptyText, action, render }) {
+  if (!items.length) return `<div class="site-section-body empty">${escapeHtml(emptyText)}</div>`;
+  return `<div class="site-section-body">${items.map((item) => render(item, action)).join("")}</div>`;
+}
+
+function renderSiteSection(site, key, { icon, label, count, itemsHtml }) {
+  const expanded = siteExpandedSections.has(`${site.id}:${key}`);
+  return `<div class="site-section">
+    <button type="button" class="site-section-toggle" data-action="toggle-site-section" data-id="${site.id}:${key}">
+      <span>${icon} ${escapeHtml(label)}: <strong>${count}</strong></span>
+      <span class="site-section-caret">${expanded ? "▾" : "▸"}</span>
+    </button>
+    ${expanded ? itemsHtml : ""}
+  </div>`;
+}
+
 function renderSites() {
   const container = document.getElementById("sitesList");
   if (!container) return;
@@ -2727,7 +2749,6 @@ function renderSites() {
   }
   container.innerHTML = state.sites.map((site) => {
     const employeesAtSite = getVisibleEmployees(state.employees).filter((emp) => emp.site === site.name);
-    const employeeCount = employeesAtSite.length;
     const workplacesAtSite = state.workplaces.filter((w) => w.site === site.name);
     const siteAssets = [];
     state.assets.forEach(asset => {
@@ -2740,6 +2761,20 @@ function renderSites() {
       });
     });
     const assetCount = siteAssets.reduce((sum, a) => sum + a.quantity, 0);
+
+    const employeesHtml = renderSiteEntityRows(employeesAtSite, {
+      emptyText: "Сотрудников нет",
+      render: (e) => `<button type="button" class="site-entity-row" data-action="view-site-employee" data-id="${e.id}">👤 ${escapeHtml(e.fullName)}${e.position ? ` <span class="muted">· ${escapeHtml(e.position)}</span>` : ""}</button>`,
+    });
+    const workplacesHtml = renderSiteEntityRows(workplacesAtSite, {
+      emptyText: "Рабочих мест нет",
+      render: (w) => `<button type="button" class="site-entity-row" data-action="view-site-workplace" data-id="${w.id}">🖥 ${escapeHtml(w.name)}</button>`,
+    });
+    const assetsHtml = renderSiteEntityRows(siteAssets, {
+      emptyText: "Техники нет",
+      render: (a) => `<div class="site-entity-row static">📦 ${escapeHtml(a.name)} <span class="muted">× ${a.quantity}</span></div>`,
+    });
+
     return `<article class="card" data-id="${site.id}">
       <div class="card-header">
         <strong>${escapeHtml(site.name)}</strong>
@@ -2750,12 +2785,9 @@ function renderSites() {
         </div>
       </div>
       <div class="card-body">
-        <p class="card-field"><span class="field-label">Сотрудников:</span> <span class="field-value">${employeeCount}</span></p>
-        ${employeesAtSite.length ? `<p class="card-field"><span class="field-label">ФИО:</span> <span class="field-value">${employeesAtSite.map(e => escapeHtml(e.fullName)).join(", ")}</span></p>` : ""}
-        <p class="card-field"><span class="field-label">Рабочих мест:</span> <span class="field-value">${workplacesAtSite.length}</span></p>
-        ${workplacesAtSite.length ? `<p class="card-field"><span class="field-label">Столы:</span> <span class="field-value">${workplacesAtSite.map(w => escapeHtml(w.name)).join(", ")}</span></p>` : ""}
-        <p class="card-field"><span class="field-label">Техники:</span> <span class="field-value">${assetCount} шт.</span></p>
-        ${siteAssets.length ? `<p class="card-field"><span class="field-label">Оборудование:</span> <span class="field-value">${siteAssets.map(a => `${escapeHtml(a.name)} (${a.quantity})`).join(", ")}</span></p>` : ""}
+        ${renderSiteSection(site, "employees", { icon: "👤", label: "Сотрудников", count: employeesAtSite.length, itemsHtml: employeesHtml })}
+        ${renderSiteSection(site, "workplaces", { icon: "🖥", label: "Рабочих мест", count: workplacesAtSite.length, itemsHtml: workplacesHtml })}
+        ${renderSiteSection(site, "assets", { icon: "📦", label: "Техники", count: `${assetCount} шт.`, itemsHtml: assetsHtml })}
       </div>
     </article>`;
   }).join("");
@@ -6029,6 +6061,13 @@ function bindEvents() {
     if (action === "edit-site") enterSiteEditMode(id);
     if (action === "delete-site") handleSiteDelete(id);
     if (action === "export-site") exportSiteHandoverCsv(id);
+    if (action === "toggle-site-section") {
+      if (siteExpandedSections.has(id)) siteExpandedSections.delete(id);
+      else siteExpandedSections.add(id);
+      renderSites();
+    }
+    if (action === "view-site-employee") openEmployeeDetailsModal(id);
+    if (action === "view-site-workplace") openWorkplaceDetailsModal(id);
   });
   dom.movementsTableBody.addEventListener("click", handleMovementTableClick);
   document.querySelector(".operation-actions").addEventListener("click", handleOperationLauncherClick);
