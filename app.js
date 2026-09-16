@@ -1891,6 +1891,18 @@ function updateEmployeeDepartmentFilter() {
   select.value = Array.from(select.options).some((option) => option.value === current) ? current : "";
 }
 
+function updateEmployeeSiteFilter() {
+  const select = document.getElementById("employeeFilterSite");
+  if (!select) return;
+  const current = select.value;
+  const names = new Set(state.sites.map((s) => s.name));
+  state.employees.forEach((employee) => { if (employee.site) names.add(employee.site); });
+  const sorted = [...names].sort((a, b) => a.localeCompare(b, "ru"));
+  const options = sorted.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("");
+  select.innerHTML = '<option value="">Все объекты</option>' + options;
+  select.value = Array.from(select.options).some((option) => option.value === current) ? current : "";
+}
+
 function updateEmployeePositionFilter() {
   const select = document.getElementById("employeeFilterPosition");
   if (!select) return;
@@ -1939,6 +1951,9 @@ function renderEmployeeActiveChips(filters) {
   if (filters.department) {
     chips.push(`<span class="emp-chip-tag">Подразделение: ${escapeHtml(filters.department)} <span class="emp-chip-remove" data-clear="department">✕</span></span>`);
   }
+  if (filters.site) {
+    chips.push(`<span class="emp-chip-tag">Объект: ${escapeHtml(filters.site)} <span class="emp-chip-remove" data-clear="site">✕</span></span>`);
+  }
   if (filters.position) {
     chips.push(`<span class="emp-chip-tag">Должность: ${escapeHtml(filters.position)} <span class="emp-chip-remove" data-clear="position">✕</span></span>`);
   }
@@ -1986,16 +2001,18 @@ function renderEmployeePagination(totalItems) {
 
 function renderEmployees() {
   updateEmployeeDepartmentFilter();
+  updateEmployeeSiteFilter();
   updateEmployeePositionFilter();
   renderEmployeeStats();
 
   const query = normalizeSearchValue(document.getElementById("employeeSearchInput")?.value);
   const departmentFilter = document.getElementById("employeeFilterDepartment")?.value || "";
+  const siteFilter = document.getElementById("employeeFilterSite")?.value || "";
   const positionFilter = document.getElementById("employeeFilterPosition")?.value || "";
   const statusFilter = document.getElementById("employeeFilterStatus")?.value || "";
   const sortValue = document.getElementById("employeeSortSelect")?.value || "name_asc";
 
-  renderEmployeeActiveChips({ query, department: departmentFilter, position: positionFilter, status: statusFilter });
+  renderEmployeeActiveChips({ query, department: departmentFilter, site: siteFilter, position: positionFilter, status: statusFilter });
 
   const filtered = getVisibleEmployees(state.employees).map((employee, originalIndex) => ({
     employee,
@@ -2006,6 +2023,7 @@ function renderEmployees() {
     if (statusFilter === "active" && isInactive) return false;
     if (statusFilter === "inactive" && !isInactive) return false;
     if (departmentFilter && employee.department !== departmentFilter) return false;
+    if (siteFilter && employee.site !== siteFilter) return false;
     if (positionFilter && employee.position !== positionFilter) return false;
     if (!query) return true;
     return matchesSearch(query, employee.fullName, employee.department, employee.site, employee.position, employee.email, employee.phone);
@@ -2710,6 +2728,7 @@ function renderSites() {
   container.innerHTML = state.sites.map((site) => {
     const employeesAtSite = getVisibleEmployees(state.employees).filter((emp) => emp.site === site.name);
     const employeeCount = employeesAtSite.length;
+    const workplacesAtSite = state.workplaces.filter((w) => w.site === site.name);
     const siteAssets = [];
     state.assets.forEach(asset => {
       (asset.allocations || []).forEach(allocation => {
@@ -2733,6 +2752,8 @@ function renderSites() {
       <div class="card-body">
         <p class="card-field"><span class="field-label">Сотрудников:</span> <span class="field-value">${employeeCount}</span></p>
         ${employeesAtSite.length ? `<p class="card-field"><span class="field-label">ФИО:</span> <span class="field-value">${employeesAtSite.map(e => escapeHtml(e.fullName)).join(", ")}</span></p>` : ""}
+        <p class="card-field"><span class="field-label">Рабочих мест:</span> <span class="field-value">${workplacesAtSite.length}</span></p>
+        ${workplacesAtSite.length ? `<p class="card-field"><span class="field-label">Столы:</span> <span class="field-value">${workplacesAtSite.map(w => escapeHtml(w.name)).join(", ")}</span></p>` : ""}
         <p class="card-field"><span class="field-label">Техники:</span> <span class="field-value">${assetCount} шт.</span></p>
         ${siteAssets.length ? `<p class="card-field"><span class="field-label">Оборудование:</span> <span class="field-value">${siteAssets.map(a => `${escapeHtml(a.name)} (${a.quantity})`).join(", ")}</span></p>` : ""}
       </div>
@@ -2803,6 +2824,11 @@ function handleSiteDelete(siteId) {
   const employeeCount = getVisibleEmployees(state.employees).filter((emp) => emp.site === site.name).length;
   if (employeeCount > 0) {
     showToast(`Невозможно удалить: к объекту привязано ${employeeCount} сотрудник(ов)`, "warning");
+    return;
+  }
+  const workplaceCount = state.workplaces.filter((w) => w.site === site.name).length;
+  if (workplaceCount > 0) {
+    showToast(`Невозможно удалить: к объекту привязано ${workplaceCount} рабочих мест`, "warning");
     return;
   }
   const hasAssets = state.assets.some((a) => a.allocations.some((al) => al.site === site.name && al.quantity > 0));
@@ -3087,8 +3113,21 @@ function sortWorkplaceRows(rows, sortBy, assetsIndex) {
   return withMeta;
 }
 
+function updateWorkplaceSiteFilter() {
+  const select = document.getElementById("workplaceFilterSite");
+  if (!select) return;
+  const current = select.value;
+  const names = new Set(state.sites.map((s) => s.name));
+  state.workplaces.forEach((w) => { if (w.site) names.add(w.site); });
+  const sorted = [...names].sort((a, b) => a.localeCompare(b, "ru"));
+  const options = sorted.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("");
+  select.innerHTML = '<option value="">Все объекты</option>' + options;
+  select.value = Array.from(select.options).some((option) => option.value === current) ? current : "";
+}
+
 function renderWorkplaces() {
   renderWorkplaceFormSelects();
+  updateWorkplaceSiteFilter();
   const listContainer = document.getElementById("workplacesList");
   const tabsContainer = document.getElementById("workplaceDeptTabs");
   if (!listContainer || !tabsContainer) return;
@@ -3100,6 +3139,7 @@ function renderWorkplaces() {
   }
 
   const query = normalizeSearchValue(document.getElementById("workplaceSearchInput")?.value);
+  const siteFilter = document.getElementById("workplaceFilterSite")?.value || "";
 
   // Отделы — в порядке state.departments (уже отсортированы сервером по
   // имени), плюс отделы, которых больше нет в справочнике, но за
@@ -3126,7 +3166,7 @@ function renderWorkplaces() {
   const assetsIndex = buildWorkplaceAssetsIndex();
 
   const groups = departmentNames.map((department) => {
-    const all = state.workplaces.filter((w) => workplaceDeptKey(w) === department);
+    const all = state.workplaces.filter((w) => workplaceDeptKey(w) === department && (!siteFilter || w.site === siteFilter));
     const matched = query ? all.filter((w) => workplaceMatchesQuery(w, query, assetsIndex)) : all;
     return { department, all, matched };
   });
@@ -5699,6 +5739,7 @@ function bindEvents() {
     renderWorkplaces();
   });
   document.getElementById("workplaceSearchInput")?.addEventListener("input", debounce(renderWorkplaces));
+  document.getElementById("workplaceFilterSite")?.addEventListener("change", renderWorkplaces);
   document.getElementById("workplaceSortSelect")?.addEventListener("change", (event) => {
     workplaceSortBy = event.target.value;
     renderWorkplaces();
@@ -6073,6 +6114,10 @@ function bindEvents() {
     employeeCurrentPage = 1;
     renderEmployees();
   });
+  document.getElementById("employeeFilterSite")?.addEventListener("change", () => {
+    employeeCurrentPage = 1;
+    renderEmployees();
+  });
   document.getElementById("employeeFilterPosition")?.addEventListener("change", () => {
     employeeCurrentPage = 1;
     renderEmployees();
@@ -6092,6 +6137,8 @@ function bindEvents() {
     if (searchInput) searchInput.value = "";
     const dept = document.getElementById("employeeFilterDepartment");
     if (dept) dept.value = "";
+    const site = document.getElementById("employeeFilterSite");
+    if (site) site.value = "";
     const pos = document.getElementById("employeeFilterPosition");
     if (pos) pos.value = "";
     const st = document.getElementById("employeeFilterStatus");
@@ -6109,6 +6156,7 @@ function bindEvents() {
     const kind = target.dataset.clear;
     if (kind === "status") document.getElementById("employeeFilterStatus").value = "";
     if (kind === "department") document.getElementById("employeeFilterDepartment").value = "";
+    if (kind === "site") document.getElementById("employeeFilterSite").value = "";
     if (kind === "position") document.getElementById("employeeFilterPosition").value = "";
     if (kind === "query") document.getElementById("employeeSearchInput").value = "";
     employeeCurrentPage = 1;
