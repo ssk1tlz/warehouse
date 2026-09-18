@@ -1145,7 +1145,11 @@
         <button type="button" class="modal-close" data-close-modal>Закрыть</button>
       </div>
       <form id="retireForm" class="form-grid compact">
-        <label>Техника<select name="assetId" id="retireAssetSelect" required></select></label>
+        <label class="search-picker-field">Техника
+          <input type="text" class="asset-picker-input" id="retireAssetSearch" placeholder="Название, инв. номер или серийник" autocomplete="off">
+          <input type="hidden" name="assetId" id="retireAssetSelect">
+          <div class="asset-picker-list hidden" id="retireAssetList"></div>
+        </label>
         <label>Количество<input type="number" min="1" step="1" name="quantity" value="1" required></label>
         <label>Дата<input type="date" name="date" required></label>
         <label class="full">Причина<textarea name="notes" rows="2" placeholder="Например: неисправимо / морально устарело…"></textarea></label>

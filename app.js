@@ -3659,6 +3659,10 @@ function getIssueAssets() {
   return state.assets.filter((asset) => getAvailableQuantity(asset) > 0 && asset.status !== "repair" && asset.status !== "retired");
 }
 
+function getRetireAssets() {
+  return state.assets.filter((asset) => getAvailableQuantity(asset) > 0);
+}
+
 function getReturnAssets(employeeId) {
   if (!employeeId) return [];
   return state.assets.filter((asset) => {
@@ -4205,7 +4209,6 @@ function renderSelects() {
   const locationOptions = [`<option value="warehouse">Склад</option>`]
     .concat(getVisibleEmployees(state.employees).map((employee) => `<option value="employee:${employee.id}">${employee.fullName}</option>`))
     .join("");
-  const stockAssets = state.assets.filter((asset) => getAvailableQuantity(asset) > 0);
   const repairAssets = state.assets.filter((asset) => Number(asset.repairQuantity || 0) > 0);
   const selectedRepairSource = dom.repairSourceSelect?.value || "warehouse";
   const selectedRepairTarget = dom.repairReturnTargetSelect?.value || "warehouse";
@@ -4214,6 +4217,7 @@ function renderSelects() {
   pickers.manualActEmployee?.refresh();
   pickers.assetIssueEmployee?.refresh();
   pickers.workplaceEmployee?.refresh();
+  pickers.retireAsset?.refresh();
   const issueDeptSelect = document.getElementById("issueDepartmentSelect");
   if (issueDeptSelect) issueDeptSelect.innerHTML = departmentOptions;
   const issueSiteSelect = document.getElementById("issueSiteSelect");
@@ -4249,7 +4253,6 @@ function renderSelects() {
   dom.repairReturnTargetSelect.value = selectedRepairTarget;
   if (!dom.repairReturnTargetSelect.value) dom.repairReturnTargetSelect.value = "warehouse";
   dom.repairReturnAssetSelect.innerHTML = repairAssets.length ? repairAssets.map((asset) => `<option value="${asset.id}">${asset.name} (в ремонте: ${asset.repairQuantity})</option>`).join("") : `<option value="">Нет техники в ремонте</option>`;
-  dom.retireAssetSelect.innerHTML = stockAssets.length ? stockAssets.map((asset) => `<option value="${asset.id}">${asset.name} (доступно: ${getAvailableQuantity(asset)})</option>`).join("") : `<option value="">Нет техники на складе</option>`;
   updateReturnAssetOptions();
   updateManualActAssetOptions();
 }
@@ -5413,7 +5416,11 @@ async function handleRetireSubmit(event) {
   const formData = new FormData(event.currentTarget);
   const asset = getAssetById(formData.get("assetId"));
   const quantity = Math.max(1, Number(formData.get("quantity") || 1));
-  if (!asset) return;
+  if (!asset) {
+    showToast('Выберите технику для списания из списка.', 'warning');
+    document.getElementById("retireAssetSearch")?.focus();
+    return;
+  }
   const available = getAvailableQuantity(asset);
   if (quantity > available) {
     showToast(`Нельзя списать ${quantity} шт. Доступно на складе: ${available}.`, 'warning');
@@ -5832,6 +5839,14 @@ function employeeRow(employee) {
   return { title: employee.fullName, subtitle: employee.department || "" };
 }
 
+function assetChosenLabel(asset) {
+  return `${asset.inventoryNumber ? `${asset.inventoryNumber} · ` : ""}${assetShortLabel(asset)}`;
+}
+
+function assetRow(asset) {
+  return { title: assetChosenLabel(asset), subtitle: `доступно: ${getAvailableQuantity(asset)}` };
+}
+
 function workplaceItemsWithOwner() {
   return state.workplaces.map((workplace) => ({
     ...workplace,
@@ -5896,6 +5911,12 @@ function bindSearchPickers() {
     getItems: workplaceItemsWithOwner, searchFn: AssetOps.searchWorkplaces,
     getId: (w) => w.id, renderRow: workplaceRow, renderChosen: (w) => `${w.code ? `${w.code} · ` : ""}${w.name}`,
     emptyText: "Нет рабочих мест", noMatchText: "Место не найдено",
+  });
+  pickers.retireAsset = attachSearchPicker({
+    inputId: "retireAssetSearch", hiddenId: "retireAssetSelect", listId: "retireAssetList",
+    getItems: getRetireAssets, searchFn: AssetOps.searchAssets,
+    getId: (a) => a.id, renderRow: assetRow, renderChosen: assetChosenLabel,
+    emptyText: "Нет техники на складе", noMatchText: "Ничего не найдено",
   });
 }
 
