@@ -20,6 +20,9 @@ SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
+; Значок NEXA: у установщика и в «Программы и компоненты» (иконка самого .exe вшита при сборке).
+SetupIconFile=..\assets\nexa.ico
+UninstallDisplayIcon={app}\{#MyAppExeName}
 
 [Languages]
 Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"

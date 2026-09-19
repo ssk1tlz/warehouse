@@ -3,22 +3,61 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Склад IT-техники</title>
+  <title>NEXA — Склад IT-техники</title>
   <link rel="stylesheet" href="styles.css">
+  <!-- Значок вкладки: nexa-icon.svg, вшит в страницу — отдельного файла нет, потому что сервер
+       отдаёт только файлы из STATIC_ALLOWLIST, а .exe собирается из фиксированного списка. -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20120%20120%22%20width%3D%22120%22%20height%3D%22120%22%3E%3Cpath%20d%3D%22M60%2012L102%2036L60%2060L18%2036Z%22%20fill%3D%22%23E3B25C%22%2F%3E%3Cpath%20d%3D%22M18%2036L60%2060V108L18%2084Z%22%20fill%3D%22%235A1E2E%22%2F%3E%3Cpath%20d%3D%22M102%2036L60%2060V108L102%2084Z%22%20fill%3D%22%237E2C41%22%2F%3E%3Cpath%20d%3D%22M30%2080.86V52.86L48%2091.14V63.14%22%20fill%3D%22none%22%20stroke%3D%22%23F7EFE6%22%20stroke-width%3D%225%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E">
+  <script>
+    // До первой отрисовки: свёрнутая боковая панель не должна мигать при загрузке.
+    try { if (localStorage.getItem("warehouse_sidebar_hidden") === "1") document.documentElement.classList.add("sidebar-hidden"); } catch (e) {}
+  </script>
   <script src="chart.umd.min.js"></script>
 </head>
 <body>
-  <button class="burger-btn" id="burgerBtn" aria-label="Menu">
-    <span></span><span></span><span></span>
-  </button>
+  <!-- Логотип NEXA (nexa-logo-for-dark-bg.svg): рисунок один, на него ссылаются через <use>.
+       Оригиналы файлов лежат в docs/brand/. -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <symbol id="nexa-logo"><path d="M60 12L102 36L60 60L18 36Z" fill="#E3B25C"/><path d="M18 36L60 60V108L18 84Z" fill="#5A1E2E"/><path d="M102 36L60 60V108L102 84Z" fill="#7E2C41"/><path d="M30 80.86V52.86L48 91.14V63.14" fill="none" stroke="#F7EFE6" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><path d="M151.82 69.1V28.49H166.38L174.44 63.87H175.49V28.49H183.03V69.1H168.47L160.41 33.71H159.36V69.1Z M196.48 69.1V28.49H222.58V35.45H204.14V45.14H220.96V52.10H204.14V62.13H222.93V69.1Z M231.86 69.1 243.75 48.62 231.98 28.49H240.68L248.74 43.17H249.79L257.85 28.49H266.55L254.77 48.62L266.66 69.1H257.96L249.79 54.07H248.74L240.56 69.1Z M274.78 69.1 285.46 28.49H298.79L309.47 69.1H301.58L299.38 60.16H284.88L282.67 69.1ZM286.67 53.09H297.58L292.65 33.31H291.60Z" fill="#F7EFE6"/><path d="M150.3 91.5 152.89 83.1H154.66L157.26 91.5H156.21L155.56 89.37H151.99L151.34 91.5ZM152.25 88.46H155.30L153.86 83.71H153.69Z M165.39 91.66Q164.48 91.66 163.76 91.34Q163.04 91.02 162.63 90.36Q162.21 89.71 162.21 88.72V88.47H163.21V88.72Q163.21 89.78 163.81 90.28Q164.42 90.79 165.39 90.79Q166.38 90.79 166.89 90.34Q167.41 89.90 167.41 89.23Q167.41 88.76 167.17 88.48Q166.94 88.21 166.52 88.03Q166.10 87.86 165.54 87.73L164.91 87.57Q164.17 87.39 163.60 87.12Q163.04 86.84 162.73 86.38Q162.42 85.93 162.42 85.22Q162.42 84.51 162.77 84.0Q163.12 83.48 163.76 83.20Q164.41 82.93 165.25 82.93Q166.10 82.93 166.77 83.22Q167.44 83.50 167.84 84.09Q168.23 84.67 168.23 85.52V86.02H167.24V85.52Q167.24 84.61 166.68 84.21Q166.11 83.80 165.25 83.80Q164.42 83.80 163.92 84.17Q163.41 84.54 163.41 85.21Q163.41 85.88 163.88 86.18Q164.35 86.48 165.19 86.68L165.81 86.84Q166.53 87.01 167.12 87.28Q167.71 87.55 168.06 88.00Q168.40 88.46 168.40 89.20Q168.40 89.95 168.03 90.50Q167.66 91.05 166.98 91.36Q166.30 91.66 165.39 91.66Z M176.83 91.66Q175.92 91.66 175.2 91.34Q174.48 91.02 174.06 90.36Q173.65 89.71 173.65 88.72V88.47H174.64V88.72Q174.64 89.78 175.25 90.28Q175.85 90.79 176.83 90.79Q177.81 90.79 178.33 90.34Q178.84 89.90 178.84 89.23Q178.84 88.76 178.61 88.48Q178.38 88.21 177.95 88.03Q177.54 87.86 176.97 87.73L176.35 87.57Q175.60 87.39 175.04 87.12Q174.48 86.84 174.16 86.38Q173.85 85.93 173.85 85.22Q173.85 84.51 174.20 84.0Q174.56 83.48 175.20 83.20Q175.84 82.93 176.68 82.93Q177.54 82.93 178.21 83.22Q178.88 83.50 179.27 84.09Q179.67 84.67 179.67 85.52V86.02H178.68V85.52Q178.68 84.61 178.11 84.21Q177.55 83.80 176.68 83.80Q175.85 83.80 175.35 84.17Q174.85 84.54 174.85 85.21Q174.85 85.88 175.32 86.18Q175.78 86.48 176.62 86.68L177.25 86.84Q177.97 87.01 178.56 87.28Q179.14 87.55 179.49 88.00Q179.84 88.46 179.84 89.20Q179.84 89.95 179.47 90.50Q179.1 91.05 178.42 91.36Q177.74 91.66 176.83 91.66Z M185.47 91.5V83.1H190.64V84.01H186.48V86.82H190.30V87.73H186.48V90.58H190.70V91.5Z M198.37 91.5V84.01H195.67V83.1H202.08V84.01H199.38V91.5Z  M214.60 91.5V83.1H216.52L218.76 90.86H218.91L221.14 83.1H223.06V91.5H222.09V83.76H221.92L219.70 91.5H217.96L215.74 83.76H215.57V91.5Z M228.40 91.5 231.0 83.1H232.77L235.36 91.5H234.32L233.67 89.37H230.1L229.45 91.5ZM230.36 88.46H233.41L231.97 83.71H231.80Z M240.70 91.5V83.1H242.66L245.59 90.86H245.74V83.1H246.74V91.5H244.78L241.87 83.72H241.70V91.5Z M252.09 91.5 254.68 83.1H256.46L259.05 91.5H258.01L257.36 89.37H253.78L253.14 91.5ZM254.05 88.46H257.09L255.66 83.71H255.49Z M267.32 91.66Q266.38 91.66 265.67 91.27Q264.96 90.88 264.55 90.13Q264.15 89.37 264.15 88.26V86.34Q264.15 84.67 265.04 83.80Q265.93 82.93 267.43 82.93Q268.91 82.93 269.69 83.74Q270.47 84.56 270.47 85.93V85.99H269.48V85.90Q269.48 85.02 268.99 84.42Q268.5 83.83 267.43 83.83Q266.36 83.83 265.76 84.48Q265.16 85.14 265.16 86.31V88.28Q265.16 89.46 265.76 90.11Q266.36 90.76 267.44 90.76Q268.5 90.76 268.99 90.16Q269.49 89.56 269.49 88.57V88.36H266.95V87.50H270.47V91.5H269.56V90.58H269.4Q269.26 90.86 269.02 91.11Q268.78 91.35 268.38 91.51Q267.97 91.66 267.32 91.66Z M276.39 91.5V83.1H281.56V84.01H277.40V86.82H281.23V87.73H277.40V90.58H281.62V91.5Z M287.23 91.5V83.1H289.15L291.38 90.86H291.53L293.77 83.1H295.69V91.5H294.71V83.76H294.55L292.33 91.5H290.59L288.37 83.76H288.20V91.5Z M301.69 91.5V83.1H306.86V84.01H302.7V86.82H306.52V87.73H302.7V90.58H306.92V91.5Z M312.52 91.5V83.1H314.48L317.41 90.86H317.56V83.1H318.56V91.5H316.60L313.69 83.72H313.52V91.5Z M326.64 91.5V84.01H323.94V83.1H330.34V84.01H327.64V91.5Z" fill="#C29AA5"/></symbol>
+  </svg>
+  <!-- Панель инструментов сверху слева, как в приложении Claude: меню, боковая
+       панель и поиск. Она остаётся на месте при свёрнутой боковой панели. -->
+  <header class="app-toolbar" id="appToolbar">
+    <button type="button" class="toolbar-btn" id="appMenuBtn" title="Меню" aria-label="Меню" aria-haspopup="menu" aria-expanded="false" aria-controls="userMenuPopover"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h12M3 9h8.5M3 13h12"/></svg></button>
+    <button type="button" class="toolbar-btn" id="sidebarToggleBtn" title="Боковая панель" aria-label="Боковая панель" aria-expanded="true" aria-controls="sidebar"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3" width="13" height="12" rx="2.2"/><path d="M7 3v12"/></svg></button>
+    <button type="button" class="toolbar-btn" id="searchBtn" title="Поиск (Ctrl+K)" aria-label="Поиск"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="4.9"/><path d="M11.7 11.7L15.2 15.2"/></svg></button>
+  </header>
+
+  <!-- Меню «Данные / Сеанс»: одно окно на два входа — строка пользователя внизу
+       боковой панели и кнопка меню на панели инструментов. Лежит вне боковой
+       панели, чтобы открываться и когда она свёрнута. Кнопки те же, что раньше
+       (id прежние, обработчики навешиваются по ним). -->
+  <div class="user-menu hidden" id="userMenuPopover" role="menu" aria-label="Меню пользователя">
+    <div class="user-menu-head" id="userMenuHead"></div>
+    <div class="user-menu-group">
+      <button type="button" id="exportDataBtn" class="user-menu-item" role="menuitem"><svg class="user-menu-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v7.5M5 7.2l3 3 3-3M3 13h10"/></svg><span>Экспорт JSON</span></button>
+      <button type="button" id="exportExcelBtn" class="user-menu-item" role="menuitem"><svg class="user-menu-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.2" y="2.5" width="11.6" height="11" rx="1.6"/><path d="M2.2 6.6h11.6M2.2 10.1h11.6M6.3 2.5v11"/></svg><span>Экспорт Excel</span></button>
+      <button type="button" id="printLabelsBtn" class="user-menu-item" role="menuitem"><svg class="user-menu-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2h6l4 4v8H2V2h2z"/><path d="M5 9h6M5 12h4"/></svg><span>Этикетки</span></button>
+      <button type="button" id="showLanQrBtn" class="user-menu-item" role="menuitem" data-requires-role="admin"><svg class="user-menu-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5.5" r="2.3"/><path d="M1.8 13.2c0-2.3 1.9-3.8 4.2-3.8s4.2 1.5 4.2 3.8"/><path d="M10.6 3.6a2.3 2.3 0 010 3.8M12.2 9.6c1.3.5 2 1.6 2 3.6"/></svg><span>Пользователи</span></button>
+      <button type="button" id="importDataBtn" class="user-menu-item" role="menuitem"><svg class="user-menu-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 10.5V3M5 5.8l3-3 3 3M3 13h10"/></svg><span>Импорт JSON</span></button>
+    </div>
+    <div class="user-menu-group">
+      <button type="button" id="showBackupsBtn" class="user-menu-item" role="menuitem" data-requires-role="admin"><svg class="user-menu-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2.5" width="12" height="3.6" rx="1"/><path d="M3 6.1v6.4A1.5 1.5 0 004.5 14h7a1.5 1.5 0 001.5-1.5V6.1M6.5 9h3"/></svg><span>Резервные копии</span></button>
+      <button type="button" id="showInventoryBtn" class="user-menu-item" role="menuitem" data-requires-role="admin"><svg class="user-menu-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="2.6" width="10" height="11.4" rx="1.5"/><path d="M6 2.6h4v2H6zM5.8 9l1.7 1.7 3-3"/></svg><span>Инвентаризации</span></button>
+      <button type="button" id="showSettingsBtn" class="user-menu-item" role="menuitem" data-requires-role="admin"><svg class="user-menu-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 5h6M11.5 5h2M2.5 11h2M7.5 11h6"/><circle cx="10" cy="5" r="1.5"/><circle cx="6" cy="11" r="1.5"/></svg><span>Настройки</span></button>
+    </div>
+    <div class="user-menu-group">
+      <button type="button" id="logoutBtn" class="user-menu-item" role="menuitem"><svg class="user-menu-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 14H3V2h3"/><path d="M10 11l3-3-3-3M13 8H6"/></svg><span>Выйти</span></button>
+    </div>
+  </div>
+  <input id="importDataInput" type="file" accept=".json" hidden>
+
   <div class="layout">
 
     <!-- ─── SIDEBAR ───────────────────────────────────────────── -->
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-brand">
-        <p class="eyebrow">Локальная система</p>
-        <h1>Склад IT‑техники</h1>
-        <p class="sidebar-text">Учет, выдача, ремонт и списание оборудования.</p>
+        <svg class="brand-logo" viewBox="14 8 322 104" role="img" aria-label="NEXA — Asset Management"><use href="#nexa-logo" width="348" height="120"/></svg>
       </div>
 
       <nav class="menu">
@@ -83,24 +122,16 @@
         </button>
       </nav>
 
-      <div class="sidebar-actions">
-        <div class="sidebar-actions-label">Данные</div>
-        <button id="exportDataBtn" class="secondary">↓ Экспорт JSON</button>
-        <button id="exportExcelBtn" class="secondary">↓ Экспорт Excel</button>
-        <button id="printLabelsBtn" class="teal-btn"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 2h6l4 4v8H2V2h2z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M5 9h6M5 12h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg> Этикетки</button>
-        <button id="showLanQrBtn" class="secondary" data-requires-role="admin"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="5" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="2" width="5" height="5" stroke="currentColor" stroke-width="1.3"/><rect x="2" y="9" width="5" height="5" stroke="currentColor" stroke-width="1.3"/><path d="M9 9h2v2H9zM12 9h2v2h-2zM9 12h2v2H9zM12 12h2v2h-2z" fill="currentColor"/></svg> Пользователи</button>
-        <label class="import-label">
-          ↑ Импорт JSON
-          <input id="importDataInput" type="file" accept=".json">
-        </label>
-      </div>
-
-      <div class="sidebar-actions">
-        <div class="sidebar-actions-label">Сеанс</div>
-        <button id="showBackupsBtn" class="secondary" data-requires-role="admin">Резервные копии</button>
-        <button id="showInventoryBtn" class="secondary" data-requires-role="admin">Инвентаризации</button>
-        <button id="showSettingsBtn" class="secondary" data-requires-role="admin">Настройки</button>
-        <button id="logoutBtn" class="secondary"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 14H3V2h3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11l3-3-3-3M13 8H6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg> Выйти</button>
+      <!-- Учётная запись: имя и роль внизу панели, по клику — одно меню с
+           «Данными» и «Сеансом». Кнопки те же, что раньше стояли в панели
+           (id прежние, обработчики навешиваются по ним), поэтому логика не
+           менялась. Пустые из-за роли группы прячет applyRoleVisibility. -->
+      <div class="sidebar-user" id="userMenu">
+        <button type="button" class="user-trigger" id="userMenuTrigger" aria-haspopup="menu" aria-expanded="false" aria-controls="userMenuPopover">
+          <span class="user-avatar" id="userAvatar" aria-hidden="true">?</span>
+          <span class="user-info"><span class="user-name" id="userName"></span></span>
+          <svg class="user-trigger-chevron" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>
+        </button>
       </div>
     </aside>
 
@@ -118,10 +149,6 @@
           <div class="topbar-sub" id="topbarSub">Склад IT‑техники</div>
         </div>
         <div class="topbar-right">
-          <button id="themeToggleBtn" class="theme-toggle-btn" type="button" title="Переключить тему (Светлая / Тёмная)" aria-label="Переключить тему">
-            <span class="theme-toggle-icon" id="themeToggleIcon">☀️</span>
-            <span class="theme-toggle-text" id="themeToggleText">Светлая</span>
-          </button>
           <div class="last-update-badge" id="lastUpdateLabel">Нет изменений</div>
         </div>
       </div>
@@ -155,7 +182,16 @@
             <div id="recentMovements" class="list"></div>
           </section>
           <section class="panel">
-            <div class="panel-header"><h3>Техника на сотрудниках</h3></div>
+            <div class="panel-header">
+              <h3>Выданная техника</h3>
+              <!-- Столов и отделов бывают десятки — по умолчанию скрыты, в
+                   счётчике число получателей, попадающих под поиск. -->
+              <label class="panel-toggle" title="Техника на рабочих местах, отделах и объектах — не у конкретного сотрудника">
+                <input type="checkbox" id="assignedShowOthers">
+                <span>Столы и отделы</span>
+                <span class="panel-toggle-count" id="assignedOthersCount"></span>
+              </label>
+            </div>
             <div id="assignedSummary" class="list"></div>
           </section>
         </div>
@@ -281,12 +317,18 @@
                   <span class="form-label">Статус</span>
                   <span class="field">
                     <span class="field-icon"><span id="assetStatusDot" class="status-dot ok"></span></span>
+                    <!-- «Личное» — пункт формы, а не статус в базе: при
+                         сохранении пишется как «Выдано» (см. readAssetStatus).
+                         Раскрытый список рисует attachAssetStatusList — нативный
+                         не умеет показывать цветные точки у пунктов. -->
                     <select name="status" id="assetStatusSelect">
                       <option value="in_stock">На складе</option>
                       <option value="assigned">Выдано</option>
                       <option value="repair">В ремонте</option>
                       <option value="retired">Списано</option>
+                      <option value="personal">Личное</option>
                     </select>
+                    <div class="asset-picker-list status-list hidden" id="assetStatusList" role="listbox"></div>
                   </span>
                 </label>
               </div>
@@ -1213,8 +1255,8 @@
       <div class="label-footer">
         <button type="button" class="secondary" id="previewLabelsBtn"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.3"/></svg> Предпросмотр</button>
         <button type="button" id="printLabelsPrintBtn"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 5V1h8v4M4 11H2V7h12v4h-2" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><rect x="4" y="9" width="8" height="6" rx="0.5" stroke="currentColor" stroke-width="1.3"/></svg> Распечатать</button>
-        <button type="button" id="exportLabelsPdfBtn" style="background:#c0392b;color:#fff;border:none"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="3" y="1" width="10" height="14" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M6 5h4M6 8h4M6 11h2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg> PDF</button>
-        <button type="button" id="exportLabelsJpgBtn" style="background:#7c3aed;color:#fff;border:none"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.3"/><circle cx="5.5" cy="6.5" r="1" fill="currentColor"/><path d="M3 12l3.5-3.5L9 11l2-2 2 2" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg> JPG</button>
+        <button type="button" id="exportLabelsPdfBtn" style="background:var(--danger-fill);color:#fff;border:none"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="3" y="1" width="10" height="14" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M6 5h4M6 8h4M6 11h2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg> PDF</button>
+        <button type="button" id="exportLabelsJpgBtn" style="background:var(--teal-fill);color:#fff;border:none"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.3"/><circle cx="5.5" cy="6.5" r="1" fill="currentColor"/><path d="M3 12l3.5-3.5L9 11l2-2 2 2" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg> JPG</button>
         <button type="button" class="secondary" id="exportLabelsExcelBtn"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M2 6h12M2 10h12M6 2v12M10 2v12" stroke="currentColor" stroke-width="1" opacity="0.5"/></svg> Excel</button>
         <button type="button" class="ghost" id="exportLabelsWordBtn"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="3" y="1" width="10" height="14" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M6 5h4M6 8h4M6 11h2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg> Word</button>
       </div>
@@ -1339,7 +1381,7 @@
 
           <div class="form-row">
             <label class="form-field">
-              <span class="form-label"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4.3 2h1.9l1 3-1.5 1.2a8 8 0 003.8 3.8L10.7 8.5l3 1v1.9a1.3 1.3 0 01-1.4 1.3A10.5 10.5 0 013 4.4 1.3 1.3 0 014.3 2z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg> Телефон</span>
+              <span class="form-label">Телефон</span>
               <input type="tel" name="phone" id="employeePhoneInput" placeholder="+998 90 123 45 67">
             </label>
             <label class="form-field">
@@ -1469,9 +1511,39 @@
     </div>
   </div>
 
+  <!-- Поиск по всему приложению: лупа на панели инструментов или Ctrl+K.
+       Окно как поиск в приложении Claude: строка ввода, вкладки-фильтры,
+       результаты группами, подсказки по клавишам. Вкладки и группы — в app.js. -->
+  <div id="searchOverlay" class="modal-overlay search-overlay hidden">
+    <div class="search-dialog" role="dialog" aria-modal="true" aria-label="Поиск">
+      <div class="search-input-row">
+        <input id="globalSearchInput" type="text" placeholder="Поиск" autocomplete="off" spellcheck="false" aria-label="Поиск">
+        <button type="button" class="search-close" id="globalSearchClose" aria-label="Закрыть" title="Закрыть (Esc)"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M4.5 4.5l9 9M13.5 4.5l-9 9"/></svg></button>
+      </div>
+      <div class="search-tabs" id="globalSearchTabs" role="tablist" aria-label="Раздел поиска">
+        <button type="button" class="search-tab active" role="tab" aria-selected="true" data-kind="all">Все</button>
+        <button type="button" class="search-tab" role="tab" aria-selected="false" data-kind="asset">Техника<span class="search-tab-count"></span></button>
+        <button type="button" class="search-tab" role="tab" aria-selected="false" data-kind="employee">Сотрудники<span class="search-tab-count"></span></button>
+        <button type="button" class="search-tab" role="tab" aria-selected="false" data-kind="workplace">Рабочие места<span class="search-tab-count"></span></button>
+        <button type="button" class="search-tab" role="tab" aria-selected="false" data-kind="department">Отделы<span class="search-tab-count"></span></button>
+        <button type="button" class="search-tab" role="tab" aria-selected="false" data-kind="site">Объекты<span class="search-tab-count"></span></button>
+        <button type="button" class="search-tab" role="tab" aria-selected="false" data-kind="movement">Операции<span class="search-tab-count"></span></button>
+      </div>
+      <div class="search-results" id="globalSearchResults" role="listbox"></div>
+      <div class="search-footer">
+        <span>Закрыть <kbd>Esc</kbd></span>
+        <span>Раздел <kbd>Tab</kbd></span>
+        <span>Открыть <kbd>↵</kbd></span>
+      </div>
+    </div>
+  </div>
+
   <!-- Auth / setup wizard -->
   <div id="authOverlay" class="modal-overlay">
     <div class="operation-modal">
+      <div class="auth-brand">
+        <svg viewBox="0 0 348 120" role="img" aria-label="NEXA — Asset Management"><use href="#nexa-logo" width="348" height="120"/></svg>
+      </div>
       <div class="modal-header">
         <h3 id="authOverlayTitle">Вход</h3>
       </div>
