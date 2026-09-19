@@ -43,6 +43,8 @@ const dom = {
   statsGrid: document.getElementById("statsGrid"),
   recentMovements: document.getElementById("recentMovements"),
   assignedSummary: document.getElementById("assignedSummary"),
+  assignedShowOthers: document.getElementById("assignedShowOthers"),
+  assignedOthersCount: document.getElementById("assignedOthersCount"),
   assetsTableBody: document.getElementById("assetsTableBody"),
   movementsTableBody: document.getElementById("movementsTableBody"),
   inStockReport: document.getElementById("inStockReport"),
@@ -101,6 +103,7 @@ async function apiFetch(path, options = {}) {
   if (response.status === 401) {
     localStorage.removeItem("authToken");
     localStorage.removeItem("userRole");
+    localStorage.removeItem("userName");
     showAuthOverlay("login");
     const error = new Error("Сессия истекла — войдите снова.");
     error.sessionExpired = true;
@@ -167,6 +170,7 @@ function bindAuthEvents() {
     errorEl.classList.add("hidden");
     localStorage.setItem("authToken", data.token);
     localStorage.setItem("userRole", data.role);
+    localStorage.setItem("userName", username);
     hideAuthOverlay();
     document.getElementById("authForm").reset();
     await boot();
@@ -186,6 +190,7 @@ async function handleLogout() {
   }
   localStorage.removeItem("authToken");
   localStorage.removeItem("userRole");
+  localStorage.removeItem("userName");
   showAuthOverlay("login");
 }
 
@@ -194,6 +199,548 @@ function applyRoleVisibility() {
   document.querySelectorAll("[data-requires-role]").forEach((el) => {
     const allowed = el.dataset.requiresRole.split(",");
     el.classList.toggle("hidden", !allowed.includes(role));
+  });
+  // Группа меню пользователя без видимых пунктов (у не-админа это «Сеанс»
+  // без резервных копий, инвентаризаций и настроек) прячется целиком —
+  // иначе от неё остался бы пустой отступ с разделителем.
+  document.querySelectorAll(".user-menu-group").forEach((group) => {
+    group.classList.toggle("hidden", ![...group.children].some((item) => !item.classList.contains("hidden")));
+  });
+  renderUserMenu();
+}
+
+// Имя внизу боковой панели. Сервер при входе отдаёт только роль, а логин
+// запоминается из формы входа (см. bindAuthEvents). У сессии, начатой до
+// этого, имени нет — тогда показывается сама роль (например, «admin»), а
+// логин появится после следующего входа.
+function renderUserMenu() {
+  const name = localStorage.getItem("userName") || "";
+  const title = name || localStorage.getItem("userRole") || "Пользователь";
+  const setText = (id, text) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+  };
+  setText("userAvatar", (title[0] || "?").toUpperCase());
+  setText("userName", title);
+  setText("userMenuHead", name ? `Вы вошли как ${name}` : "Вы вошли в систему");
+}
+
+// Меню «Данные / Сеанс» — одно окно на два входа: строка пользователя внизу
+// боковой панели (меню растёт вверх от неё) и кнопка меню на панели
+// инструментов (растёт вниз). Окно лежит вне боковой панели, чтобы
+// открываться и когда она свёрнута. Закрывается по щелчку вне его, Esc и
+// выбору пункта; стрелки ходят по видимым пунктам.
+let closeUserMenu = () => {};
+
+function bindUserMenu() {
+  const menu = document.getElementById("userMenuPopover");
+  const triggers = ["userMenuTrigger", "appMenuBtn"].map((id) => document.getElementById(id)).filter(Boolean);
+  if (!menu || !triggers.length) return;
+
+  let anchor = null;
+  const isOpen = () => !menu.classList.contains("hidden");
+  const items = () => [...menu.querySelectorAll(".user-menu-item")].filter((el) => !el.closest(".hidden"));
+
+  // Координаты считаются по кнопке, из которой меню открыли.
+  const place = (source) => {
+    const rect = source.getBoundingClientRect();
+    const fromBottom = source.id === "userMenuTrigger";
+    menu.style.left = `${Math.round(rect.left)}px`;
+    menu.style.width = `${fromBottom ? Math.round(rect.width) : 244}px`;
+    if (fromBottom) {
+      menu.style.top = "auto";
+      menu.style.bottom = `${Math.round(window.innerHeight - rect.top + 6)}px`;
+      menu.style.maxHeight = `${Math.max(160, Math.round(rect.top - 18))}px`;
+    } else {
+      menu.style.bottom = "auto";
+      menu.style.top = `${Math.round(rect.bottom + 6)}px`;
+      menu.style.maxHeight = `${Math.max(160, Math.round(window.innerHeight - rect.bottom - 18))}px`;
+    }
+  };
+
+  const setOpen = (open, source = anchor) => {
+    menu.classList.toggle("hidden", !open);
+    if (open) place(source);
+    triggers.forEach((trigger) => trigger.setAttribute("aria-expanded", String(open && trigger === source)));
+    anchor = open ? source : null;
+  };
+  closeUserMenu = () => setOpen(false);
+
+  triggers.forEach((trigger) => trigger.addEventListener("click", (event) => {
+    // Повторный щелчок по той же кнопке закрывает, по другой — переносит меню к ней.
+    const opening = !(isOpen() && anchor === trigger);
+    setOpen(opening, trigger);
+    // Открыли с клавиатуры (у такого клика detail = 0) — сразу на первый пункт.
+    if (opening && event.detail === 0) items()[0]?.focus();
+  }));
+  menu.addEventListener("click", (event) => {
+    if (event.target.closest(".user-menu-item")) setOpen(false);
+  });
+  document.addEventListener("mousedown", (event) => {
+    if (isOpen() && !menu.contains(event.target) && !triggers.some((trigger) => trigger.contains(event.target))) setOpen(false);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && isOpen()) {
+      const source = anchor;
+      setOpen(false);
+      source?.focus();
+    }
+  });
+  window.addEventListener("resize", () => { if (isOpen()) place(anchor); });
+  menu.addEventListener("keydown", (event) => {
+    const list = items();
+    if (!list.length) return;
+    const index = list.indexOf(document.activeElement);
+    let next = null;
+    if (event.key === "ArrowDown") next = (index + 1) % list.length;
+    else if (event.key === "ArrowUp") next = index <= 0 ? list.length - 1 : index - 1;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = list.length - 1;
+    if (next === null) return;
+    event.preventDefault();
+    list[next].focus();
+  });
+
+  // Файловое поле лежит вне меню, чтобы закрытие меню его не задевало.
+  document.getElementById("importDataBtn")?.addEventListener("click", () => dom.importDataInput?.click());
+}
+
+// Кнопка боковой панели на панели инструментов. На широком экране панель
+// сворачивается насовсем (выбор помнится, класс на <html> — чтобы он был
+// на месте до первой отрисовки), на узком — выезжает поверх страницы.
+function bindToolbar() {
+  const toggle = document.getElementById("sidebarToggleBtn");
+  const sidebar = document.getElementById("sidebar");
+  if (!toggle || !sidebar) return;
+  const root = document.documentElement;
+  const narrow = window.matchMedia("(max-width: 1100px)");
+  const shown = () => (narrow.matches ? sidebar.classList.contains("open") : !root.classList.contains("sidebar-hidden"));
+  const sync = () => toggle.setAttribute("aria-expanded", String(shown()));
+
+  toggle.addEventListener("click", () => {
+    if (narrow.matches) {
+      sidebar.classList.toggle("open");
+    } else {
+      root.classList.toggle("sidebar-hidden");
+      localStorage.setItem("warehouse_sidebar_hidden", root.classList.contains("sidebar-hidden") ? "1" : "0");
+    }
+    sync();
+  });
+  // Выбрали раздел на узком экране — выехавшая панель убирается сама.
+  dom.menuLinks.forEach((link) => link.addEventListener("click", () => {
+    sidebar.classList.remove("open");
+    sync();
+  }));
+  // Щелчок мимо выехавшей панели закрывает её (кнопки панели инструментов не в счёт).
+  document.addEventListener("mousedown", (event) => {
+    if (narrow.matches && sidebar.classList.contains("open") && !sidebar.contains(event.target) && !event.target.closest("#appToolbar")) {
+      sidebar.classList.remove("open");
+      sync();
+    }
+  });
+  const onBreakpoint = () => {
+    sidebar.classList.remove("open");
+    sync();
+  };
+  if (narrow.addEventListener) narrow.addEventListener("change", onBreakpoint);
+  else narrow.addListener(onBreakpoint);
+  sync();
+}
+
+// ─── ПОИСК ПО ВСЕМУ ПРИЛОЖЕНИЮ ───────────────────────────────────
+// Окно как поиск в приложении Claude: строка ввода, вкладки-фильтры, группы
+// результатов и подсказки по клавишам. Лупа на панели инструментов и Ctrl+K.
+// Без запроса на вкладке «Все» показывает то, что требует внимания, недавно
+// открытое и быстрые действия; с запросом — найденное по технике,
+// сотрудникам, рабочим местам, отделам, объектам и журналу операций (слова
+// запроса — все и в любом порядке, как у выбора в окнах выдачи).
+const GLOBAL_SEARCH_LIMIT = 5;       // строк на группу во вкладке «Все»
+const GLOBAL_SEARCH_TAB_LIMIT = 40;  // строк во вкладке одного раздела
+const SEARCH_RECENT_KEY = "warehouse_search_recent";
+const SEARCH_RECENT_LIMIT = 6;
+const SEARCH_KINDS = ["asset", "employee", "workplace", "department", "site", "movement"];
+const SEARCH_KIND_LABELS = {
+  asset: "Техника", employee: "Сотрудники", workplace: "Рабочие места",
+  department: "Отделы", site: "Объекты", movement: "Операции",
+};
+
+const searchIcon = (inner) => `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
+const SEARCH_ICONS = {
+  asset: searchIcon('<rect x="2" y="4.2" width="12" height="9" rx="1.6"/><path d="M5.5 4.2V3a1 1 0 011-1h3a1 1 0 011 1v1.2M8 7.4v2.4M6.8 8.6h2.4"/>'),
+  employee: searchIcon('<circle cx="8" cy="5.5" r="2.6"/><path d="M2.8 13.6c0-2.7 2.3-4.5 5.2-4.5s5.2 1.8 5.2 4.5"/>'),
+  workplace: searchIcon('<path d="M2 6.5h12M3.5 6.5V4a1 1 0 011-1h7a1 1 0 011 1v2.5M4.5 6.5v6M11.5 6.5v6"/>'),
+  department: searchIcon('<path d="M3 4h10M3 8h10M3 12h7"/>'),
+  site: searchIcon('<path d="M8 1.5l6 3.5v6l-6 3.5-6-3.5v-6l6-3.5z"/>'),
+  movement: searchIcon('<path d="M2 8h12M10 4l4 4-4 4"/>'),
+  attention: searchIcon('<path d="M8 2.2L14.4 13.4H1.6L8 2.2z"/><path d="M8 6.6v3M8 11.6v.1"/>'),
+  add: searchIcon('<circle cx="8" cy="8" r="6"/><path d="M8 5.2v5.6M5.2 8h5.6"/>'),
+  enter: searchIcon('<path d="M13 3.5v4.2a1.3 1.3 0 01-1.3 1.3H3M5.6 6.2L3 9l2.6 2.8"/>'),
+};
+
+// Значки действий берём у уже нарисованных кнопок (окна операций, этикетки),
+// чтобы не дублировать их рисунки.
+const iconFromDom = (selector, fallback) => document.querySelector(selector)?.outerHTML || fallback;
+
+let globalSearchRows = [];
+let globalSearchActive = -1;
+let globalSearchTab = "all";
+
+function isGlobalSearchOpen() {
+  return !document.getElementById("searchOverlay")?.classList.contains("hidden");
+}
+
+// Слова запроса — все и в любом порядке, с «ё» = «е», как у AssetOps.search*.
+function searchWordsMatch(query, ...fields) {
+  const words = String(query || "").toLowerCase().replace(/ё/g, "е").split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const haystack = fields.filter(Boolean).join(" ").toLowerCase().replace(/ё/g, "е");
+  return words.every((word) => haystack.includes(word));
+}
+
+const sumAllocations = (match) => state.assets.reduce((total, asset) => (
+  total + (asset.allocations || []).reduce((sum, entry) => sum + (match(entry) ? entry.quantity : 0), 0)
+), 0);
+
+// Открыть карточку отдела или объекта: перейти в раздел, показать и подсветить её.
+function revealSearchCard(viewId, listId, id) {
+  activateView(viewId);
+  const card = document.querySelector(`#${listId} .card[data-id="${CSS.escape(id)}"]`);
+  if (!card) return;
+  card.scrollIntoView({ block: "center", behavior: "smooth" });
+  card.classList.add("search-flash");
+  setTimeout(() => card.classList.remove("search-flash"), 1700);
+}
+
+// Строка результата: kind + id нужны для «Недавнего», open — что делает Enter.
+const SEARCH_ROW_BUILDERS = {
+  asset: (asset) => ({
+    kind: "asset", id: asset.id, icon: SEARCH_ICONS.asset, title: asset.name,
+    meta: [asset.inventoryNumber, asset.serialNumber && asset.serialNumber !== "Отсутствует" ? `S/N: ${asset.serialNumber}` : ""].filter(Boolean).join(" · "),
+    badge: statusChip(getAssetStatus(asset)),
+    open: () => enterAssetEditMode(asset.id),
+  }),
+  employee: (employee) => ({
+    kind: "employee", id: employee.id, icon: SEARCH_ICONS.employee, title: employee.fullName,
+    meta: [employee.department, employee.position].filter(Boolean).join(" · "),
+    badge: employee.status === "inactive" ? '<span class="chip muted sm">Уволен</span>' : "",
+    open: () => openEmployeeDetailsModal(employee.id),
+  }),
+  workplace: (workplace) => {
+    const owner = workplace.ownerName ?? (workplace.employeeId ? getEmployeeById(workplace.employeeId)?.fullName : "");
+    return {
+      kind: "workplace", id: workplace.id, icon: SEARCH_ICONS.workplace,
+      title: `${workplace.code ? `${workplace.code} · ` : ""}${workplace.name}`,
+      meta: [workplace.department, owner || "свободно"].filter(Boolean).join(" — "),
+      badge: "",
+      open: () => openWorkplaceDetailsModal(workplace.id),
+    };
+  },
+  department: (department) => ({
+    kind: "department", id: department.id, icon: SEARCH_ICONS.department, title: department.name,
+    meta: `сотрудников: ${getVisibleEmployees(state.employees).filter((e) => e.department === department.name).length} · техники: ${sumAllocations((entry) => entry.department === department.name)} шт.`,
+    badge: "",
+    open: () => revealSearchCard("departments", "departmentsList", department.id),
+  }),
+  site: (site) => ({
+    kind: "site", id: site.id, icon: SEARCH_ICONS.site, title: site.name,
+    meta: `сотрудников: ${getVisibleEmployees(state.employees).filter((e) => e.site === site.name).length} · рабочих мест: ${state.workplaces.filter((w) => w.site === site.name).length} · техники: ${sumAllocations((entry) => entry.site === site.name)} шт.`,
+    badge: "",
+    open: () => revealSearchCard("sites", "sitesList", site.id),
+  }),
+  movement: (movement) => {
+    const asset = getAssetById(movement.assetId);
+    const employee = movement.employeeId ? getEmployeeById(movement.employeeId) : null;
+    return {
+      kind: "movement", id: movement.id, icon: SEARCH_ICONS.movement,
+      title: `${movementLabels[movement.type] || movement.type} · ${asset ? asset.name : "позиция удалена"}`,
+      meta: [employee?.fullName || movement.department || movement.site, movementDateLabel(movement), movement.quantity ? `${movement.quantity} шт.` : ""].filter(Boolean).join(" · "),
+      badge: "",
+      // Отдельной карточки у операции нет — открываем журнал, отфильтрованный по технике.
+      open: () => {
+        activateView("movements");
+        if (dom.movementSearchInput) {
+          dom.movementSearchInput.value = asset?.name || employee?.fullName || "";
+          renderMovementTable();
+        }
+      },
+    };
+  },
+};
+
+function findSearchEntity(kind, id) {
+  switch (kind) {
+    case "asset": return getAssetById(id);
+    case "employee": return getEmployeeById(id);
+    case "workplace": return getWorkplaceById(id);
+    case "department": return state.departments.find((d) => d.id === id);
+    case "site": return state.sites.find((s) => s.id === id);
+    case "movement": return state.movements.find((m) => m.id === id);
+    default: return null;
+  }
+}
+
+// Что найдено в разделе. Пустой запрос — весь раздел в порядке, удобном для
+// просмотра: по названию, а журнал — новые сверху.
+function searchSource(kind, query) {
+  const byName = (getName) => (a, b) => getName(a).localeCompare(getName(b), "ru", { numeric: true });
+  switch (kind) {
+    case "asset":
+      return AssetOps.searchAssets(state.assets, query).sort(byName((a) => a.name));
+    case "employee":
+      return AssetOps.searchEmployees(getVisibleEmployees(state.employees), query).sort(byName((e) => e.fullName));
+    case "workplace":
+      return AssetOps.searchWorkplaces(workplaceItemsWithOwner(), query).sort(byName((w) => w.code || w.name));
+    case "department":
+      return state.departments.filter((d) => searchWordsMatch(query, d.name));
+    case "site":
+      return state.sites.filter((s) => searchWordsMatch(query, s.name));
+    case "movement":
+      return [...state.movements]
+        .sort((a, b) => AssetOps.movementSortValue(b) - AssetOps.movementSortValue(a))
+        .filter((movement) => {
+          if (!query) return true;
+          const asset = getAssetById(movement.assetId);
+          const employee = movement.employeeId ? getEmployeeById(movement.employeeId) : null;
+          return searchWordsMatch(query, movementLabels[movement.type], movement.date, asset?.name, asset?.category,
+            asset?.inventoryNumber, asset?.serialNumber, employee?.fullName, movement.department, movement.site, movement.notes);
+        });
+    default:
+      return [];
+  }
+}
+
+// Быстрые действия — то же, что кнопки «Операции» и меню. Писать в базу
+// разрешено только admin и storekeeper (как data-requires-role у панели операций).
+function searchActions() {
+  const canWrite = ["admin", "storekeeper"].includes(localStorage.getItem("userRole"));
+  const modal = (label, modalId) => ({
+    label, icon: iconFromDom(`[data-modal="${modalId}"] .op-icon svg`, SEARCH_ICONS.add),
+    run: () => openOperationModal(modalId),
+  });
+  const actions = [];
+  if (canWrite) {
+    actions.push({
+      label: "Добавить технику", icon: SEARCH_ICONS.add,
+      run: () => { resetAssetForm(); activateView("inventory"); dom.assetForm.elements.name.focus(); },
+    });
+    actions.push(
+      modal("Выдать технику", "issueModal"),
+      modal("Вернуть на склад", "returnModal"),
+      modal("Отправить в ремонт", "repairModal"),
+      modal("Вернуть из ремонта", "repairReturnModal"),
+      modal("Списать технику", "retireModal"),
+      modal("Сформировать акт", "manualActModal"),
+      { label: "Добавить сотрудника", icon: SEARCH_ICONS.employee, run: () => { activateView("employees"); openAddEmployeeModal(); } },
+    );
+  }
+  actions.push({ label: "Печать этикеток", icon: iconFromDom("#printLabelsBtn svg", SEARCH_ICONS.asset), run: () => openLabelsModal() });
+  return actions;
+}
+
+const actionRows = (query) => searchActions()
+  .filter((action) => searchWordsMatch(query, action.label))
+  .map((action) => ({ icon: action.icon, title: action.label, meta: "", badge: "", open: action.run }));
+
+function readRecentSearch() {
+  try {
+    const list = JSON.parse(localStorage.getItem(SEARCH_RECENT_KEY) || "[]");
+    return Array.isArray(list) ? list : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function rememberSearchResult(row) {
+  if (!row.kind || !row.id) return;
+  const list = [{ kind: row.kind, id: row.id }, ...readRecentSearch().filter((item) => !(item.kind === row.kind && item.id === row.id))];
+  localStorage.setItem(SEARCH_RECENT_KEY, JSON.stringify(list.slice(0, SEARCH_RECENT_LIMIT)));
+}
+
+// В «Недавнее» попадает то, что открывали из поиска; удалённое с тех пор пропускается.
+function recentSearchRows() {
+  return readRecentSearch()
+    .map(({ kind, id }) => {
+      const entity = findSearchEntity(kind, id);
+      return entity && SEARCH_ROW_BUILDERS[kind] ? SEARCH_ROW_BUILDERS[kind](entity) : null;
+    })
+    .filter(Boolean)
+    .slice(0, 4);
+}
+
+// Первый экран без запроса: что требует внимания, недавнее, действия.
+function emptySearchGroups() {
+  const groups = [];
+  const attention = (state.attentionItems || []).slice(0, 3).map((item) => ({
+    kind: "asset", id: item.assetId, icon: SEARCH_ICONS.attention, className: "attention",
+    title: item.assetName,
+    meta: [ATTENTION_LABELS[item.type] || item.type, item.detail].filter(Boolean).join(" · "),
+    badge: "",
+    open: () => enterAssetEditMode(item.assetId),
+  }));
+  if (attention.length) groups.push({ label: "Требует внимания", rows: attention });
+  const recent = recentSearchRows();
+  if (recent.length) groups.push({ label: "Недавнее", rows: recent });
+  groups.push({ label: "Действия", rows: actionRows("") });
+  return { groups, counts: {} };
+}
+
+function collectGlobalSearch(query, tab) {
+  if (!query && tab === "all") return emptySearchGroups();
+  const limit = tab === "all" ? GLOBAL_SEARCH_LIMIT : GLOBAL_SEARCH_TAB_LIMIT;
+  const found = {};
+  const counts = {};
+  SEARCH_KINDS.forEach((kind) => {
+    found[kind] = searchSource(kind, query);
+    counts[kind] = found[kind].length;
+  });
+  const groups = [];
+  (tab === "all" ? SEARCH_KINDS : [tab]).forEach((kind) => {
+    if (!found[kind].length) return;
+    groups.push({
+      label: `${SEARCH_KIND_LABELS[kind]} · ${found[kind].length}`,
+      rows: found[kind].slice(0, limit).map((entity) => SEARCH_ROW_BUILDERS[kind](entity)),
+      more: Math.max(0, found[kind].length - limit),
+    });
+  });
+  if (tab === "all") {
+    const actions = actionRows(query);
+    if (actions.length) groups.push({ label: "Действия", rows: actions });
+  }
+  return { groups, counts };
+}
+
+function setGlobalSearchActive(index, scroll = true) {
+  globalSearchActive = index;
+  document.querySelectorAll("#globalSearchResults .search-row").forEach((row, i) => {
+    row.classList.toggle("active", i === index);
+    if (i === index && scroll) row.scrollIntoView({ block: "nearest" });
+  });
+}
+
+function renderGlobalSearch() {
+  const query = document.getElementById("globalSearchInput").value.trim();
+  const box = document.getElementById("globalSearchResults");
+  const { groups, counts } = collectGlobalSearch(query, globalSearchTab);
+  // Числа у вкладок показываем только при запросе: сколько найдено в каждом разделе.
+  document.querySelectorAll("#globalSearchTabs .search-tab").forEach((tab) => {
+    const count = query ? counts[tab.dataset.kind] : 0;
+    const badge = tab.querySelector(".search-tab-count");
+    if (badge) badge.textContent = count ? String(count) : "";
+  });
+  globalSearchRows = [];
+  if (!groups.length) {
+    box.innerHTML = `<div class="search-empty">${query ? "Ничего не найдено. Попробуйте другой раздел или запрос." : "В этом разделе пока пусто."}</div>`;
+    return;
+  }
+  box.innerHTML = groups.map((group) => {
+    const rows = group.rows.map((row) => {
+      const index = globalSearchRows.push(row) - 1;
+      return `<div class="search-row${row.className ? ` ${row.className}` : ""}" role="option" data-index="${index}">
+        <span class="search-row-icon">${row.icon}</span>
+        <span class="search-row-text">${escapeHtml(row.title)}${row.meta ? `<span class="search-row-meta"> · ${escapeHtml(row.meta)}</span>` : ""}</span>
+        ${row.badge}
+        <span class="search-row-enter">${SEARCH_ICONS.enter}</span>
+      </div>`;
+    }).join("");
+    const more = group.more ? `<div class="search-more">Показаны первые ${GLOBAL_SEARCH_TAB_LIMIT} — уточните запрос</div>` : "";
+    return `<div class="search-group">${escapeHtml(group.label)}</div>${rows}${more}`;
+  }).join("");
+  setGlobalSearchActive(0, false);
+}
+
+function setGlobalSearchTab(kind) {
+  globalSearchTab = kind;
+  document.querySelectorAll("#globalSearchTabs .search-tab").forEach((tab) => {
+    const active = tab.dataset.kind === kind;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-selected", String(active));
+  });
+  renderGlobalSearch();
+  document.getElementById("globalSearchResults").scrollTop = 0;
+}
+
+function openGlobalSearch() {
+  // Не поверх входа в систему и не поверх уже открытого окна.
+  if (document.querySelector(".modal-overlay:not(.hidden):not(#searchOverlay), .confirm-overlay:not(.hidden), .code-ref-overlay:not(.hidden)")) return;
+  closeUserMenu();
+  document.getElementById("searchOverlay").classList.remove("hidden");
+  const input = document.getElementById("globalSearchInput");
+  input.value = "";
+  setGlobalSearchTab("all");
+  input.focus();
+}
+
+function closeGlobalSearch() {
+  document.getElementById("searchOverlay")?.classList.add("hidden");
+}
+
+function openGlobalSearchResult(index) {
+  const row = globalSearchRows[index];
+  if (!row) return;
+  rememberSearchResult(row);
+  closeGlobalSearch();
+  row.open();
+}
+
+function bindGlobalSearch() {
+  const overlay = document.getElementById("searchOverlay");
+  const input = document.getElementById("globalSearchInput");
+  const results = document.getElementById("globalSearchResults");
+  const tabs = document.getElementById("globalSearchTabs");
+  if (!overlay || !input || !results || !tabs) return;
+
+  const toggle = () => (isGlobalSearchOpen() ? closeGlobalSearch() : openGlobalSearch());
+  document.getElementById("searchBtn")?.addEventListener("click", toggle);
+  document.getElementById("globalSearchClose")?.addEventListener("click", closeGlobalSearch);
+  // И по коду клавиши, и по букве: на русской раскладке «K» — это «л», а у
+  // части виртуальных клавиатур и удалённых сессий код не приходит вовсе.
+  document.addEventListener("keydown", (event) => {
+    const isK = event.code === "KeyK" || ["k", "л"].includes(String(event.key).toLowerCase());
+    if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && isK) {
+      event.preventDefault();
+      toggle();
+    }
+  });
+  overlay.addEventListener("mousedown", (event) => {
+    if (event.target === overlay) closeGlobalSearch();
+  });
+  overlay.addEventListener("keydown", (event) => {
+    const count = globalSearchRows.length;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeGlobalSearch();
+    } else if (event.key === "Tab") {
+      // Tab листает разделы, а не уводит фокус из строки ввода.
+      event.preventDefault();
+      const kinds = ["all", ...SEARCH_KINDS];
+      const step = event.shiftKey ? -1 : 1;
+      setGlobalSearchTab(kinds[(kinds.indexOf(globalSearchTab) + step + kinds.length) % kinds.length]);
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!count) return;
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      setGlobalSearchActive((globalSearchActive + step + count) % count);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      openGlobalSearchResult(globalSearchActive);
+    }
+  });
+  input.addEventListener("input", renderGlobalSearch);
+  // mousedown без фокуса на вкладке: строка ввода остаётся активной.
+  tabs.addEventListener("mousedown", (event) => {
+    if (event.target.closest(".search-tab")) event.preventDefault();
+  });
+  tabs.addEventListener("click", (event) => {
+    const tab = event.target.closest(".search-tab");
+    if (tab) setGlobalSearchTab(tab.dataset.kind);
+  });
+  results.addEventListener("mouseover", (event) => {
+    const row = event.target.closest(".search-row");
+    if (row) setGlobalSearchActive(Number(row.dataset.index), false);
+  });
+  results.addEventListener("click", (event) => {
+    const row = event.target.closest(".search-row");
+    if (row) openGlobalSearchResult(Number(row.dataset.index));
   });
 }
 
@@ -841,7 +1388,7 @@ function findDuplicateAsset(name, category, serialNumber, excludeId = "") {
 function getAssetHolderText(asset) {
   if (!asset.allocations.length) return "Склад";
   return asset.allocations
-    .map((entry) => `${allocationLabel(entry)} (${entry.quantity})`)
+    .map((entry) => `${allocationLabel(entry)}${entry.employeeId ? ' <span class="chip pink sm">Лично</span>' : ""} (${entry.quantity})`)
     .join(", ");
 }
 
@@ -858,18 +1405,140 @@ function appendEmptyState(container) {
 
 // Тон статуса: выдано/частично — предупреждение, ремонт/списание —
 // тревога, остальное спокойно. Одно определение на чип в таблице и на
-// точку в форме, чтобы цвета не разъехались.
+// точку в форме, чтобы цвета не разъехались. «personal» (Личное) — пункт
+// формы, а не статус: розовый, как чип «Лично» в таблицах.
 function statusTone(status) {
+  if (status === "personal") return "pink";
   if (status === "assigned" || status === "partial") return "warn";
   if (status === "repair" || status === "retired") return "danger";
   return "ok";
 }
 
+// Точка и набор пунктов следуют за выбранным значением и режимом формы.
+// «Личное» запускает выдачу сотруднику, а у существующей карточки блока
+// выдачи нет — там пункт прячем.
 function syncAssetStatusDot() {
   const dot = document.getElementById("assetStatusDot");
   const select = document.getElementById("assetStatusSelect");
   if (!dot || !select) return;
   dot.className = `status-dot ${statusTone(select.value)}`;
+  const personal = select.querySelector('option[value="personal"]');
+  if (personal) personal.hidden = Boolean(dom.assetForm.elements.assetId.value);
+}
+
+// Сервер знает только VALID_STATUSES, поэтому «Личное» в карточку пишется
+// как «Выдано»; личным закрепление делает блок «Выдать сразу» (сотрудник).
+function readAssetStatus(formData) {
+  const status = String(formData.get("status") || "in_stock");
+  return status === "personal" ? "assigned" : status;
+}
+
+// Выбрали «Личное» — включаем «Выдать сразу» на сотрудника: без этого
+// пункт ничего бы не делал, а карточка сохранилась бы как лежащая на складе.
+function startPersonalIssue() {
+  const toggle = document.getElementById("assetIssueNow");
+  const employeeRadio = document.querySelector('input[name="assetIssueTarget"][value="employee"]');
+  if (!toggle || !employeeRadio || dom.assetForm.elements.assetId.value) return;
+  toggle.checked = true;
+  employeeRadio.checked = true;
+  syncAssetIssueFields();
+}
+
+function handleAssetStatusChange(event) {
+  syncAssetStatusDot();
+  if (event.target.value === "personal") startPersonalIssue();
+}
+
+/**
+ * Раскрытый список статуса с цветными точками у каждого пункта. Нативный
+ * <select> рисует свой список средствами ОС и точки в нём не показать, так
+ * что щелчок по полю перехватывается и открывается наш список; сам select
+ * остаётся полем формы — name, .value, change и form.reset() работают как
+ * раньше. Без мыши (стрелки на закрытом поле) и на тач-экранах остаётся
+ * обычное нативное поведение.
+ */
+function attachAssetStatusList() {
+  const select = document.getElementById("assetStatusSelect");
+  const list = document.getElementById("assetStatusList");
+  if (!select || !list) return;
+
+  let active = -1;
+  const isOpen = () => !list.classList.contains("hidden");
+  const choices = () => [...select.options].filter((option) => !option.hidden);
+
+  const highlight = (index) => {
+    active = index;
+    list.querySelectorAll(".status-option").forEach((node, i) => node.classList.toggle("active", i === active));
+  };
+
+  const open = () => {
+    const items = choices();
+    list.innerHTML = items.map((option) => `
+      <div class="status-option" role="option" data-value="${escapeHtml(option.value)}" aria-selected="${option.value === select.value}">
+        <span class="status-option-dot"><span class="status-dot ${statusTone(option.value)}"></span></span>
+        <span class="status-option-label">${escapeHtml(option.textContent)}</span>
+      </div>`).join("");
+    list.classList.remove("hidden");
+    highlight(Math.max(0, items.findIndex((option) => option.value === select.value)));
+  };
+
+  const close = () => { list.classList.add("hidden"); active = -1; };
+
+  const choose = (value) => {
+    close();
+    if (select.value === value) return;
+    select.value = value;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+
+  select.addEventListener("mousedown", (event) => {
+    if (event.button !== 0) return;
+    // Без preventDefault поверх нашего списка раскрылся бы нативный;
+    // фокус при этом сам не переходит — ставим вручную.
+    event.preventDefault();
+    select.focus();
+    if (isOpen()) close(); else open();
+  });
+
+  select.addEventListener("keydown", (event) => {
+    const opener = event.key === "Enter" || event.key === " " || event.key === "F4"
+      || (event.altKey && event.key === "ArrowDown");
+    if (!isOpen()) {
+      // Стрелки на закрытом поле меняют значение нативно — не трогаем.
+      if (opener) { event.preventDefault(); open(); }
+      return;
+    }
+    const count = choices().length;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      highlight(event.key === "ArrowDown" ? (active + 1) % count : (active <= 0 ? count - 1 : active - 1));
+    } else if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      const chosen = choices()[active];
+      if (chosen) choose(chosen.value); else close();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+    } else if (event.key === "Tab") {
+      close();
+    }
+  });
+
+  list.addEventListener("mousedown", (event) => {
+    // mousedown, а не click, и без потери фокуса — как у остальных
+    // списков выбора: blur успел бы закрыть список раньше клика.
+    event.preventDefault();
+    const option = event.target.closest(".status-option");
+    if (option) choose(option.dataset.value);
+  });
+
+  list.addEventListener("mouseover", (event) => {
+    const option = event.target.closest(".status-option");
+    if (option) highlight([...list.children].indexOf(option));
+  });
+
+  select.addEventListener("blur", () => setTimeout(close, 0));
 }
 
 function statusChip(status) {
@@ -1288,22 +1957,64 @@ function renderRecentMovements() {
   }).join("");
 }
 
+// Кому числится позиция: сотруднику, рабочему месту, объекту или отделу.
+// Группировка раньше шла только по employeeId, а у техники на столе, отделе
+// и объекте он пуст — вся она слипалась в одну карточку «Неизвестный
+// сотрудник» (у одной установки это 155 позиций). Порядок проверок тот же,
+// что в allocationLabel; order ставит людей выше столов и отделов.
+function allocationGroup(entry) {
+  if (entry.employeeId) return { key: `employee:${entry.employeeId}`, order: 0 };
+  if (entry.workplaceId) return { key: `workplace:${entry.workplaceId}`, order: 1 };
+  if (entry.site) return { key: `site:${entry.site}`, order: 3 };
+  if (entry.department) return { key: `department:${entry.department}`, order: 2 };
+  return { key: "unknown", order: 4 };
+}
+
+function allocationGroupSubtitle(entry) {
+  if (entry.employeeId) {
+    const employee = getEmployeeById(entry.employeeId);
+    if (!employee) return "Карточка сотрудника не найдена";
+    return [employee.department, employee.position].filter(Boolean).join(" · ");
+  }
+  if (entry.workplaceId) {
+    const workplace = getWorkplaceById(entry.workplaceId);
+    return ["Рабочее место", workplace?.department, workplace?.site].filter(Boolean).join(" · ");
+  }
+  if (entry.site) return "Выдано на объект";
+  if (entry.department) return "Выдано отделу";
+  return "Получатель не указан";
+}
+
 function renderAssignedSummary() {
   const query = normalizeSearchValue(dom.dashboardSearchInput?.value);
-  const summary = [];
+  const groups = new Map();
   state.assets.forEach((asset) => {
     asset.allocations.forEach((entry) => {
-      let record = summary.find((item) => item.employeeId === entry.employeeId);
-      if (!record) {
-        record = { employeeId: entry.employeeId, employee: getEmployeeById(entry.employeeId), items: [] };
-        summary.push(record);
+      const { key, order } = allocationGroup(entry);
+      let group = groups.get(key);
+      if (!group) {
+        group = { order, title: allocationLabel(entry), subtitle: allocationGroupSubtitle(entry), items: [] };
+        groups.set(key, group);
       }
-      record.items.push(`${asset.name} (${entry.quantity}) · Инв.№: ${asset.inventoryNumber || "Отсутствует"} · S/N: ${asset.serialNumber || "Отсутствует"}`);
+      group.items.push(`${asset.name} (${entry.quantity}) · Инв.№: ${asset.inventoryNumber || "Отсутствует"} · S/N: ${asset.serialNumber || "Отсутствует"}`);
     });
   });
-  const filtered = summary.filter((record) => matchesSearch(query, record.employee?.fullName, record.employee?.department, record.employee?.position, record.items.join(", ")));
-  if (!filtered.length) return appendEmptyState(dom.assignedSummary);
-  dom.assignedSummary.innerHTML = filtered.map((record) => `<article class="list-item"><div class="title-line"><strong>${record.employee ? record.employee.fullName : "Неизвестный сотрудник"}</strong><span class="chip warn">${record.items.length} поз.</span></div><p class="muted">${record.employee ? `${record.employee.department}${record.employee.position ? ` · ${record.employee.position}` : ""}` : "Карточка сотрудника не найдена"}</p><p>${record.items.join(", ")}</p></article>`).join("");
+  const matched = [...groups.values()]
+    .filter((group) => matchesSearch(query, group.title, group.subtitle, group.items.join(", ")))
+    .sort((a, b) => a.order - b.order || a.title.localeCompare(b.title, "ru", { numeric: true }));
+  // Столы, отделы и объекты — за переключателем: их бывают десятки, и они
+  // заслоняют людей. Счётчик считает совпавших с поиском, чтобы поиск по
+  // столу не выглядел как «ничего нет», пока переключатель выключен.
+  const people = matched.filter((group) => group.order === 0);
+  const othersCount = matched.length - people.length;
+  if (dom.assignedOthersCount) dom.assignedOthersCount.textContent = othersCount ? String(othersCount) : "";
+  const filtered = dom.assignedShowOthers?.checked ? matched : people;
+  if (!filtered.length) {
+    if (!othersCount) return appendEmptyState(dom.assignedSummary);
+    dom.assignedSummary.innerHTML = '<p class="muted">Среди сотрудников ничего нет — есть на столах, отделах и объектах. Включите «Столы и отделы».</p>';
+    return;
+  }
+  dom.assignedSummary.innerHTML = filtered.map((group) => `<article class="list-item"><div class="title-line"><strong>${escapeHtml(group.title)}</strong><span class="chip warn">${group.items.length} поз.</span></div><p class="muted">${escapeHtml(group.subtitle)}</p><p>${group.items.map(escapeHtml).join(", ")}</p></article>`).join("");
 }
 
 // Общие фильтрация и сортировка для вкладок «Склад» и «Реестр».
@@ -1887,10 +2598,11 @@ function exportMovementsCsv(dateFrom, dateTo) {
 }
 
 // ─── СОТРУДНИКИ ─────────────────────────────────────────────────
+// Приглушённые тона палитры: на всех белые инициалы держат контраст 4:1 и выше.
 const AVATAR_COLORS = [
-  "#2563eb", "#16a34a", "#9333ea", "#ea580c", "#0d9488",
-  "#dc2626", "#0284c7", "#d97706", "#db2777", "#4f46e5",
-  "#059669", "#7c3aed"
+  "#8a2d47", "#4f7fae", "#667a4a", "#a94f74", "#8f6b4a",
+  "#6f68b0", "#3f8a83", "#a87f1f", "#b04f4f", "#566da0",
+  "#6e8a5c", "#8a52a0"
 ];
 
 const EYE_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>`;
@@ -2644,7 +3356,7 @@ function renderDepartments() {
       <div class="card-body">
         <p class="card-field"><span class="field-label">Сотрудников:</span> <span class="field-value">${employeeCount}</span></p>
         ${employeesInDept.length ? `<p class="card-field"><span class="field-label">ФИО:</span> <span class="field-value">${employeesInDept.map(e => escapeHtml(e.fullName)).join(", ")}</span></p>` : ""}
-        <p class="card-field"><span class="field-label">Техники:</span> <span class="field-value">${assetCount} шт.</span></p>
+        <p class="card-field"><span class="field-label">Техника отдела:</span> <span class="field-value">${assetCount} шт.</span></p>
         ${deptAssets.length ? `<p class="card-field"><span class="field-label">Оборудование:</span> <span class="field-value">${deptAssets.map(a => `${escapeHtml(a.name)} (${a.quantity})`).join(", ")}</span></p>` : ""}
       </div>
     </article>`;
@@ -3056,7 +3768,7 @@ function renderHoldingsListDetailed(entries, recipient) {
     // остаётся на месте при смене сотрудника, личная уезжает с ним.
     const scopeChip = scope === "workplace"
       ? `<span class="chip">На месте</span>`
-      : `<span class="chip ok">Лично</span>`;
+      : `<span class="chip pink">Лично</span>`;
     // Снимать надо с того, за кем позиция числится на самом деле: в
     // общем списке сотрудника есть и столовая техника, и «с сотрудника»
     // её не снять — она закреплена за местом.
@@ -3173,7 +3885,7 @@ function sortWorkplaceRows(rows, sortBy, assetsIndex) {
       equipmentCount: items.reduce((sum, e) => sum + e.allocation.quantity, 0),
     };
   });
-  const byName = (a, b) => a.localeCompare(b, "ru");
+  const byName = (a, b) => a.localeCompare(b, "ru", { numeric: true });
   switch (sortBy) {
     case "employee":
       withMeta.sort((a, b) => byName(a.owner?.fullName || "￿", b.owner?.fullName || "￿"));
@@ -4435,6 +5147,13 @@ async function handleWarrantyDismiss() {
 
 
 // ─── CHARTS ──────────────────────────────────────────────────────
+// Цвета графиков берутся из тех же CSS-переменных, что и интерфейс, —
+// палитра меняется в одном месте (styles.css). Для полупрозрачных вариантов
+// у цвета есть пара --*-rgb: `rgba(${cssVar("--brand-rgb")}, 0.5)`.
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
 let chartMovementsInstance = null;
 let chartCategoriesInstance = null;
 
@@ -4475,17 +5194,17 @@ function renderMovementsChart() {
     data: {
       labels,
       datasets: [
-        { label: "Выдачи", data: issueData, backgroundColor: "rgba(59,130,246,0.7)", borderRadius: 3 },
-        { label: "Возвраты", data: returnData, backgroundColor: "rgba(34,197,94,0.7)", borderRadius: 3 },
+        { label: "Выдачи", data: issueData, backgroundColor: `rgba(${cssVar("--brand-rgb")}, 0.85)`, borderRadius: 3 },
+        { label: "Возвраты", data: returnData, backgroundColor: `rgba(${cssVar("--ok-rgb")}, 0.8)`, borderRadius: 3 },
       ],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: "#8aa0bc", font: { size: 11 } } } },
+      plugins: { legend: { labels: { color: cssVar("--text-2"), font: { size: 11 } } } },
       scales: {
-        x: { ticks: { color: "#4e6480", font: { size: 10 } }, grid: { color: "rgba(99,136,196,0.08)" } },
-        y: { beginAtZero: true, ticks: { color: "#4e6480", stepSize: 1 }, grid: { color: "rgba(99,136,196,0.08)" } },
+        x: { ticks: { color: cssVar("--text-3"), font: { size: 10 } }, grid: { color: cssVar("--line") } },
+        y: { beginAtZero: true, ticks: { color: cssVar("--text-3"), stepSize: 1 }, grid: { color: cssVar("--line") } },
       },
     },
   });
@@ -4514,10 +5233,7 @@ function renderCategoriesChart() {
 
   const labels = pageItems.map((e) => e[0]);
   const data = pageItems.map((e) => e[1]);
-  const palette = [
-    "rgba(59,130,246,0.8)", "rgba(20,184,166,0.8)", "rgba(245,158,11,0.8)",
-    "rgba(244,63,94,0.8)", "rgba(139,92,246,0.8)", "rgba(34,197,94,0.8)",
-  ];
+  const palette = [1, 2, 3, 4, 5, 6].map((n) => cssVar(`--chart-${n}`));
 
   if (chartCategoriesInstance) chartCategoriesInstance.destroy();
   chartCategoriesInstance = new Chart(ctx, {
@@ -4530,7 +5246,7 @@ function renderCategoriesChart() {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { position: "right", labels: { color: "#8aa0bc", font: { size: 11 }, padding: 8, boxWidth: 12 } },
+        legend: { position: "right", labels: { color: cssVar("--text-2"), font: { size: 11 }, padding: 8, boxWidth: 12 } },
       },
     },
   });
@@ -4558,6 +5274,7 @@ function duplicateAsset(assetId) {
   form.elements.purchaseDate.value = today();
   form.elements.quantity.value = asset.quantity;
   form.elements.status.value = "in_stock";
+  syncAssetStatusDot();
   form.elements.notes.value = "";
   if (form.elements.minQuantity) form.elements.minQuantity.value = asset.minQuantity || 0;
   if (form.elements.warrantyEnd) form.elements.warrantyEnd.value = "";
@@ -4770,7 +5487,7 @@ function renderAssetHolderPanel(asset) {
         ];
         if (AssetOps.activeQuantity(item) > 1) fields.push(["Количество", `${AssetOps.activeQuantity(item)} шт.`]);
         return `<dl class="holder-grid">${fields.map(([label, value]) =>
-          `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`).join("")}</dl>`;
+          `<dt>${escapeHtml(label)}</dt><dd>${label === "Закреплено" && value === "Лично" ? '<span class="chip pink sm">Лично</span>' : escapeHtml(value)}</dd>`).join("")}</dl>`;
       }).join("")
     : `<p class="muted">Текущего владельца нет — техника на складе.</p>`;
   const historyHtml = events.length
@@ -4994,7 +5711,7 @@ async function handleAssetSubmit(event) {
     asset.inventoryNumber = String(formData.get("inventoryNumber") || "").trim();
     asset.serialNumber = serialNumber;
     asset.purchaseDate = formData.get("purchaseDate") || "";
-    asset.status = formData.get("status") || "in_stock";
+    asset.status = readAssetStatus(formData);
     asset.notes = String(formData.get("notes") || "").trim();
     asset.quantity = Math.max(getAllocatedQuantity(asset), quantity);
     asset.minQuantity = Math.max(0, Number(formData.get("minQuantity") || 0));
@@ -5020,7 +5737,7 @@ async function handleAssetSubmit(event) {
       inventoryNumber: String(formData.get("inventoryNumber") || "").trim(),
       serialNumber,
       purchaseDate: formData.get("purchaseDate") || "",
-      status: formData.get("status") || "in_stock",
+      status: readAssetStatus(formData),
       notes: String(formData.get("notes") || "").trim(),
       quantity,
       minQuantity: Math.max(0, Number(formData.get("minQuantity") || 0)),
@@ -5974,7 +6691,8 @@ function bindEvents() {
   // ещё одному полю можно было одной строкой в разметке.
   document.querySelectorAll("[data-unknown-toggle]").forEach(bindUnknownDateToggle);
 
-  document.getElementById("assetStatusSelect")?.addEventListener("change", syncAssetStatusDot);
+  document.getElementById("assetStatusSelect")?.addEventListener("change", handleAssetStatusChange);
+  attachAssetStatusList();
   document.getElementById("assetIssueNow")?.addEventListener("change", syncAssetIssueFields);
   document.querySelectorAll('input[name="assetIssueTarget"]').forEach((radio) => {
     radio.addEventListener("change", syncAssetIssueFields);
@@ -6293,6 +7011,15 @@ function bindEvents() {
     renderRecentMovements();
     renderAssignedSummary();
   }));
+  if (dom.assignedShowOthers) {
+    // Браузер сам восстанавливает флажок при обновлении страницы — берём
+    // значение из хранилища, чтобы оно не зависело от этого.
+    dom.assignedShowOthers.checked = localStorage.getItem("warehouse_assigned_show_others") === "1";
+    dom.assignedShowOthers.addEventListener("change", () => {
+      localStorage.setItem("warehouse_assigned_show_others", dom.assignedShowOthers.checked ? "1" : "0");
+      renderAssignedSummary();
+    });
+  }
   dom.assetSearchInput.addEventListener("input", debounce(() => { assetCurrentPage = 1; renderAssetsTable(); }));
   dom.movementSearchInput?.addEventListener("input", debounce(renderMovementTable));
   dom.reportSearchInput?.addEventListener("input", debounce(renderReports));
@@ -6333,9 +7060,6 @@ function bindEvents() {
   document.getElementById('assetFilterCategory')?.addEventListener('change', () => { assetCurrentPage = 1; renderAssetsTable(); });
   document.getElementById('assetSortField')?.addEventListener('change', renderAssetsTable);
   document.getElementById('assetSortDir')?.addEventListener('change', renderAssetsTable);
-
-  // Theme toggle
-  document.getElementById("themeToggleBtn")?.addEventListener("click", toggleTheme);
 
   // Продление гарантии (панель «Требует внимания»)
   document.getElementById("warrantyExtendForm")?.addEventListener("submit", handleWarrantyExtendSubmit);
@@ -6507,13 +7231,9 @@ function bindEvents() {
     });
   });
 
-  // Burger menu for mobile
-  const burgerBtn = document.getElementById('burgerBtn');
-  const sidebar = document.getElementById('sidebar');
-  if (burgerBtn && sidebar) {
-    burgerBtn.addEventListener('click', () => sidebar.classList.toggle('open'));
-    dom.menuLinks.forEach((link) => link.addEventListener('click', () => sidebar.classList.remove('open')));
-  }
+  bindUserMenu();
+  bindToolbar();
+  bindGlobalSearch();
 
   // Kit templates
   document.getElementById("addKitItemBtn")?.addEventListener("click", addKitItemRow);
@@ -7864,30 +8584,8 @@ function exportLabelsWord() {
 }
 
 
-// ─── ТЕМА ОФОРМЛЕНИЯ (СВЕТЛАЯ / ТЁМНАЯ) ───────────────────────────
-function initTheme() {
-  const saved = localStorage.getItem("warehouse_theme") || "light";
-  setTheme(saved);
-}
-
-function setTheme(theme) {
-  document.documentElement.setAttribute("data-theme", theme);
-  localStorage.setItem("warehouse_theme", theme);
-  const icon = document.getElementById("themeToggleIcon");
-  const text = document.getElementById("themeToggleText");
-  if (icon) icon.textContent = theme === "dark" ? "🌙" : "☀️";
-  if (text) text.textContent = theme === "dark" ? "Тёмная" : "Светлая";
-}
-
-function toggleTheme() {
-  const current = document.documentElement.getAttribute("data-theme") || "light";
-  const next = current === "dark" ? "light" : "dark";
-  setTheme(next);
-}
-
 // ─── ИНИЦИАЛИЗАЦИЯ ────────────────────────────────────────────────
 async function init() {
-  initTheme();
   bindEvents();
   bindAuthEvents();
   const ready = await ensureAuthenticated();
