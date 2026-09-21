@@ -6979,6 +6979,8 @@ function bindEvents() {
   // Поиск сотрудника сужает список, а найденный сотрудник сразу
   // становится фильтром таблицы — видна только его техника.
   const refreshLabelEmployee = () => { populateLabelEmployeeSelect(); renderLabelGrid(); };
+  document.getElementById("labelDepartmentSelect")?.addEventListener("change", refreshLabelEmployee);
+  document.getElementById("labelTargetKindSelect")?.addEventListener("change", refreshLabelEmployee);
   document.getElementById("labelEmployeeSearch")?.addEventListener("input", debounce(refreshLabelEmployee, 150));
   document.getElementById("labelEmployeeSearch")?.addEventListener("keydown", (event) => {
     if (event.key !== "Enter") return;
@@ -7274,8 +7276,13 @@ function openLabelsModal(options = {}) {
   if (labelEmployeeSearch) labelEmployeeSearch.value = "";
   const labelEmployeeSelect = document.getElementById("labelEmployeeSelect");
   if (labelEmployeeSelect) labelEmployeeSelect.value = "";
+  const labelDepartmentSelect = document.getElementById("labelDepartmentSelect");
+  if (labelDepartmentSelect) labelDepartmentSelect.value = "";
+  const labelTargetKindSelect = document.getElementById("labelTargetKindSelect");
+  if (labelTargetKindSelect) labelTargetKindSelect.value = "";
   const labelOnlySelected = document.getElementById("labelOnlySelectedCheck");
   if (labelOnlySelected) labelOnlySelected.checked = false;
+  populateLabelDepartmentSelect();
   populateLabelEmployeeSelect();
   renderLabelGrid();
   updateLabelSizeHint();
@@ -7552,26 +7559,47 @@ function populateLabelFilterDropdowns() {
   }
 }
 
+// Отдел рядом с "Все отделы" — та же логика популяции select, что и у
+// других отдельских фильтров в приложении (state.departments уже
+// отсортирован сервером).
+function populateLabelDepartmentSelect() {
+  const select = document.getElementById("labelDepartmentSelect");
+  if (!select) return;
+  const current = select.value;
+  select.innerHTML = `<option value="">Все отделы</option>`
+    + state.departments.map((dept) => `<option value="${escapeHtml(dept.name)}">${escapeHtml(dept.name)}</option>`).join("");
+  select.value = [...select.options].some((o) => o.value === current) ? current : "";
+}
+
 function populateLabelEmployeeSelect() {
   const select = document.getElementById("labelEmployeeSelect");
   if (!select) return;
   const current = select.value;
+  const department = document.getElementById("labelDepartmentSelect")?.value || "";
+  const kind = document.getElementById("labelTargetKindSelect")?.value || "";
   // Все сотрудники, а не только активные — как в окне возврата
   // (returnEmployeeSelect): уволенный может всё ещё числить на себе
   // технику, которую нужно промаркировать при передаче.
-  const allEmployees = getVisibleEmployees(state.employees).sort((a, b) => a.fullName.localeCompare(b.fullName, "ru"));
+  const allEmployees = getVisibleEmployees(state.employees)
+    .filter((employee) => !department || employee.department === department)
+    .sort((a, b) => a.fullName.localeCompare(b.fullName, "ru"));
   // Стол ищется и по тому, кто за ним сидит: «стол Бельтиковой».
   const allWorkplaces = [...state.workplaces]
+    .filter((workplace) => !department || workplace.department === department)
     .map((workplace) => ({
       ...workplace,
       ownerName: workplace.employeeId ? (getEmployeeById(workplace.employeeId)?.fullName || "") : "",
     }))
     .sort((a, b) => a.name.localeCompare(b.name, "ru"));
   const query = document.getElementById("labelEmployeeSearch")?.value || "";
-  const employees = AssetOps.searchEmployees(allEmployees, query);
-  const workplaces = AssetOps.searchWorkplaces(allWorkplaces, query);
+  // «Только столы»/«Только сотрудники» сужают список до одного вида —
+  // отдельный способ найти стол среди сотен сотрудников, не полагаясь на
+  // точный текст поиска.
+  const employees = kind === "wp" ? [] : AssetOps.searchEmployees(allEmployees, query);
+  const workplaces = kind === "emp" ? [] : AssetOps.searchWorkplaces(allWorkplaces, query);
   const found = employees.length + workplaces.length;
-  const placeholder = !query.trim() ? "— сотрудник или стол —"
+  const targetLabel = kind === "emp" ? "сотрудника" : kind === "wp" ? "стол" : "сотрудника или стол";
+  const placeholder = !query.trim() ? `— выберите ${targetLabel} —`
     : found ? `— найдено: ${found} —` : "— ничего не найдено —";
   // Отдел рядом с ФИО различает однофамильцев, код и хозяин — столы.
   const employeeOptions = employees.map((employee) =>

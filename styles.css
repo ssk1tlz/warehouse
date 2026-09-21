@@ -2750,6 +2750,33 @@ button.users-qr-btn:hover { background: var(--brand-dim); color: var(--brand-lig
   padding: 2px;
 }
 
+/* Окно печати этикеток: раньше скроллился весь .operation-modal целиком —
+   шапка и футер уезжали вместе с содержимым, а sticky-футер (ниже)
+   оставался прижат к низу вьюпорта отдельно от них, из-за чего окно
+   выглядело «разрезанным» на две части. Здесь скроллится только сетка —
+   шапка, фильтры и футер остаются на месте. */
+#labelsOverlay .operation-modal {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#labelsOverlay .modal-header,
+#labelsOverlay .label-controls,
+#labelsOverlay .label-select-actions,
+#labelsOverlay .label-footer {
+  flex-shrink: 0;
+}
+#labelsOverlay .label-grid {
+  flex: 1;
+  /* 0, не auto: иначе flex-элемент не сжимается меньше своего контента
+     (содержимого сетки), и модалка снова растёт вместо внутреннего скролла. */
+  min-height: 0;
+  max-height: none;
+}
+#labelsOverlay .label-footer {
+  position: static;
+}
+
 .label-item {
   display: flex;
   align-items: center;
