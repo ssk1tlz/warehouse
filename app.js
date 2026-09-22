@@ -6991,7 +6991,6 @@ function bindEvents() {
     }
   });
   document.getElementById("labelEmployeeSelect")?.addEventListener("change", renderLabelGrid);
-  document.getElementById("labelWorkplaceStickerCheck")?.addEventListener("change", renderLabelGrid);
   document.getElementById("labelOnlySelectedCheck")?.addEventListener("change", renderLabelGrid);
   // «Очистить выбор» сбрасывает всё отмеченное — в отличие от «Снять
   // показанные», которое трогает только то, что сейчас на экране.
@@ -7639,13 +7638,13 @@ function renderLabelGrid() {
   const grid = document.getElementById("labelGrid");
   if (!grid) return;
   const target = getLabelTarget();
-  document.getElementById("labelWorkplaceStickerWrap")?.classList.toggle("hidden", target?.kind !== "wp");
-  if (target?.kind === "wp" && document.getElementById("labelWorkplaceStickerCheck")?.checked) {
-    renderWorkplaceLabelCard(target.id);
-    return;
-  }
+  // Выбран стол — карточка самого стола (стикер с QR WHW1:) идёт первой
+  // строкой, а его техника — следом, в той же сетке: оба можно отметить
+  // одновременно и распечатать одной пачкой (не или/или, как раньше).
+  const workplaceCardHtml = target?.kind === "wp" ? buildWorkplaceCardItemHtml(target.id) : "";
 
   const assets = getLabelAssets();
+  let itemsHtml;
   if (!assets.length) {
     // Пустая таблица — не всегда «нет техники»: чаще просто ничего не
     // подошло под фильтр. Говорим, какой именно случай.
@@ -7655,16 +7654,13 @@ function renderLabelGrid() {
         ? (target.kind === "emp" ? "За этим сотрудником не числится техника." : "На этом рабочем месте техники нет.")
       : state.assets.length ? "Ничего не найдено — измените поиск или фильтры."
       : "Техники пока нет.";
-    grid.innerHTML = `<div class="empty-state">${escapeHtml(message)}</div>`;
-    updateLabelCount();
-    return;
-  }
-
-  grid.innerHTML = assets.map(asset => {
-    const key = labelAssetKey(asset.id);
-    const isSelected = labelSelection.has(key);
-    const qty = labelSelection.get(key) || "1";
-    return `<div class="label-item${isSelected ? " selected" : ""}" data-id="${key}">
+    itemsHtml = `<div class="empty-state">${escapeHtml(message)}</div>`;
+  } else {
+    itemsHtml = assets.map(asset => {
+      const key = labelAssetKey(asset.id);
+      const isSelected = labelSelection.has(key);
+      const qty = labelSelection.get(key) || "1";
+      return `<div class="label-item${isSelected ? " selected" : ""}" data-id="${key}">
       <input type="checkbox" ${isSelected ? "checked" : ""} data-asset-id="${asset.id}">
       <div class="label-item-info">
         <div class="label-item-name">${escapeHtml(asset.name)}</div>
@@ -7672,8 +7668,13 @@ function renderLabelGrid() {
       </div>
       <input type="number" class="label-qty-input" value="${qty}" min="1" max="99" data-qty-asset="${asset.id}" title="Кол-во этикеток">
     </div>`;
-  }).join("");
+    }).join("");
+  }
 
+  grid.innerHTML = workplaceCardHtml + itemsHtml;
+
+  // Общая проводка для обеих строк: и карточки стола, и техники — обе
+  // используют один и тот же составной ключ (data-id) в labelSelection.
   grid.querySelectorAll(".label-item").forEach(item => {
     const key = item.dataset.id;
     // Клик по всему элементу (кроме input полей)
@@ -7712,50 +7713,24 @@ function renderLabelGrid() {
 // Режим «Один общий стикер на стол»: вместо построчного списка техники —
 // одна карточка на сам стол. Счётчик техники — только подпись в
 // интерфейсе (getWorkplaceAssets), на сам стикер список не идёт — в этом
-// весь смысл QR (см. дизайн-спеку).
-function renderWorkplaceLabelCard(workplaceId) {
-  const grid = document.getElementById("labelGrid");
+// весь смысл QR (см. дизайн-спеку). Строится как обычная строка
+// label-item — проводку (клики, чекбокс, кол-во) вешает общий цикл в
+// renderLabelGrid, как и для строк техники.
+function buildWorkplaceCardItemHtml(workplaceId) {
   const workplace = getWorkplaceById(workplaceId);
-  if (!workplace) {
-    grid.innerHTML = `<div class="empty-state">Рабочее место не найдено.</div>`;
-    updateLabelCount();
-    return;
-  }
+  if (!workplace) return "";
   const key = labelWorkplaceKey(workplaceId);
   const isSelected = labelSelection.has(key);
   const qty = labelSelection.get(key) || "1";
   const assetCount = getWorkplaceAssets(workplaceId).length;
-  grid.innerHTML = `<div class="label-item${isSelected ? " selected" : ""}" data-id="${key}">
+  return `<div class="label-item${isSelected ? " selected" : ""}" data-id="${key}">
       <input type="checkbox" ${isSelected ? "checked" : ""}>
       <div class="label-item-info">
         <div class="label-item-name">${escapeHtml(workplace.name)}</div>
-        <div class="label-item-meta">${escapeHtml(workplace.code || "")} · Техники: ${assetCount}</div>
+        <div class="label-item-meta">${escapeHtml(workplace.code || "")} · Стикер стола · Техники: ${assetCount}</div>
       </div>
       <input type="number" class="label-qty-input" value="${qty}" min="1" max="99" title="Кол-во стикеров">
     </div>`;
-
-  const item = grid.querySelector(".label-item");
-  const toggle = () => {
-    const cb = item.querySelector("input[type=checkbox]");
-    item.classList.toggle("selected", cb.checked);
-    if (cb.checked) labelSelection.set(key, item.querySelector(".label-qty-input").value);
-    else labelSelection.delete(key);
-    updateLabelCount();
-  };
-  item.addEventListener("click", (e) => {
-    if (e.target.tagName === "INPUT") return;
-    const cb = item.querySelector("input[type=checkbox]");
-    cb.checked = !cb.checked;
-    toggle();
-  });
-  item.querySelector("input[type=checkbox]").addEventListener("change", (e) => { e.stopPropagation(); toggle(); });
-  const qtyInput = item.querySelector(".label-qty-input");
-  qtyInput.addEventListener("click", e => e.stopPropagation());
-  qtyInput.addEventListener("focus", e => e.stopPropagation());
-  qtyInput.addEventListener("input", () => {
-    if (labelSelection.has(key)) labelSelection.set(key, qtyInput.value);
-  });
-  updateLabelCount();
 }
 
 // Сужено ли то, что сейчас показано в таблице.
