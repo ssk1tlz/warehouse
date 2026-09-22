@@ -2764,6 +2764,12 @@ button.users-qr-btn:hover { background: var(--brand-dim); color: var(--brand-lig
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* Шире и, главное, ВЫШЕ обычного operation-modal.wide — без явной
+     height модалка сжималась бы по контенту (max-height лишь ограничивает
+     рост), и сетка с техникой показывала мало строк, даже когда на экране
+     оставалось место. Явная height держит окно крупным всегда. */
+  width: min(1200px, calc(100vw - 48px));
+  height: min(860px, calc(100vh - 48px));
 }
 #labelsOverlay .modal-header,
 #labelsOverlay .label-controls,
