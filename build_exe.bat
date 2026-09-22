@@ -42,7 +42,7 @@ REM Build the executable
 pyinstaller --onefile ^
     --windowed ^
     --name "WarehouseApp_New" ^
-    --icon=assets\nexa.ico ^
+    --icon=assets\nexahub.ico ^
     --add-data "server.py;." ^
     --add-data "app.js;." ^
     --add-data "asset_codes.js;." ^
@@ -57,7 +57,7 @@ pyinstaller --onefile ^
     --add-data "auth.py;." ^
     --add-data "qrcode-lib.js;." ^
     --add-data "chart.umd.min.js;." ^
-    --add-data "assets\nexa.ico;assets" ^
+    --add-data "assets\nexahub.ico;assets" ^
     --hidden-import=PyQt5 ^
     --hidden-import=sqlite3 ^
     --clean ^

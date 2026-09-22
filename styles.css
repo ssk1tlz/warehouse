@@ -179,7 +179,7 @@ button, input, select, textarea { font: inherit; }
   border-bottom: 1px solid var(--line);
 }
 
-/* Логотип NEXA. Цвета у него собственные (не из темы): золото, бордо и тёплый белый.
+/* Логотип NexaHub. Цвета у него собственные (не из темы): золото, бордо и тёплый белый.
    Рисунок лежит в спрайте в начале index.html. */
 .brand-logo {
   display: block;
@@ -2067,7 +2067,7 @@ tr:hover td { background: var(--surface-2); }
 .operation-modal.wide { width: min(900px, calc(100vw - 48px)); }
 
 /* Экран входа: шапка карточки — логотип на тёмно-бордовом фоне #1F0E14, как в
-   nexa-logo-on-burgundy.svg. Отрицательные поля вытягивают её к краям карточки
+   nexahub-logo-on-burgundy.svg. Отрицательные поля вытягивают её к краям карточки
    (у .operation-modal внутренний отступ 32px). */
 .auth-brand {
   margin: -32px -32px 26px;

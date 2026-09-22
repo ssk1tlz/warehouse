@@ -98,11 +98,11 @@ class WarehouseApp:
         
     def setup_tray_icon(self):
         """Настройка иконки в трее и меню"""
-        # Значок NEXA. Файл лежит в assets/ рядом с программой (в .exe — во
+        # Значок NexaHub. Файл лежит в assets/ рядом с программой (в .exe — во
         # временной папке PyInstaller, её отдаёт paths.RESOURCE_DIR). Если файла
         # нет или Qt не смог его прочитать, ставим стандартную иконку: пустое
         # место в трее хуже, чем не тот значок.
-        icon = QIcon(str(paths.RESOURCE_DIR / "assets" / "nexa.ico"))
+        icon = QIcon(str(paths.RESOURCE_DIR / "assets" / "nexahub.ico"))
         if icon.isNull() or not icon.availableSizes():
             icon = self.app.style().standardIcon(self.app.style().SP_ComputerIcon)
         self.tray_icon.setIcon(icon)

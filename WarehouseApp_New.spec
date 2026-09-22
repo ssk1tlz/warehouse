@@ -5,7 +5,7 @@ a = Analysis(
     ['warehouse_tray.py'],
     pathex=[],
     binaries=[],
-    datas=[('server.py', '.'), ('app.js', '.'), ('asset_codes.js', '.'), ('asset_ops.js', '.'), ('index.html', '.'), ('styles.css', '.'), ('schema.sql', '.'), ('act_generator.py', '.'), ('asset_codes.py', '.'), ('mobile_actions.py', '.'), ('migrations.py', '.'), ('auth.py', '.'), ('paths.py', '.'), ('updates.py', '.'), ('VERSION', '.'), ('qrcode-lib.js', '.'), ('chart.umd.min.js', '.'), ('assets/nexa.ico', 'assets')],
+    datas=[('server.py', '.'), ('app.js', '.'), ('asset_codes.js', '.'), ('asset_ops.js', '.'), ('index.html', '.'), ('styles.css', '.'), ('schema.sql', '.'), ('act_generator.py', '.'), ('asset_codes.py', '.'), ('mobile_actions.py', '.'), ('migrations.py', '.'), ('auth.py', '.'), ('paths.py', '.'), ('updates.py', '.'), ('VERSION', '.'), ('qrcode-lib.js', '.'), ('chart.umd.min.js', '.'), ('assets/nexahub.ico', 'assets')],
     hiddenimports=['PyQt5', 'sqlite3'],
     hookspath=[],
     hooksconfig={},
@@ -35,5 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='assets/nexa.ico',
+    icon='assets/nexahub.ico',
 )
