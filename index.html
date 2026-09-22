@@ -1242,12 +1242,19 @@
           <option value="">Все места</option>
         </select>
         <label style="gap:6px"><input type="checkbox" id="labelUnprintedCheck" style="width:15px;height:15px;accent-color:var(--brand)"> Не печатались ранее</label>
+        <select id="labelDepartmentSelect">
+          <option value="">Все отделы</option>
+        </select>
+        <select id="labelTargetKindSelect">
+          <option value="">Сотрудники и столы</option>
+          <option value="emp">Только сотрудники</option>
+          <option value="wp">Только столы</option>
+        </select>
         <input class="search" id="labelEmployeeSearch" placeholder="Сотрудник или стол…" autocomplete="off" aria-label="Поиск сотрудника или стола" style="max-width:200px">
         <select id="labelEmployeeSelect">
           <option value="">— сотрудник или стол —</option>
         </select>
         <button type="button" class="secondary" id="labelAddEmployeeAssetsBtn">Выбрать всю технику</button>
-        <label id="labelWorkplaceStickerWrap" style="gap:6px" class="hidden"><input type="checkbox" id="labelWorkplaceStickerCheck" style="width:15px;height:15px;accent-color:var(--brand)"> Один общий стикер на стол</label>
         <label style="gap:6px"><input type="checkbox" id="labelOnlySelectedCheck" style="width:15px;height:15px;accent-color:var(--brand)"> Только выбранные</label>
         <span class="label-count" id="labelCountSpan">Выбрано всего: 0</span><button type="button" class="ghost" id="labelClearSelectionBtn">Очистить выбор</button>
       </div>

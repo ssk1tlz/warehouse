@@ -2750,6 +2750,44 @@ button.users-qr-btn:hover { background: var(--brand-dim); color: var(--brand-lig
   padding: 2px;
 }
 
+/* Карточка стола (стикер) и сообщение «техники нет» иногда идут рядом в
+   одной сетке — сообщение растягиваем на всю ширину, а не в одну узкую
+   ячейку рядом с карточкой. */
+.label-grid .empty-state { grid-column: 1 / -1; }
+
+/* Окно печати этикеток: раньше скроллился весь .operation-modal целиком —
+   шапка и футер уезжали вместе с содержимым, а sticky-футер (ниже)
+   оставался прижат к низу вьюпорта отдельно от них, из-за чего окно
+   выглядело «разрезанным» на две части. Здесь скроллится только сетка —
+   шапка, фильтры и футер остаются на месте. */
+#labelsOverlay .operation-modal {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* Шире и, главное, ВЫШЕ обычного operation-modal.wide — без явной
+     height модалка сжималась бы по контенту (max-height лишь ограничивает
+     рост), и сетка с техникой показывала мало строк, даже когда на экране
+     оставалось место. Явная height держит окно крупным всегда. */
+  width: min(1200px, calc(100vw - 48px));
+  height: min(860px, calc(100vh - 48px));
+}
+#labelsOverlay .modal-header,
+#labelsOverlay .label-controls,
+#labelsOverlay .label-select-actions,
+#labelsOverlay .label-footer {
+  flex-shrink: 0;
+}
+#labelsOverlay .label-grid {
+  flex: 1;
+  /* 0, не auto: иначе flex-элемент не сжимается меньше своего контента
+     (содержимого сетки), и модалка снова растёт вместо внутреннего скролла. */
+  min-height: 0;
+  max-height: none;
+}
+#labelsOverlay .label-footer {
+  position: static;
+}
+
 .label-item {
   display: flex;
   align-items: center;
