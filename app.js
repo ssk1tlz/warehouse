@@ -6979,8 +6979,14 @@ function bindEvents() {
   // Поиск сотрудника сужает список, а найденный сотрудник сразу
   // становится фильтром таблицы — видна только его техника.
   const refreshLabelEmployee = () => { populateLabelEmployeeSelect(); renderLabelGrid(); };
-  document.getElementById("labelDepartmentSelect")?.addEventListener("change", refreshLabelEmployee);
-  document.getElementById("labelTargetKindSelect")?.addEventListener("change", refreshLabelEmployee);
+  // Отдел/тип — независимые фильтры (как категория и место): сужают и
+  // список техники, и кандидатов в «сотрудник или стол», но не выбирают
+  // никого автоматически — иначе, скажем, единственный сотрудник отдела
+  // тихо становился бы целью, и техника, выданная отделу напрямую или
+  // пустующему столу, пропадала бы из сетки без объяснений.
+  const refreshLabelFilters = () => { populateLabelEmployeeSelect({ autoSelect: false }); renderLabelGrid(); };
+  document.getElementById("labelDepartmentSelect")?.addEventListener("change", refreshLabelFilters);
+  document.getElementById("labelTargetKindSelect")?.addEventListener("change", refreshLabelFilters);
   document.getElementById("labelEmployeeSearch")?.addEventListener("input", debounce(refreshLabelEmployee, 150));
   document.getElementById("labelEmployeeSearch")?.addEventListener("keydown", (event) => {
     if (event.key !== "Enter") return;
@@ -7525,18 +7531,51 @@ function getLabelTargetAssetIds(target) {
     : new Set(getWorkplaceAssets(target.id).map((entry) => entry.asset.id));
 }
 
+// Техника отдела — та же техника, что и в сотрудников/столов этого
+// отдела, плюс то, что выдано отделу напрямую (asset.allocations —
+// готовая проекция state.assignments, projectAllocations в asset_ops.js).
+// Независимый фильтр (как категория/место), а не то же самое, что выбор
+// одного сотрудника/стола в labelEmployeeSelect — оба применяются вместе.
+function getDepartmentAssetIds(department) {
+  if (!department) return null;
+  const ids = new Set();
+  state.assets.forEach((asset) => {
+    const matches = (asset.allocations || []).some((entry) => {
+      if (entry.department === department) return true;
+      if (entry.employeeId) return getEmployeeById(entry.employeeId)?.department === department;
+      if (entry.workplaceId) return getWorkplaceById(entry.workplaceId)?.department === department;
+      return false;
+    });
+    if (matches) ids.add(asset.id);
+  });
+  return ids;
+}
+
+// Пересечение двух опциональных наборов id: null значит «без
+// ограничения» с этой стороны, а не «пусто».
+function intersectOptionalIdSets(a, b) {
+  if (a == null) return b;
+  if (b == null) return a;
+  return new Set([...a].filter((id) => b.has(id)));
+}
+
 // Что показать в таблице этикеток. Выбор (labelSelection) фильтр не
 // трогает: выбрал у одного сотрудника, переключился на другого — первое
 // осталось отмеченным и суммируется со вторым.
 function getLabelAssets() {
   const target = getLabelTarget();
   const onlySelected = document.getElementById("labelOnlySelectedCheck")?.checked || false;
+  const department = document.getElementById("labelDepartmentSelect")?.value || "";
+  const onlyAssetIds = intersectOptionalIdSets(
+    getLabelTargetAssetIds(target),
+    getDepartmentAssetIds(department),
+  );
   return AssetOps.filterLabelAssets(state.assets, {
     query: document.getElementById("labelSearchInput")?.value || "",
     category: document.getElementById("labelFilterCategory")?.value || "",
     location: document.getElementById("labelFilterLocation")?.value || "",
     onlyUnprinted: document.getElementById("labelUnprintedCheck")?.checked || false,
-    onlyAssetIds: getLabelTargetAssetIds(target),
+    onlyAssetIds,
     selectedIds: onlySelected
       ? [...labelSelection.keys()].filter((key) => key.startsWith("asset:")).map((key) => key.slice(6))
       : null,
@@ -7570,7 +7609,15 @@ function populateLabelDepartmentSelect() {
   select.value = [...select.options].some((o) => o.value === current) ? current : "";
 }
 
-function populateLabelEmployeeSelect() {
+// autoSelect=false — для смены отдела/типа («Снабжение» → единственный
+// в нём сотрудник) не подставляет его целью автоматически: тогда сетка
+// незаметно сузилась бы до техники одного человека, а не показывала бы
+// весь отдел, и позиции, выданные отделу напрямую или пустующему столу,
+// пропадали бы без объяснений. Автоподстановка остаётся только для
+// набора текста в поиске (см. refreshLabelEmployee) — там она и раньше
+// была то, чего ждёт пользователь, набрав фамилию.
+function populateLabelEmployeeSelect(options = {}) {
+  const { autoSelect = true } = options;
   const select = document.getElementById("labelEmployeeSelect");
   if (!select) return;
   const current = select.value;
@@ -7615,9 +7662,11 @@ function populateLabelEmployeeSelect() {
     ...workplaces.map((workplace) => `wp:${workplace.id}`),
   ];
   let auto = "";
-  if (values.length === 1) auto = values[0];
-  else if (employees.length === 1 && workplaces.every((workplace) => workplace.employeeId === employees[0].id)) {
-    auto = `emp:${employees[0].id}`;
+  if (autoSelect) {
+    if (values.length === 1) auto = values[0];
+    else if (employees.length === 1 && workplaces.every((workplace) => workplace.employeeId === employees[0].id)) {
+      auto = `emp:${employees[0].id}`;
+    }
   }
   select.value = values.includes(current) ? current : auto;
 }
@@ -7739,6 +7788,7 @@ function labelGridIsFiltered() {
     || (document.getElementById("labelSearchInput")?.value || "").trim()
     || document.getElementById("labelFilterCategory")?.value
     || document.getElementById("labelFilterLocation")?.value
+    || document.getElementById("labelDepartmentSelect")?.value
     || document.getElementById("labelUnprintedCheck")?.checked
     || document.getElementById("labelOnlySelectedCheck")?.checked);
 }
